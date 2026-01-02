@@ -66,7 +66,8 @@ export function PlanManagement() {
       const response = await fetch('/api/telegram/channels/list')
       if (response.ok) {
         const data = await response.json()
-        setTelegramChannels(data.channels?.filter((ch: TelegramChannel) => ch.audienceType === 'subscription') || [])
+        const channels = Array.isArray(data.channels) ? data.channels : []
+        setTelegramChannels(channels.filter((ch: TelegramChannel) => ch.audienceType === 'subscription'))
       }
     } catch (error) {
       console.error('Failed to load telegram channels:', error)
@@ -85,7 +86,8 @@ export function PlanManagement() {
       const response = await fetch(`/api/plans?analystId=${user.id}&showAll=true`)
       if (response.ok) {
         const data = await response.json()
-        setPlans(data.plans || [])
+        const plansData = Array.isArray(data.plans) ? data.plans : []
+        setPlans(plansData)
       } else {
         const errorText = await response.text()
         console.error('Failed to load plans - HTTP', response.status, ':', errorText)

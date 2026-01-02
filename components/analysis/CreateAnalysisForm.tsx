@@ -708,7 +708,7 @@ export function CreateAnalysisForm() {
                   <Label htmlFor="direction" className="text-base font-semibold">
                     {t.dashboard.createForm.direction} <span className="text-red-500">*</span>
                   </Label>
-                  <Select value={direction} onValueChange={(v: any) => setDirection(v)}>
+                  <Select value={direction} onValueChange={(v) => setDirection(v as 'Long' | 'Short' | 'Neutral')}>
                     <SelectTrigger className="h-11 text-base">
                       <SelectValue />
                     </SelectTrigger>
@@ -762,7 +762,7 @@ export function CreateAnalysisForm() {
                   <Label htmlFor="analysisType" className="text-base font-semibold">
                     {t.dashboard.createForm.analysisType} <span className="text-red-500">*</span>
                   </Label>
-                  <Select value={analysisType} onValueChange={(v: any) => setAnalysisType(v)}>
+                  <Select value={analysisType} onValueChange={(v) => setAnalysisType(v as 'classic' | 'elliott_wave' | 'harmonics' | 'ict' | 'other')}>
                     <SelectTrigger className="h-11 text-base">
                       <SelectValue />
                     </SelectTrigger>
@@ -1119,7 +1119,7 @@ export function CreateAnalysisForm() {
                 <Globe className="h-5 w-5" />
                 {t.dashboard.createForm.audienceVisibility}
               </Label>
-              <Select value={visibility} onValueChange={(v: any) => setVisibility(v)}>
+              <Select value={visibility} onValueChange={(v) => setVisibility(v as 'public' | 'followers' | 'subscribers' | 'private')}>
                 <SelectTrigger className="h-11 text-base">
                   <SelectValue />
                 </SelectTrigger>

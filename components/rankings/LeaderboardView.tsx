@@ -30,7 +30,7 @@ interface LeaderboardViewProps {
   initialScope?: 'weekly' | 'monthly' | 'all_time'
 }
 
-export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_time' }: LeaderboardViewProps) {
+export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_time' }: LeaderboardViewProps = {}) {
   const { t } = useTranslation()
   const [type, setType] = useState<'analyst' | 'trader'>(initialType)
   const [scope, setScope] = useState<'weekly' | 'monthly' | 'all_time'>(initialScope)
@@ -39,6 +39,7 @@ export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_t
 
   useEffect(() => {
     loadLeaderboard()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type, scope])
 
   const loadLeaderboard = async () => {
@@ -101,24 +102,24 @@ export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_t
           <div>
             <CardTitle className="text-2xl flex items-center gap-2">
               <Trophy className="h-6 w-6 text-yellow-500" />
-              {t('leaderboard.leaderboards')}
+              {t.leaderboard.leaderboards}
             </CardTitle>
-            <CardDescription>{t('leaderboard.topPerformers')}</CardDescription>
+            <CardDescription>{t.leaderboard.topPerformers}</CardDescription>
           </div>
         </div>
 
-        <Tabs value={type} onValueChange={(v: any) => setType(v)} className="w-full mt-4">
+        <Tabs value={type} onValueChange={(v) => setType(v as 'analyst' | 'trader')} className="w-full mt-4">
           <TabsList className="grid w-full grid-cols-2 max-w-md">
-            <TabsTrigger value="analyst">{t('leaderboard.analysts')}</TabsTrigger>
-            <TabsTrigger value="trader">{t('leaderboard.traders')}</TabsTrigger>
+            <TabsTrigger value="analyst">{t.leaderboard.analysts}</TabsTrigger>
+            <TabsTrigger value="trader">{t.leaderboard.traders}</TabsTrigger>
           </TabsList>
         </Tabs>
 
-        <Tabs value={scope} onValueChange={(v: any) => setScope(v)} className="w-full mt-2">
+        <Tabs value={scope} onValueChange={(v) => setScope(v as 'weekly' | 'monthly' | 'all_time')} className="w-full mt-2">
           <TabsList className="grid w-full grid-cols-3 max-w-lg">
-            <TabsTrigger value="weekly">{t('leaderboard.thisWeek')}</TabsTrigger>
-            <TabsTrigger value="monthly">{t('leaderboard.thisMonth')}</TabsTrigger>
-            <TabsTrigger value="all_time">{t('leaderboard.allTime')}</TabsTrigger>
+            <TabsTrigger value="weekly">{t.leaderboard.thisWeek}</TabsTrigger>
+            <TabsTrigger value="monthly">{t.leaderboard.thisMonth}</TabsTrigger>
+            <TabsTrigger value="all_time">{t.leaderboard.allTime}</TabsTrigger>
           </TabsList>
         </Tabs>
       </CardHeader>
@@ -126,7 +127,7 @@ export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_t
       <CardContent>
         {leaderboard.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
-            {t('leaderboard.noRankingsYet')}
+            {t.leaderboard.noRankingsYet}
           </div>
         ) : (
           <div className="space-y-2">
@@ -159,20 +160,20 @@ export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_t
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold truncate">{entry.fullName}</div>
                     <div className="text-sm text-muted-foreground">
-                      {t('leaderboard.points').replace('{points}', entry.points.toLocaleString())}
+                      {t.leaderboard.points.replace('{points}', entry.points.toLocaleString())}
                       {type === 'analyst' && entry.winRate !== undefined && (
                         <span className="ml-2">
-                          • {t('leaderboard.winRate').replace('{rate}', entry.winRate.toFixed(1))}
+                          • {t.leaderboard.winRate.replace('{rate}', entry.winRate.toFixed(1))}
                         </span>
                       )}
                       {type === 'analyst' && entry.closedAnalyses !== undefined && (
                         <span className="ml-2">
-                          • {t('leaderboard.closedAnalyses').replace('{count}', entry.closedAnalyses.toString())}
+                          • {t.leaderboard.closedAnalyses.replace('{count}', entry.closedAnalyses.toString())}
                         </span>
                       )}
                       {type === 'trader' && entry.ratingAccuracy !== undefined && (
                         <span className="ml-2">
-                          • {t('leaderboard.accuracy').replace('{rate}', entry.ratingAccuracy.toFixed(1))}
+                          • {t.leaderboard.accuracy.replace('{rate}', entry.ratingAccuracy.toFixed(1))}
                         </span>
                       )}
                     </div>
@@ -189,7 +190,7 @@ export function LeaderboardView({ initialType = 'analyst', initialScope = 'all_t
                       </Badge>
                     ))}
                     {entry.badges.length > 3 && (
-                      <Badge variant="outline">{t('leaderboard.plusCount').replace('{count}', (entry.badges.length - 3).toString())}</Badge>
+                      <Badge variant="outline">{t.leaderboard.plusCount.replace('{count}', (entry.badges.length - 3).toString())}</Badge>
                     )}
                   </div>
                 </div>
