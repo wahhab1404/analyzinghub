@@ -462,11 +462,11 @@ export function PlanManagement() {
                   Telegram Channel (optional)
                 </Label>
                 <Select
-                  value={formData.telegram_channel_id}
+                  value={formData.telegram_channel_id || 'none'}
                   onValueChange={(value) =>
                     setFormData({
                       ...formData,
-                      telegram_channel_id: value,
+                      telegram_channel_id: value === 'none' ? '' : value,
                     })
                   }
                 >
@@ -474,7 +474,7 @@ export function PlanManagement() {
                     <SelectValue placeholder="Select a Telegram channel" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">No Channel</SelectItem>
+                    <SelectItem value="none">No Channel</SelectItem>
                     {telegramChannels.map((channel) => (
                       <SelectItem key={channel.id} value={channel.channelId}>
                         {channel.channelName} {channel.verified ? '✓' : '⚠️'}
@@ -608,11 +608,11 @@ export function PlanManagement() {
                 Telegram Channel (optional)
               </Label>
               <Select
-                value={formData.telegram_channel_id}
+                value={formData.telegram_channel_id || 'none'}
                 onValueChange={(value) =>
                   setFormData({
                     ...formData,
-                    telegram_channel_id: value,
+                    telegram_channel_id: value === 'none' ? '' : value,
                   })
                 }
               >
@@ -620,7 +620,7 @@ export function PlanManagement() {
                   <SelectValue placeholder="Select a Telegram channel" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No Channel</SelectItem>
+                  <SelectItem value="none">No Channel</SelectItem>
                   {telegramChannels.map((channel) => (
                     <SelectItem key={channel.id} value={channel.channelId}>
                       {channel.channelName} {channel.verified ? '✓' : '⚠️'}
