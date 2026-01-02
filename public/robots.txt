@@ -1,0 +1,13 @@
+# AnalyzingHub - Robots.txt
+User-agent: *
+Allow: /
+Allow: /share/
+Allow: /login
+Allow: /register
+
+# Disallow private areas
+Disallow: /dashboard/
+Disallow: /api/
+
+# Sitemap
+Sitemap: https://analyzhub.com/sitemap.xml

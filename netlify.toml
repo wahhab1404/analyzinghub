@@ -1,0 +1,27 @@
+[build]
+command = "npm run build"
+publish = ".next"
+
+[build.environment]
+SECRETS_SCAN_OMIT_PATHS = "**/*.md,scripts/**/*,.env.example"
+
+[[plugins]]
+package = "@netlify/plugin-nextjs"
+
+# IMPORTANT: Configure these environment variables in Netlify Dashboard
+# Go to: Site settings > Environment variables > Add a variable
+#
+# Required variables:
+# - NEXT_PUBLIC_SUPABASE_URL
+# - NEXT_PUBLIC_SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY
+# - POLYGON_API_KEY
+# - TELEGRAM_BOT_TOKEN
+# - TELEGRAM_WEBHOOK_SECRET
+# - APP_BASE_URL
+# - SMTP_HOST
+# - SMTP_PORT
+# - SMTP_USER
+# - SMTP_PASSWORD
+# - SMTP_FROM_EMAIL
+# - SMTP_FROM_NAME
