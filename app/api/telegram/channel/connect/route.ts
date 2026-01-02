@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createRouteHandlerClient } from '@/lib/api-helpers';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getBotToken(supabase: any): Promise<string | null> {
   const { data } = await supabase
@@ -75,7 +76,7 @@ async function verifyChannelAccess(channelId: string, botToken: string): Promise
 
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createServerClient();
+    const supabase = createRouteHandlerClient(request);
 
     const {
       data: { user },

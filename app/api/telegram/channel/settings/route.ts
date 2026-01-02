@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createRouteHandlerClient } from '@/lib/api-helpers';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 export async function PATCH(request: NextRequest) {
   try {
-    const supabase = createServerClient();
+    const supabase = createRouteHandlerClient(request);
 
     const {
       data: { user },
