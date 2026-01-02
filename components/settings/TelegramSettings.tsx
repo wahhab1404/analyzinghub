@@ -146,7 +146,7 @@ export function TelegramSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('telegramSettings.telegramNotifications')}</CardTitle>
+        <CardTitle>{t.telegramSettings.telegramNotifications}</CardTitle>
         <CardDescription>
           {t.telegramSettings.receiveRealTimeAlerts}
         </CardDescription>

@@ -5,6 +5,7 @@ import { LoginForm } from '@/components/auth/LoginForm'
 import { LanguageSwitcher } from '@/components/ui/language-switcher'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { useEffect } from 'react'
+import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -13,6 +14,11 @@ export default function LoginPage() {
   const { t } = useTranslation()
   const router = useRouter()
   const { theme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = React.useState(false)
+
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const currentTheme = resolvedTheme || theme
   const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
@@ -27,6 +33,10 @@ export default function LoginPage() {
       })
       .catch(() => {})
   }, [])
+
+  if (!mounted || !t) {
+    return null
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900 p-4">
@@ -44,10 +54,10 @@ export default function LoginPage() {
             className="mb-4"
           />
           <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
-            {t('appTitle.analyzingHub')}
+            {t.appTitle?.analyzingHub || 'AnalyzingHub'}
           </h1>
           <p className="text-slate-600 dark:text-slate-400">
-            {t('appTitle.marketAnalysisPlatform')}
+            {t.appTitle?.marketAnalysisPlatform || 'Market Analysis Platform'}
           </p>
         </div>
         <LoginForm />
