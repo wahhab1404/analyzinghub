@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Plus, Trash2, Users, Edit, Send, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
@@ -44,6 +45,7 @@ export function PlanManagement() {
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null)
   const [telegramChannels, setTelegramChannels] = useState<TelegramChannel[]>([])
   const [loadingChannels, setLoadingChannels] = useState(false)
+  const [channelEntryMode, setChannelEntryMode] = useState<'select' | 'manual'>('select')
 
   const [formData, setFormData] = useState({
     name: '',
@@ -160,6 +162,7 @@ export function PlanManagement() {
 
       toast.success('Plan created successfully!')
       setShowCreateDialog(false)
+      setChannelEntryMode('select')
       setFormData({
         name: '',
         description: '',
@@ -251,6 +254,12 @@ export function PlanManagement() {
 
     const featuresText = Object.values(plan.features || {}).join('\n')
 
+    // Determine if the channel ID exists in the connected channels list
+    const channelExists = plan.telegram_channel_id &&
+      telegramChannels.some(ch => ch.channelId === plan.telegram_channel_id)
+
+    setChannelEntryMode(channelExists ? 'select' : 'manual')
+
     setFormData({
       name: plan.name,
       description: plan.description || '',
@@ -321,6 +330,7 @@ export function PlanManagement() {
       toast.success('Plan updated successfully!')
       setShowEditDialog(false)
       setEditingPlan(null)
+      setChannelEntryMode('select')
       setFormData({
         name: '',
         description: '',
@@ -457,33 +467,72 @@ export function PlanManagement() {
                 />
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="telegram_channel">
-                  Telegram Channel (optional)
-                </Label>
-                <Select
-                  value={formData.telegram_channel_id || 'none'}
-                  onValueChange={(value) =>
-                    setFormData({
-                      ...formData,
-                      telegram_channel_id: value === 'none' ? '' : value,
-                    })
-                  }
+              <div className="space-y-3">
+                <Label>Telegram Channel (optional)</Label>
+                <RadioGroup
+                  value={channelEntryMode}
+                  onValueChange={(value: 'select' | 'manual') => {
+                    setChannelEntryMode(value)
+                    if (value === 'manual') {
+                      setFormData({ ...formData, telegram_channel_id: '' })
+                    }
+                  }}
+                  className="flex gap-4"
                 >
-                  <SelectTrigger id="telegram_channel">
-                    <SelectValue placeholder="Select a Telegram channel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No Channel</SelectItem>
-                    {telegramChannels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.channelId}>
-                        {channel.channelName} {channel.verified ? '✓' : '⚠️'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="select" id="select-mode" />
+                    <Label htmlFor="select-mode" className="font-normal cursor-pointer">
+                      Select from list
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="manual" id="manual-mode" />
+                    <Label htmlFor="manual-mode" className="font-normal cursor-pointer">
+                      Enter manually
+                    </Label>
+                  </div>
+                </RadioGroup>
+
+                {channelEntryMode === 'select' ? (
+                  <Select
+                    value={formData.telegram_channel_id || 'none'}
+                    onValueChange={(value) =>
+                      setFormData({
+                        ...formData,
+                        telegram_channel_id: value === 'none' ? '' : value,
+                      })
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a Telegram channel" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No Channel</SelectItem>
+                      {telegramChannels.map((channel) => (
+                        <SelectItem key={channel.id} value={channel.channelId}>
+                          {channel.channelName} {channel.verified ? '✓' : '⚠️'}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    id="manual_channel_id"
+                    placeholder="@yourchannel or -1001234567890"
+                    value={formData.telegram_channel_id}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        telegram_channel_id: e.target.value,
+                      })
+                    }
+                  />
+                )}
+
                 <p className="text-xs text-muted-foreground">
-                  Analysis will be broadcast to this channel. Set up channels in Telegram Settings.
+                  {channelEntryMode === 'select'
+                    ? 'Select a connected channel or set up channels in Telegram Settings.'
+                    : 'Enter channel username (e.g., @yourchannel) or channel ID (e.g., -1001234567890).'}
                 </p>
               </div>
             </div>
@@ -491,7 +540,10 @@ export function PlanManagement() {
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
-                onClick={() => setShowCreateDialog(false)}
+                onClick={() => {
+                  setShowCreateDialog(false)
+                  setChannelEntryMode('select')
+                }}
               >
                 Cancel
               </Button>
@@ -603,33 +655,72 @@ export function PlanManagement() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="edit-telegram-channel">
-                Telegram Channel (optional)
-              </Label>
-              <Select
-                value={formData.telegram_channel_id || 'none'}
-                onValueChange={(value) =>
-                  setFormData({
-                    ...formData,
-                    telegram_channel_id: value === 'none' ? '' : value,
-                  })
-                }
+            <div className="space-y-3">
+              <Label>Telegram Channel (optional)</Label>
+              <RadioGroup
+                value={channelEntryMode}
+                onValueChange={(value: 'select' | 'manual') => {
+                  setChannelEntryMode(value)
+                  if (value === 'manual') {
+                    setFormData({ ...formData, telegram_channel_id: '' })
+                  }
+                }}
+                className="flex gap-4"
               >
-                <SelectTrigger id="edit-telegram-channel">
-                  <SelectValue placeholder="Select a Telegram channel" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No Channel</SelectItem>
-                  {telegramChannels.map((channel) => (
-                    <SelectItem key={channel.id} value={channel.channelId}>
-                      {channel.channelName} {channel.verified ? '✓' : '⚠️'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="select" id="edit-select-mode" />
+                  <Label htmlFor="edit-select-mode" className="font-normal cursor-pointer">
+                    Select from list
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value="manual" id="edit-manual-mode" />
+                  <Label htmlFor="edit-manual-mode" className="font-normal cursor-pointer">
+                    Enter manually
+                  </Label>
+                </div>
+              </RadioGroup>
+
+              {channelEntryMode === 'select' ? (
+                <Select
+                  value={formData.telegram_channel_id || 'none'}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      telegram_channel_id: value === 'none' ? '' : value,
+                    })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a Telegram channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No Channel</SelectItem>
+                    {telegramChannels.map((channel) => (
+                      <SelectItem key={channel.id} value={channel.channelId}>
+                        {channel.channelName} {channel.verified ? '✓' : '⚠️'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id="edit-manual_channel_id"
+                  placeholder="@yourchannel or -1001234567890"
+                  value={formData.telegram_channel_id}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      telegram_channel_id: e.target.value,
+                    })
+                  }
+                />
+              )}
+
               <p className="text-xs text-muted-foreground">
-                Analysis will be broadcast to this channel. Set up channels in Telegram Settings.
+                {channelEntryMode === 'select'
+                  ? 'Select a connected channel or set up channels in Telegram Settings.'
+                  : 'Enter channel username (e.g., @yourchannel) or channel ID (e.g., -1001234567890).'}
               </p>
             </div>
           </div>
@@ -640,6 +731,7 @@ export function PlanManagement() {
               onClick={() => {
                 setShowEditDialog(false)
                 setEditingPlan(null)
+                setChannelEntryMode('select')
               }}
             >
               Cancel
