@@ -35,18 +35,28 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
     }
 
-    const formattedChannels = channels?.map(ch => ({
-      id: ch.id,
-      channelId: ch.channel_id,
-      channelName: ch.channel_name,
-      audienceType: ch.audience_type,
-      verified: !!ch.verified_at,
-      notifyNewAnalysis: ch.notify_new_analysis,
-      notifyTargetHit: ch.notify_target_hit,
-      notifyStopHit: ch.notify_stop_hit,
-      broadcastLanguage: ch.broadcast_language || 'both',
-      createdAt: ch.created_at,
-    })) || []
+    const { data: plans } = await supabase
+      .from('analyzer_plans')
+      .select('id, name, telegram_channel_id')
+      .eq('analyst_id', user.id)
+
+    const formattedChannels = channels?.map(ch => {
+      const linkedPlan = plans?.find(p => p.telegram_channel_id === ch.channel_id)
+      return {
+        id: ch.id,
+        channelId: ch.channel_id,
+        channelName: ch.channel_name,
+        audienceType: ch.audience_type,
+        verified: !!ch.verified_at,
+        notifyNewAnalysis: ch.notify_new_analysis,
+        notifyTargetHit: ch.notify_target_hit,
+        notifyStopHit: ch.notify_stop_hit,
+        broadcastLanguage: ch.broadcast_language || 'both',
+        createdAt: ch.created_at,
+        plan_id: linkedPlan?.id || null,
+        plan_name: linkedPlan?.name || null,
+      }
+    }) || []
 
     return NextResponse.json({
       ok: true,

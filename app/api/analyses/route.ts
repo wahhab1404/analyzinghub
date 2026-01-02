@@ -52,11 +52,59 @@ export async function GET(req: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(20)
 
+      // Fetch analysis-plan associations
+      const analysisIds = analyses?.map(a => a.id) || []
+      const { data: analysisPlanLinks } = analysisIds.length > 0 ? await supabase
+        .from('analysis_plans')
+        .select('analysis_id, plan_id')
+        .in('analysis_id', analysisIds)
+        : { data: [] }
+
+      // Get unique plan IDs
+      const planIds = [...new Set(analysisPlanLinks?.map(ap => ap.plan_id) || [])]
+      const { data: plans } = planIds.length > 0 ? await supabase
+        .from('analyzer_plans')
+        .select('id, analyst_id, name, is_active')
+        .in('id', planIds)
+        : { data: [] }
+
+      // Map plans by their ID
+      const plansMap = new Map()
+      plans?.forEach(plan => {
+        plansMap.set(plan.id, plan)
+      })
+
+      // Map analysis_id to their plans
+      const analysisPlanMap = new Map<string, any[]>()
+      analysisPlanLinks?.forEach(link => {
+        if (!analysisPlanMap.has(link.analysis_id)) {
+          analysisPlanMap.set(link.analysis_id, [])
+        }
+        const plan = plansMap.get(link.plan_id)
+        if (plan) {
+          analysisPlanMap.get(link.analysis_id)!.push(plan)
+        }
+      })
+
+      const analysesWithPlans = analyses?.map(analysis => ({
+        ...analysis,
+        analyzer_plans: analysisPlanMap.get(analysis.id) || []
+      }))
+
+      // Get subscribed plan IDs
+      const { data: mySubscriptions } = await supabase
+        .from('subscriptions')
+        .select('plan_id')
+        .eq('subscriber_id', user.id)
+        .eq('status', 'active')
+
+      const subscribedPlanIds = new Set(mySubscriptions?.map(s => s.plan_id) || [])
+
       // Filter analyses based on visibility
-      const filteredAnalyses = analyses?.filter(analysis => {
+      const filteredAnalyses = analysesWithPlans?.filter(analysis => {
         const isOwnPost = analysis.analyzer_id === user.id
         const isFollowing = followingIds.has(analysis.analyzer_id)
-        const isSubscribed = subscribedToIds.has(analysis.analyzer_id)
+        const isSubscribedToAnalyst = subscribedToIds.has(analysis.analyzer_id)
 
         // Author always sees their own posts
         if (isOwnPost) return true
@@ -64,7 +112,17 @@ export async function GET(req: NextRequest) {
         // Check visibility
         if (analysis.visibility === 'public') return true
         if (analysis.visibility === 'followers' && isFollowing) return true
-        if (analysis.visibility === 'subscribers' && isSubscribed) return true
+
+        // For subscriber-only content, check plan-specific subscription
+        if (analysis.visibility === 'subscribers') {
+          // If analysis has specific plans, user must be subscribed to at least one
+          if (analysis.analyzer_plans && analysis.analyzer_plans.length > 0) {
+            return analysis.analyzer_plans.some((plan: any) => subscribedPlanIds.has(plan.id))
+          }
+          // No specific plans means any subscription to the analyst works
+          return isSubscribedToAnalyst
+        }
+
         if (analysis.visibility === 'private') return false
 
         return false
@@ -92,11 +150,59 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(20)
 
+    // Fetch analysis-plan associations
+    const analysisIds = analyses?.map(a => a.id) || []
+    const { data: analysisPlanLinks } = analysisIds.length > 0 ? await supabase
+      .from('analysis_plans')
+      .select('analysis_id, plan_id')
+      .in('analysis_id', analysisIds)
+      : { data: [] }
+
+    // Get unique plan IDs
+    const planIds = [...new Set(analysisPlanLinks?.map(ap => ap.plan_id) || [])]
+    const { data: plans } = planIds.length > 0 ? await supabase
+      .from('analyzer_plans')
+      .select('id, analyst_id, name, is_active')
+      .in('id', planIds)
+      : { data: [] }
+
+    // Map plans by their ID
+    const plansMap = new Map()
+    plans?.forEach(plan => {
+      plansMap.set(plan.id, plan)
+    })
+
+    // Map analysis_id to their plans
+    const analysisPlanMap = new Map<string, any[]>()
+    analysisPlanLinks?.forEach(link => {
+      if (!analysisPlanMap.has(link.analysis_id)) {
+        analysisPlanMap.set(link.analysis_id, [])
+      }
+      const plan = plansMap.get(link.plan_id)
+      if (plan) {
+        analysisPlanMap.get(link.analysis_id)!.push(plan)
+      }
+    })
+
+    const analysesWithPlans = analyses?.map(analysis => ({
+      ...analysis,
+      analyzer_plans: analysisPlanMap.get(analysis.id) || []
+    }))
+
+    // Get subscribed plan IDs
+    const { data: mySubscriptions } = await supabase
+      .from('subscriptions')
+      .select('plan_id')
+      .eq('subscriber_id', user.id)
+      .eq('status', 'active')
+
+    const subscribedPlanIds = new Set(mySubscriptions?.map(s => s.plan_id) || [])
+
     // Filter analyses based on visibility
-    const filteredAnalyses = analyses?.filter(analysis => {
+    const filteredAnalyses = analysesWithPlans?.filter(analysis => {
       const isOwnPost = analysis.analyzer_id === user.id
       const isFollowing = followingIds.has(analysis.analyzer_id)
-      const isSubscribed = subscribedToIds.has(analysis.analyzer_id)
+      const isSubscribedToAnalyst = subscribedToIds.has(analysis.analyzer_id)
 
       // Author always sees their own posts
       if (isOwnPost) return true
@@ -104,7 +210,17 @@ export async function GET(req: NextRequest) {
       // Check visibility
       if (analysis.visibility === 'public') return true
       if (analysis.visibility === 'followers' && isFollowing) return true
-      if (analysis.visibility === 'subscribers' && isSubscribed) return true
+
+      // For subscriber-only content, check plan-specific subscription
+      if (analysis.visibility === 'subscribers') {
+        // If analysis has specific plans, user must be subscribed to at least one
+        if (analysis.analyzer_plans && analysis.analyzer_plans.length > 0) {
+          return analysis.analyzer_plans.some((plan: any) => subscribedPlanIds.has(plan.id))
+        }
+        // No specific plans means any subscription to the analyst works
+        return isSubscribedToAnalyst
+      }
+
       if (analysis.visibility === 'private') return false
 
       return false
@@ -328,45 +444,81 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (body.telegramChannelId) {
-      try {
-        console.log('TELEGRAM_BROADCAST_START:', {
-          analysisId: analysis.id,
-          userId: user.id,
-          channelId: body.telegramChannelId
-        })
+    // Insert plan associations if provided
+    if (body.planIds && Array.isArray(body.planIds) && body.planIds.length > 0) {
+      const planLinks = body.planIds.map((planId: string) => ({
+        analysis_id: analysis.id,
+        plan_id: planId
+      }))
 
-        const broadcastResponse = await fetch(`${req.nextUrl.origin}/api/telegram/channel/broadcast-new-analysis`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            analysisId: analysis.id,
-            userId: user.id,
-            channelId: body.telegramChannelId,
-          }),
-        });
+      const { error: planLinksError } = await supabaseAdmin
+        .from('analysis_plans')
+        .insert(planLinks)
 
-        const broadcastResult = await broadcastResponse.json()
-        console.log('TELEGRAM_BROADCAST_RESULT:', {
-          status: broadcastResponse.status,
-          ok: broadcastResponse.ok,
-          result: broadcastResult
-        })
+      if (planLinksError) {
+        console.error('INSERT_PLAN_LINKS_ERROR:', planLinksError)
+      }
+    }
 
-        if (!broadcastResponse.ok) {
-          console.error('Failed to broadcast new post to channel:', {
-            status: broadcastResponse.status,
-            error: broadcastResult.error,
-            details: broadcastResult.details
-          });
+    // Broadcast to Telegram channels for each selected plan
+    if (body.planIds && Array.isArray(body.planIds) && body.planIds.length > 0) {
+      // Get channels for all selected plans
+      const { data: channels } = await supabaseAdmin
+        .from('analyzer_telegram_channels')
+        .select('id, telegram_channel_id, plan_id')
+        .eq('analyst_id', user.id)
+        .in('plan_id', body.planIds)
+        .eq('is_active', true)
+
+      if (channels && channels.length > 0) {
+        // Broadcast to each channel
+        for (const channel of channels) {
+          try {
+            console.log('TELEGRAM_BROADCAST_START:', {
+              analysisId: analysis.id,
+              userId: user.id,
+              channelId: channel.id,
+              planId: channel.plan_id
+            })
+
+            const broadcastResponse = await fetch(`${req.nextUrl.origin}/api/telegram/channel/broadcast-new-analysis`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                analysisId: analysis.id,
+                userId: user.id,
+                channelId: channel.id,
+              }),
+            });
+
+            const broadcastResult = await broadcastResponse.json()
+            console.log('TELEGRAM_BROADCAST_RESULT:', {
+              channelId: channel.id,
+              planId: channel.plan_id,
+              status: broadcastResponse.status,
+              ok: broadcastResponse.ok,
+              result: broadcastResult
+            })
+
+            if (!broadcastResponse.ok) {
+              console.error('Failed to broadcast new post to channel:', {
+                channelId: channel.id,
+                planId: channel.plan_id,
+                status: broadcastResponse.status,
+                error: broadcastResult.error,
+                details: broadcastResult.details
+              });
+            }
+          } catch (broadcastError: any) {
+            console.error('Failed to broadcast new post to channel (exception):', {
+              channelId: channel.id,
+              message: broadcastError.message,
+              stack: broadcastError.stack
+            });
+          }
         }
-      } catch (broadcastError: any) {
-        console.error('Failed to broadcast new post to channel (exception):', {
-          message: broadcastError.message,
-          stack: broadcastError.stack
-        });
       }
     }
 

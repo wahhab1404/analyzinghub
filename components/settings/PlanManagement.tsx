@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
-import { Plus, Trash2, Users, Edit } from 'lucide-react'
+import { Plus, Trash2, Users, Edit, Send, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 
@@ -26,6 +26,14 @@ interface Plan {
   subscriberCount: number
 }
 
+interface TelegramChannel {
+  id: string
+  channelId: string
+  channelName: string
+  audienceType: 'public' | 'subscription'
+  verified: boolean
+}
+
 export function PlanManagement() {
   const [plans, setPlans] = useState<Plan[]>([])
   const [loading, setLoading] = useState(true)
@@ -34,6 +42,8 @@ export function PlanManagement() {
   const [creating, setCreating] = useState(false)
   const [updating, setUpdating] = useState(false)
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null)
+  const [telegramChannels, setTelegramChannels] = useState<TelegramChannel[]>([])
+  const [loadingChannels, setLoadingChannels] = useState(false)
 
   const [formData, setFormData] = useState({
     name: '',
@@ -47,7 +57,23 @@ export function PlanManagement() {
 
   useEffect(() => {
     loadPlans()
+    loadTelegramChannels()
   }, [])
+
+  const loadTelegramChannels = async () => {
+    try {
+      setLoadingChannels(true)
+      const response = await fetch('/api/telegram/channels/list')
+      if (response.ok) {
+        const data = await response.json()
+        setTelegramChannels(data.channels?.filter((ch: TelegramChannel) => ch.audienceType === 'subscription') || [])
+      }
+    } catch (error) {
+      console.error('Failed to load telegram channels:', error)
+    } finally {
+      setLoadingChannels(false)
+    }
+  }
 
   const loadPlans = async () => {
     try {
@@ -431,21 +457,31 @@ export function PlanManagement() {
 
               <div className="space-y-2">
                 <Label htmlFor="telegram_channel">
-                  Telegram Channel ID (optional)
+                  Telegram Channel (optional)
                 </Label>
-                <Input
-                  id="telegram_channel"
-                  placeholder="-1001234567890"
+                <Select
                   value={formData.telegram_channel_id}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     setFormData({
                       ...formData,
-                      telegram_channel_id: e.target.value,
+                      telegram_channel_id: value,
                     })
                   }
-                />
+                >
+                  <SelectTrigger id="telegram_channel">
+                    <SelectValue placeholder="Select a Telegram channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No Channel</SelectItem>
+                    {telegramChannels.map((channel) => (
+                      <SelectItem key={channel.id} value={channel.channelId}>
+                        {channel.channelName} {channel.verified ? '✓' : '⚠️'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <p className="text-xs text-muted-foreground">
-                  Subscribers will get invite links to this channel
+                  Analysis will be broadcast to this channel. Set up channels in Telegram Settings.
                 </p>
               </div>
             </div>
@@ -567,21 +603,31 @@ export function PlanManagement() {
 
             <div className="space-y-2">
               <Label htmlFor="edit-telegram-channel">
-                Telegram Channel ID (optional)
+                Telegram Channel (optional)
               </Label>
-              <Input
-                id="edit-telegram-channel"
-                placeholder="-1001234567890"
+              <Select
                 value={formData.telegram_channel_id}
-                onChange={(e) =>
+                onValueChange={(value) =>
                   setFormData({
                     ...formData,
-                    telegram_channel_id: e.target.value,
+                    telegram_channel_id: value,
                   })
                 }
-              />
+              >
+                <SelectTrigger id="edit-telegram-channel">
+                  <SelectValue placeholder="Select a Telegram channel" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">No Channel</SelectItem>
+                  {telegramChannels.map((channel) => (
+                    <SelectItem key={channel.id} value={channel.channelId}>
+                      {channel.channelName} {channel.verified ? '✓' : '⚠️'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                Subscribers will get invite links to this channel
+                Analysis will be broadcast to this channel. Set up channels in Telegram Settings.
               </p>
             </div>
           </div>
@@ -646,6 +692,24 @@ export function PlanManagement() {
                     </span>
                   </div>
                 </div>
+
+                {plan.telegram_channel_id && (
+                  <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                    <Send className="h-4 w-4 text-blue-600" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Telegram Channel Connected</p>
+                      <p className="text-xs text-muted-foreground">
+                        {telegramChannels.find(ch => ch.channelId === plan.telegram_channel_id)?.channelName || plan.telegram_channel_id}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {!plan.telegram_channel_id && (
+                  <div className="flex items-center gap-2 p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg">
+                    <AlertTriangle className="h-4 w-4 text-orange-600" />
+                    <p className="text-sm text-orange-600">No Telegram channel connected</p>
+                  </div>
+                )}
 
                 <div className="flex gap-2">
                   <Button

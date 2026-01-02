@@ -14,7 +14,8 @@ import { AnalyzerRatings } from '@/components/ratings/AnalyzerRatings'
 import { StarRating } from '@/components/ratings/StarRating'
 import { SubscriptionPlans } from '@/components/subscriptions/SubscriptionPlans'
 import { SubscriptionStatusBadge } from '@/components/subscriptions/SubscriptionStatusBadge'
-import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package } from 'lucide-react'
+import { PlanManagement } from '@/components/settings/PlanManagement'
+import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package, Settings2 } from 'lucide-react'
 
 interface ProfilePageProps {
   params: {
@@ -335,6 +336,12 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <Badge variant="secondary" className="ml-1">{replies.length}</Badge>
                 )}
               </TabsTrigger>
+              {isOwnProfile && profile.roles?.name === 'Analyzer' && (
+                <TabsTrigger value="plans" className="flex items-center gap-2">
+                  <Settings2 className="h-4 w-4" />
+                  My Plans
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="posts" className="space-y-4">
@@ -445,6 +452,16 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 </Card>
               )}
             </TabsContent>
+
+            {isOwnProfile && profile.roles?.name === 'Analyzer' && (
+              <TabsContent value="plans" className="space-y-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <PlanManagement />
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            )}
           </Tabs>
         </div>
 

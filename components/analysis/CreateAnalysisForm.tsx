@@ -30,7 +30,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { Plus, X, Upload, Loader2, TrendingUp, TrendingDown, Target as TargetIcon, AlertTriangle, CalendarIcon, Search, Check, ChevronsUpDown, Newspaper, FileText, LineChart, Star, Clock, Globe, Users, Lock, UserCheck, Send } from 'lucide-react'
+import { Plus, X, Upload, Loader2, TrendingUp, TrendingDown, Target as TargetIcon, AlertTriangle, CalendarIcon, Search, Check, ChevronsUpDown, Newspaper, FileText, LineChart, Star, Clock, Globe, Users, Lock, UserCheck, Send, CheckSquare, Square } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { Calendar } from '@/components/ui/calendar'
 import { format } from 'date-fns'
@@ -51,10 +52,12 @@ interface SearchResult {
 
 interface TelegramChannel {
   id: string
-  name: string
-  type: 'public' | 'subscription'
-  planId?: string
-  label: string
+  channelId: string
+  channelName: string
+  audienceType: 'public' | 'followers' | 'subscribers'
+  verified: boolean
+  plan_id?: string | null
+  plan_name?: string | null
 }
 
 function formatDateToDDMMYYYY(dateString: string): string {
@@ -137,6 +140,8 @@ export function CreateAnalysisForm() {
   const [summary, setSummary] = useState('')
   const [description, setDescription] = useState('')
   const [visibility, setVisibility] = useState<'public' | 'followers' | 'subscribers' | 'private'>('public')
+  const [analyzerPlans, setAnalyzerPlans] = useState<Array<{id: string, name: string}>>([])
+  const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([])
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadedImageUrl, setUploadedImageUrl] = useState<string>('')
@@ -156,7 +161,6 @@ export function CreateAnalysisForm() {
   const [isLoadingStockInfo, setIsLoadingStockInfo] = useState(false)
 
   const [telegramChannels, setTelegramChannels] = useState<TelegramChannel[]>([])
-  const [selectedChannel, setSelectedChannel] = useState<string>('no-channel')
   const [isLoadingChannels, setIsLoadingChannels] = useState(false)
 
   useEffect(() => {
@@ -268,9 +272,6 @@ export function CreateAnalysisForm() {
         if (response.ok) {
           const data = await response.json()
           setTelegramChannels(data.channels || [])
-          if (data.channels && data.channels.length > 0) {
-            setSelectedChannel(data.channels[0].id)
-          }
         }
       } catch (err) {
         console.error('Error fetching channels:', err)
@@ -280,6 +281,23 @@ export function CreateAnalysisForm() {
     }
 
     fetchTelegramChannels()
+  }, [])
+
+  useEffect(() => {
+    const fetchAnalyzerPlans = async () => {
+      try {
+        const response = await fetch('/api/plans')
+        if (response.ok) {
+          const data = await response.json()
+          const activePlans = data.plans?.filter((p: any) => p.is_active) || []
+          setAnalyzerPlans(activePlans)
+        }
+      } catch (err) {
+        console.error('Error fetching plans:', err)
+      }
+    }
+
+    fetchAnalyzerPlans()
   }, [])
 
   const addTarget = () => {
@@ -365,6 +383,10 @@ export function CreateAnalysisForm() {
     setIsSubmitting(true)
 
     try {
+      if (visibility === 'subscribers' && selectedPlanIds.length === 0) {
+        throw new Error('Please select at least one subscription plan')
+      }
+
       if (postType === 'analysis') {
         if (!symbol.trim()) {
           throw new Error('Symbol is required')
@@ -426,7 +448,7 @@ export function CreateAnalysisForm() {
         chartImageUrl: finalImageUrl.trim(),
         description: description.trim(),
         visibility,
-        telegramChannelId: selectedChannel === 'no-channel' ? null : selectedChannel,
+        planIds: visibility === 'subscribers' && selectedPlanIds.length > 0 ? selectedPlanIds : [],
       }
 
       if (postType === 'analysis') {
@@ -1143,38 +1165,72 @@ export function CreateAnalysisForm() {
               <p className="text-xs text-muted-foreground">{t.dashboard.createForm.audienceVisibilityDesc}</p>
             </div>
 
-            {telegramChannels.length > 0 && (
-              <div className="space-y-2">
-                <Label htmlFor="telegramChannel" className="text-base font-semibold flex items-center gap-2">
-                  <Send className="h-5 w-5" />
-                  {t.dashboard.createForm.telegramChannel}
+            {visibility === 'subscribers' && analyzerPlans.length > 0 && (
+              <div className="space-y-3">
+                <Label className="text-base font-semibold flex items-center gap-2">
+                  <Star className="h-5 w-5" />
+                  Subscription Plans
                 </Label>
-                <Select value={selectedChannel} onValueChange={setSelectedChannel}>
-                  <SelectTrigger className="h-11 text-base">
-                    <SelectValue placeholder={t.dashboard.createForm.selectChannel} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="no-channel">
-                      <div className="flex items-center gap-2">
-                        <X className="h-4 w-4 text-gray-600" />
-                        <span>{t.dashboard.createForm.noChannel}</span>
+                <div className="space-y-2 p-4 border rounded-lg">
+                  {analyzerPlans.map((plan) => {
+                    const planChannel = telegramChannels.find(ch => ch.plan_id === plan.id && ch.audienceType === 'subscribers')
+                    return (
+                      <div key={plan.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
+                        <Checkbox
+                          id={`plan-${plan.id}`}
+                          checked={selectedPlanIds.includes(plan.id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedPlanIds([...selectedPlanIds, plan.id])
+                            } else {
+                              setSelectedPlanIds(selectedPlanIds.filter(id => id !== plan.id))
+                            }
+                          }}
+                        />
+                        <Label
+                          htmlFor={`plan-${plan.id}`}
+                          className="flex-1 flex items-col gap-2 cursor-pointer font-normal"
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <Star className="h-4 w-4 text-yellow-600" />
+                              <span className="font-medium">{plan.name}</span>
+                            </div>
+                            {planChannel && planChannel.verified && (
+                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-green-600">
+                                <Send className="h-3 w-3" />
+                                <span>Will broadcast to: {planChannel.channelName}</span>
+                              </div>
+                            )}
+                            {planChannel && !planChannel.verified && (
+                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-orange-600">
+                                <AlertTriangle className="h-3 w-3" />
+                                <span>Channel not verified: {planChannel.channelName}</span>
+                              </div>
+                            )}
+                            {!planChannel && (
+                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-orange-600">
+                                <AlertTriangle className="h-3 w-3" />
+                                <span>No Telegram channel connected</span>
+                              </div>
+                            )}
+                          </div>
+                        </Label>
                       </div>
-                    </SelectItem>
-                    {telegramChannels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.id}>
-                        <div className="flex items-center gap-2">
-                          {channel.type === 'public' ? (
-                            <Globe className="h-4 w-4 text-blue-600" />
-                          ) : (
-                            <Users className="h-4 w-4 text-orange-600" />
-                          )}
-                          <span>{channel.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">{t.dashboard.createForm.telegramChannelDesc}</p>
+                    )
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {selectedPlanIds.length === 0
+                    ? 'Select at least one plan to post to'
+                    : (() => {
+                        const selectedChannelsCount = selectedPlanIds.filter(planId =>
+                          telegramChannels.some(ch => ch.plan_id === planId && ch.audienceType === 'subscribers' && ch.verified)
+                        ).length
+                        return `Will be posted to ${selectedPlanIds.length} plan${selectedPlanIds.length > 1 ? 's' : ''}${selectedChannelsCount > 0 ? ` and broadcast to ${selectedChannelsCount} verified Telegram channel${selectedChannelsCount > 1 ? 's' : ''}` : ''}`
+                      })()
+                  }
+                </p>
               </div>
             )}
           </div>
