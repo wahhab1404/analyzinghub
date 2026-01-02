@@ -1,0 +1,388 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createRouteHandlerClient } from '@/lib/api-helpers'
+
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
+    const type = searchParams.get('type') || 'global'
+
+    const supabase = createRouteHandlerClient(req)
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    // Get following and subscription status
+    const { data: following } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', user.id)
+
+    const followingIds = new Set(following?.map(f => f.following_id) || [])
+
+    const { data: subscriptions } = await supabase
+      .from('subscriptions')
+      .select('analyst_id')
+      .eq('subscriber_id', user.id)
+      .eq('status', 'active')
+
+    const subscribedToIds = new Set(subscriptions?.map(s => s.analyst_id) || [])
+
+    if (type === 'following') {
+      const followingUserIds = Array.from(followingIds)
+
+      if (followingUserIds.length === 0) {
+        return NextResponse.json({ analyses: [] })
+      }
+
+      const { data: analyses } = await supabase
+        .from('analyses')
+        .select(`
+          *,
+          profiles:analyzer_id (id, full_name, avatar_url),
+          symbols (symbol),
+          analysis_targets (price, expected_time),
+          validation_events (event_type, target_number, price_at_hit, hit_at)
+        `)
+        .in('analyzer_id', followingUserIds)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      // Filter analyses based on visibility
+      const filteredAnalyses = analyses?.filter(analysis => {
+        const isOwnPost = analysis.analyzer_id === user.id
+        const isFollowing = followingIds.has(analysis.analyzer_id)
+        const isSubscribed = subscribedToIds.has(analysis.analyzer_id)
+
+        // Author always sees their own posts
+        if (isOwnPost) return true
+
+        // Check visibility
+        if (analysis.visibility === 'public') return true
+        if (analysis.visibility === 'followers' && isFollowing) return true
+        if (analysis.visibility === 'subscribers' && isSubscribed) return true
+        if (analysis.visibility === 'private') return false
+
+        return false
+      }) || []
+
+      const analysesWithStatus = filteredAnalyses.map(analysis => ({
+        ...analysis,
+        is_following: true,
+        is_own_post: analysis.analyzer_id === user.id,
+        is_subscribed: subscribedToIds.has(analysis.analyzer_id)
+      }))
+
+      return NextResponse.json({ analyses: analysesWithStatus })
+    }
+
+    const { data: analyses } = await supabase
+      .from('analyses')
+      .select(`
+        *,
+        profiles:analyzer_id (id, full_name, avatar_url),
+        symbols (symbol),
+        analysis_targets (price, expected_time),
+        validation_events (event_type, target_number, price_at_hit, hit_at)
+      `)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    // Filter analyses based on visibility
+    const filteredAnalyses = analyses?.filter(analysis => {
+      const isOwnPost = analysis.analyzer_id === user.id
+      const isFollowing = followingIds.has(analysis.analyzer_id)
+      const isSubscribed = subscribedToIds.has(analysis.analyzer_id)
+
+      // Author always sees their own posts
+      if (isOwnPost) return true
+
+      // Check visibility
+      if (analysis.visibility === 'public') return true
+      if (analysis.visibility === 'followers' && isFollowing) return true
+      if (analysis.visibility === 'subscribers' && isSubscribed) return true
+      if (analysis.visibility === 'private') return false
+
+      return false
+    }) || []
+
+    const analysesWithFollowStatus = filteredAnalyses.map(analysis => ({
+      ...analysis,
+      is_following: followingIds.has(analysis.analyzer_id),
+      is_own_post: analysis.analyzer_id === user.id,
+      is_subscribed: subscribedToIds.has(analysis.analyzer_id)
+    }))
+
+    return NextResponse.json({ analyses: analysesWithFollowStatus })
+  } catch (err: any) {
+    console.error('GET_ANALYSES_ERROR:', {
+      message: err.message,
+      stack: err.stack,
+      details: err
+    })
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const supabase = createRouteHandlerClient(req)
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    console.log('POST_AUTH_CHECK:', {
+      hasUser: !!user,
+      userId: user?.id,
+      userError: userError?.message,
+      cookies: req.cookies.getAll().map(c => c.name)
+    })
+
+    if (userError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await req.json()
+    const postType = body.post_type || 'analysis'
+
+    console.log('POST_REQUEST_BODY:', {
+      postType,
+      hasSymbol: !!body.symbol,
+      hasDirection: !!body.direction,
+      hasStopLoss: !!body.stopLoss,
+      hasTelegramChannelId: !!body.telegramChannelId,
+      bodyKeys: Object.keys(body)
+    })
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('*, roles(*)')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    console.log('USER_PROFILE_CHECK:', {
+      userId: user.id,
+      profile,
+      roleName: profile?.roles?.name
+    })
+
+    if (!profile || profile.roles?.name !== 'Analyzer') {
+      return NextResponse.json({ error: 'Only analyzers can create posts' }, { status: 403 })
+    }
+
+    // Validate symbol is required for all post types
+    if (!body.symbol || typeof body.symbol !== 'string' || body.symbol.trim() === '') {
+      console.error('VALIDATION_ERROR: Missing or invalid symbol')
+      return NextResponse.json({ error: 'Symbol is required' }, { status: 400 })
+    }
+
+    // Validate required fields based on post type
+    if (postType === 'analysis') {
+      if (!body.direction) {
+        console.error('VALIDATION_ERROR: Missing direction for analysis post')
+        return NextResponse.json({ error: 'Direction is required for analysis posts' }, { status: 400 })
+      }
+      if (body.stopLoss === undefined || body.stopLoss === null || body.stopLoss === '') {
+        console.error('VALIDATION_ERROR: Missing stopLoss for analysis post')
+        return NextResponse.json({ error: 'Stop loss is required for analysis posts' }, { status: 400 })
+      }
+    } else if (postType === 'news') {
+      if (!body.title || !body.summary) {
+        console.error('VALIDATION_ERROR: Missing title or summary for news post')
+        return NextResponse.json({ error: 'Title and summary are required for news posts' }, { status: 400 })
+      }
+    } else if (postType === 'article') {
+      if (!body.title || !body.content) {
+        console.error('VALIDATION_ERROR: Missing title or content for article post')
+        return NextResponse.json({ error: 'Title and content are required for article posts' }, { status: 400 })
+      }
+    }
+
+    let symbolId: string
+    const { data: existingSymbol } = await supabase
+      .from('symbols')
+      .select('id')
+      .eq('symbol', body.symbol.toUpperCase().trim())
+      .maybeSingle()
+
+    if (existingSymbol) {
+      symbolId = existingSymbol.id
+    } else {
+      const { data: newSymbol, error: symbolError } = await supabase
+        .from('symbols')
+        .insert({ symbol: body.symbol.toUpperCase().trim() })
+        .select('id')
+        .single()
+
+      if (symbolError) {
+        return NextResponse.json({ error: symbolError.message }, { status: 400 })
+      }
+      symbolId = newSymbol.id
+    }
+
+    const insertData: any = {
+      analyzer_id: user.id,
+      symbol_id: symbolId,
+      post_type: postType,
+      chart_image_url: body.chartImageUrl || null,
+      description: body.description || null,
+      visibility: body.visibility || 'public',
+    }
+
+    console.log('BEFORE_INSERT:', {
+      userId: user.id,
+      symbolId,
+      postType,
+      insertDataKeys: Object.keys(insertData),
+      analyzerId: insertData.analyzer_id
+    })
+
+    if (postType === 'analysis') {
+      insertData.direction = body.direction
+      insertData.stop_loss = parseFloat(body.stopLoss)
+      insertData.analysis_type = body.analysisType || 'classic'
+      insertData.chart_frame = body.chartFrame || null
+    } else if (postType === 'news') {
+      insertData.title = body.title
+      insertData.summary = body.summary
+      insertData.source_url = body.sourceUrl || null
+    } else if (postType === 'article') {
+      insertData.title = body.title
+      insertData.content = body.content
+    }
+
+    // Use service role client for insert since we've already validated the user
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[Analyses] Missing Supabase environment variables for service role')
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      supabaseServiceKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
+
+    const { data: analysis, error } = await supabaseAdmin
+      .from('analyses')
+      .insert(insertData)
+      .select()
+      .single()
+
+    if (error) {
+      console.error('INSERT_ANALYSIS_ERROR:', {
+        error,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        userId: user.id,
+        insertData
+      })
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
+
+    if (postType === 'analysis' && body.targets && body.targets.length > 0) {
+      const targetsData = body.targets
+        .filter((target: any) => target.expectedTime && target.expectedTime.trim() !== '')
+        .map((target: any) => {
+          const expectedDate = new Date(target.expectedTime)
+          if (isNaN(expectedDate.getTime())) {
+            throw new Error(`Invalid date format for target: ${target.expectedTime}`)
+          }
+          return {
+            analysis_id: analysis.id,
+            price: parseFloat(target.price),
+            expected_time: expectedDate.toISOString(),
+          }
+        })
+
+      if (targetsData.length > 0) {
+        const { error: targetsError } = await supabaseAdmin
+          .from('analysis_targets')
+          .insert(targetsData)
+
+        if (targetsError) {
+          return NextResponse.json({ error: targetsError.message }, { status: 400 })
+        }
+      }
+    }
+
+    if (body.telegramChannelId) {
+      try {
+        console.log('TELEGRAM_BROADCAST_START:', {
+          analysisId: analysis.id,
+          userId: user.id,
+          channelId: body.telegramChannelId
+        })
+
+        const broadcastResponse = await fetch(`${req.nextUrl.origin}/api/telegram/channel/broadcast-new-analysis`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            analysisId: analysis.id,
+            userId: user.id,
+            channelId: body.telegramChannelId,
+          }),
+        });
+
+        const broadcastResult = await broadcastResponse.json()
+        console.log('TELEGRAM_BROADCAST_RESULT:', {
+          status: broadcastResponse.status,
+          ok: broadcastResponse.ok,
+          result: broadcastResult
+        })
+
+        if (!broadcastResponse.ok) {
+          console.error('Failed to broadcast new post to channel:', {
+            status: broadcastResponse.status,
+            error: broadcastResult.error,
+            details: broadcastResult.details
+          });
+        }
+      } catch (broadcastError: any) {
+        console.error('Failed to broadcast new post to channel (exception):', {
+          message: broadcastError.message,
+          stack: broadcastError.stack
+        });
+      }
+    }
+
+    return NextResponse.json({ analysis }, { status: 201 })
+  } catch (err: any) {
+    console.error('CREATE_POST_ERROR:', {
+      message: err.message,
+      stack: err.stack,
+      details: err
+    })
+    return NextResponse.json(
+      {
+        error: 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      },
+      { status: 500 }
+    )
+  }
+}
