@@ -103,35 +103,53 @@ class PolygonService {
   /**
    * Get current snapshot of an index (I:SPX, I:NDX, I:DJI)
    * Used when publishing trades to capture entry price
+   *
+   * Uses Polygon's aggregates endpoint to get actual index values
    */
   async getIndexSnapshot(polygonIndexTicker: string): Promise<IndexSnapshot> {
     if (!POLYGON_API_KEY) {
       throw new Error('Polygon API key not configured');
     }
 
-    // Polygon Indices Snapshot endpoint
-    // GET /v3/snapshot/indices/{ticker}
-    const url = `${POLYGON_BASE_URL}/v3/snapshot/indices/${polygonIndexTicker}?apiKey=${POLYGON_API_KEY}`;
+    // Normalize ticker format (ensure "I:" prefix)
+    const indexTicker = polygonIndexTicker.startsWith('I:')
+      ? polygonIndexTicker
+      : `I:${polygonIndexTicker}`;
 
-    const data = await this.fetchWithRetry(url);
+    // Use aggregates endpoint for previous day's data (most reliable)
+    // GET /v2/aggs/ticker/{ticker}/prev
+    const url = `${POLYGON_BASE_URL}/v2/aggs/ticker/${indexTicker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
 
-    if (!data.results) {
-      throw new Error(`No data returned for ${polygonIndexTicker}`);
+    console.log('Fetching index snapshot:', url.replace(POLYGON_API_KEY!, '[REDACTED]'));
+
+    try {
+      const data = await this.fetchWithRetry(url);
+
+      if (!data.results || data.results.length === 0) {
+        throw new Error(`No data returned for ${indexTicker}`);
+      }
+
+      const result = data.results[0];
+      const price = result.c; // Close price
+      const high = result.h;
+      const low = result.l;
+      const open = result.o;
+
+      return {
+        ticker: polygonIndexTicker,
+        value: price,
+        session: {
+          high: high,
+          low: low,
+          open: open,
+          previousClose: price, // Using close as previous close for now
+        },
+        timestamp: new Date(result.t).toISOString(),
+      };
+    } catch (error) {
+      console.error(`Failed to fetch index snapshot for ${indexTicker}:`, error);
+      throw new Error(`Failed to fetch ${indexTicker} data. Your Polygon API tier may not include indices data.`);
     }
-
-    const result = data.results;
-
-    return {
-      ticker: result.ticker || polygonIndexTicker,
-      value: result.value || result.last?.price || 0,
-      session: {
-        high: result.session?.high || result.value,
-        low: result.session?.low || result.value,
-        open: result.session?.open || result.value,
-        previousClose: result.session?.previous_close || result.value,
-      },
-      timestamp: new Date().toISOString(),
-    };
   }
 
   /**
@@ -210,6 +228,7 @@ class PolygonService {
   /**
    * Fetch available options contracts for an underlying index
    * Used in the UI to let analysts pick contracts
+   * Returns contracts without real-time quotes for faster loading
    */
   async getOptionsChain(filters: ContractChainFilters): Promise<OptionContract[]> {
     if (!POLYGON_API_KEY) {
@@ -220,7 +239,12 @@ class PolygonService {
     const params = new URLSearchParams({
       apiKey: POLYGON_API_KEY,
       limit: (filters.limit || 250).toString(),
+      order: 'asc',
+      sort: 'expiration_date',
     });
+
+    // Add underlying ticker
+    params.append('underlying_ticker', filters.underlying);
 
     if (filters.expiry) {
       params.append('expiration_date', filters.expiry);
@@ -240,41 +264,41 @@ class PolygonService {
 
     // Polygon Options Contract endpoint
     // GET /v3/reference/options/contracts
-    const url = `${POLYGON_BASE_URL}/v3/reference/options/contracts?${params.toString()}&underlying_ticker=${filters.underlying}`;
+    const url = `${POLYGON_BASE_URL}/v3/reference/options/contracts?${params.toString()}`;
 
-    const data = await this.fetchWithRetry(url);
+    console.log('[PolygonService] Fetching contracts from:', url.replace(POLYGON_API_KEY!, '[REDACTED]'));
+    console.log('[PolygonService] Filters:', JSON.stringify(filters, null, 2));
 
-    if (!data.results || data.results.length === 0) {
-      return [];
-    }
+    try {
+      const data = await this.fetchWithRetry(url);
 
-    // Fetch quotes for each contract (in batches to avoid rate limits)
-    const contracts: OptionContract[] = [];
+      console.log('[PolygonService] Polygon response status:', data.status);
+      console.log('[PolygonService] Results count:', data.results?.length || 0);
 
-    for (const contract of data.results) {
-      try {
-        // Apply volume/OI filters
-        if (filters.minVolume && contract.volume < filters.minVolume) continue;
-        if (filters.minOpenInterest && contract.open_interest < filters.minOpenInterest) continue;
-
-        // Fetch quote
-        const optionData = await this.getOptionSnapshot(filters.underlying, contract.ticker);
-
-        // Apply premium filters
-        if (filters.minPremium && optionData.quote && optionData.quote.mid < filters.minPremium) continue;
-        if (filters.maxPremium && optionData.quote && optionData.quote.mid > filters.maxPremium) continue;
-
-        contracts.push(optionData);
-
-        // Rate limit: max 5 requests per second on starter plan
-        await new Promise(resolve => setTimeout(resolve, 200));
-      } catch (error) {
-        console.error(`Failed to fetch quote for ${contract.ticker}:`, error);
-        // Continue with other contracts
+      if (!data.results || data.results.length === 0) {
+        console.log('[PolygonService] No contracts returned from Polygon');
+        console.log('[PolygonService] Response data:', JSON.stringify(data, null, 2));
+        return [];
       }
-    }
 
-    return contracts;
+      console.log('[PolygonService] Found', data.results.length, 'contracts from Polygon');
+      console.log('[PolygonService] Sample contract:', JSON.stringify(data.results[0], null, 2));
+
+      // Convert contracts to our format (without quotes for fast loading)
+      const contracts: OptionContract[] = data.results.map((contract: any) => ({
+        ticker: contract.ticker,
+        strike: contract.strike_price,
+        expiry: contract.expiration_date,
+        optionType: contract.contract_type === 'call' ? 'call' : 'put',
+        underlying: filters.underlying,
+        // No quote data - will be fetched separately for selected contract
+      }));
+
+      return contracts;
+    } catch (error) {
+      console.error('[PolygonService] Error fetching contracts:', error);
+      throw error;
+    }
   }
 
   /**

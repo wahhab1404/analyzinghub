@@ -95,11 +95,60 @@ function determineMarketStatus(priceTimestamp: Date): 'open' | 'closed' | 'pre-m
 async function fetchPolygonSnapshot(symbol: string, apiKey: string) {
   const normalizedSymbol = normalizeSymbol(symbol)
 
-  // Use snapshot endpoint for both stocks and crypto
+  // Use snapshot endpoint for stocks, crypto, or indices
   const isGlobalMarket = normalizedSymbol.startsWith('X:')
-  const snapshotUrl = isGlobalMarket
-    ? `https://api.polygon.io/v2/snapshot/locale/global/markets/crypto/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
-    : `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
+  const isIndex = normalizedSymbol.startsWith('I:')
+
+  // For indices, use aggregates endpoint (more reliable across API tiers)
+  if (isIndex) {
+    const aggUrl = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(normalizedSymbol)}/prev?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`
+
+    const res = await fetch(aggUrl, {
+      cache: 'no-store',
+      headers: { 'Accept': 'application/json' }
+    })
+
+    const text = await res.text()
+    let data: any = null
+
+    try {
+      data = text ? JSON.parse(text) : null
+    } catch (e) {
+      console.error('Failed to parse Polygon response:', text?.slice(0, 200))
+    }
+
+    if (!res.ok || !data?.results || data.results.length === 0) {
+      return {
+        ok: false as const,
+        status: res.status,
+        error: 'POLYGON_ERROR',
+        details: data ?? text?.slice(0, 500)
+      }
+    }
+
+    const result = data.results[0]
+
+    return {
+      ok: true as const,
+      symbol,
+      price: result.c,
+      timestamp: new Date(result.t).toISOString(),
+      marketStatus: 'closed' as const,
+      isDelayed: true,
+      previousClose: result.c,
+      high: result.h,
+      low: result.l,
+      volume: result.v,
+      provider: 'polygon'
+    }
+  }
+
+  let snapshotUrl: string
+  if (isGlobalMarket) {
+    snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/global/markets/crypto/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
+  } else {
+    snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
+  }
 
   const res = await fetch(snapshotUrl, {
     cache: 'no-store',
@@ -207,7 +256,7 @@ export async function GET(request: Request) {
 
     const symbol = symbolRaw.toUpperCase().trim()
 
-    if (!/^[A-Z.\-\/]+$/.test(symbol)) {
+    if (!/^[A-Z.\-\/\:]+$/.test(symbol)) {
       return jsonError(400, 'INVALID_SYMBOL_FORMAT')
     }
 

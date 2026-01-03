@@ -33,11 +33,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user is admin or analyzer
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role_id, roles(name)')
+      .select('role_id, roles!inner(name)')
       .eq('id', user.id)
       .single();
+
+    if (profileError) {
+      console.error('Error fetching profile:', profileError);
+      return NextResponse.json(
+        { error: 'Failed to verify user permissions' },
+        { status: 500 }
+      );
+    }
 
     const roleName = (profile as any)?.roles?.name;
     if (!roleName || !['SuperAdmin', 'Analyzer'].includes(roleName)) {
