@@ -7,8 +7,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card } from '@/components/ui/card'
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Check, ChevronsUpDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 interface Contract {
   contract_id: string
@@ -18,10 +21,21 @@ interface Contract {
   expiration_date: string
 }
 
+interface SymbolSearchResult {
+  symbol: string
+  name: string
+  type: string
+  exchange: string
+}
+
 export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void }) {
   const [loading, setLoading] = useState(false)
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loadingContracts, setLoadingContracts] = useState(false)
+  const [symbolSearch, setSymbolSearch] = useState('')
+  const [symbolResults, setSymbolResults] = useState<SymbolSearchResult[]>([])
+  const [symbolOpen, setSymbolOpen] = useState(false)
+  const [searchingSymbols, setSearchingSymbols] = useState(false)
   const [formData, setFormData] = useState({
     underlying_symbol: '',
     contract_id: '',
@@ -34,6 +48,22 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
     stop_loss: '',
     risk_per_contract: '',
   })
+
+  const searchSymbols = async (query: string) => {
+    setSearchingSymbols(true)
+    try {
+      const url = query ? `/api/indices/search-symbols?q=${encodeURIComponent(query)}` : '/api/indices/search-symbols'
+      const response = await fetch(url)
+      if (response.ok) {
+        const data = await response.json()
+        setSymbolResults(data.results || [])
+      }
+    } catch (error) {
+      console.error('Error searching indices:', error)
+    } finally {
+      setSearchingSymbols(false)
+    }
+  }
 
   const fetchContracts = async (symbol: string) => {
     if (!symbol || symbol.length < 2) return
@@ -51,6 +81,19 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
       setLoadingContracts(false)
     }
   }
+
+  useEffect(() => {
+    searchSymbols('')
+  }, [])
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (symbolSearch) {
+        searchSymbols(symbolSearch)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [symbolSearch])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -102,13 +145,73 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
       <div className="grid md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="symbol">Underlying Symbol</Label>
-          <Input
-            id="symbol"
-            placeholder="SPX, NDX, etc."
-            value={formData.underlying_symbol}
-            onChange={(e) => setFormData({ ...formData, underlying_symbol: e.target.value.toUpperCase() })}
-            required
-          />
+          <Popover
+            open={symbolOpen}
+            onOpenChange={(open) => {
+              setSymbolOpen(open)
+              if (open && symbolResults.length === 0) {
+                searchSymbols('')
+              }
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={symbolOpen}
+                className="w-full justify-between"
+              >
+                {formData.underlying_symbol || "Search index..."}
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[400px] p-0" align="start">
+              <Command shouldFilter={false}>
+                <CommandInput
+                  placeholder="Search indices: SPX, NDX, RUT..."
+                  value={symbolSearch}
+                  onValueChange={setSymbolSearch}
+                />
+                <CommandList>
+                  {searchingSymbols ? (
+                    <div className="py-6 text-center text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                    </div>
+                  ) : symbolResults.length === 0 ? (
+                    <CommandEmpty>No indices found.</CommandEmpty>
+                  ) : (
+                    <CommandGroup>
+                      {symbolResults.map((result) => (
+                        <CommandItem
+                          key={result.symbol}
+                          value={result.symbol}
+                          onSelect={(value) => {
+                            setFormData({ ...formData, underlying_symbol: value.toUpperCase(), contract_id: '' })
+                            setContracts([])
+                            setSymbolOpen(false)
+                            setSymbolSearch('')
+                          }}
+                        >
+                          <Check
+                            className={cn(
+                              "mr-2 h-4 w-4",
+                              formData.underlying_symbol === result.symbol ? "opacity-100" : "opacity-0"
+                            )}
+                          />
+                          <div className="flex flex-col">
+                            <span className="font-medium">{result.symbol}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {result.name} · {result.type}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="space-y-2">
