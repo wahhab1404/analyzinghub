@@ -69,6 +69,7 @@ export const en = {
     subscriptions: 'Subscriptions',
     subscribers: 'My Subscribers',
     financial: 'Financial',
+    indices: 'Indices Hub',
     notifications: 'Notifications',
     profile: 'My Profile',
     settings: 'Settings',

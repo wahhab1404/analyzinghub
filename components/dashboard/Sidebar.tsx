@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Home, Users, FileText, Settings, BarChart3, UserCog, Plus, TrendingUp, Search, Bell, Shield, User, Package, Trophy, DollarSign, UserCheck } from 'lucide-react'
+import { Home, Users, FileText, Settings, BarChart3, UserCog, Plus, TrendingUp, Search, Bell, Shield, User, Package, Trophy, DollarSign, UserCheck, LineChart } from 'lucide-react'
 import { RoleName } from '@/lib/types/database'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -72,6 +72,12 @@ const navItems: NavItem[] = [
     titleKey: 'nav.financial',
     href: '/dashboard/financial',
     icon: DollarSign,
+    roles: ['SuperAdmin', 'Analyzer'],
+  },
+  {
+    titleKey: 'nav.indices',
+    href: '/dashboard/indices',
+    icon: LineChart,
     roles: ['SuperAdmin', 'Analyzer'],
   },
   {
