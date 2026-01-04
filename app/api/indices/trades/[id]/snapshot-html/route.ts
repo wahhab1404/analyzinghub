@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+function formatNumber(num: number): string {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M';
+  } else if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K';
+  }
+  return num.toLocaleString();
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -38,7 +47,7 @@ export async function GET(
     const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
     const currentPrice = trade.current_contract || entryPrice;
     const priceChange = currentPrice - entryPrice;
-    const priceChangePercent = (priceChange / entryPrice) * 100;
+    const priceChangePercent = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;
 
     const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
     const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
@@ -59,9 +68,10 @@ export async function GET(
       month: '2-digit',
     })} ET`;
 
-    const isPriceUp = priceChange >= 0;
-    const priceColor = isPriceUp ? '#10b981' : '#ef4444';
-    const priceArrow = isPriceUp ? '▲' : '▼';
+    const isPriceUp = priceChange > 0;
+    const priceColor = isPriceUp ? '#10b981' : (priceChange < 0 ? '#ef4444' : '#8e8e93');
+    const priceArrow = isPriceUp ? '▲' : (priceChange < 0 ? '▼' : '');
+    const priceSign = isPriceUp ? '+' : '';
     const isUnderlyingUp = underlyingChange >= 0;
 
     const formatExpiry = (expiry: string) => {
@@ -117,14 +127,14 @@ export async function GET(
   <div class="container">
     <div class="header">
       <div class="title">${symbol.split(':')[1] || symbol} $${strike.toLocaleString()}</div>
-      <div class="subtitle">${formatExpiry(expiry)} (W) ${optionType} ${Math.abs(openInterest).toLocaleString()}</div>
+      <div class="subtitle">${formatExpiry(expiry)} (W) ${optionType}</div>
     </div>
     <div class="content-section">
       <div class="left-section">
         <div class="current-price">${currentPrice.toFixed(2)}</div>
         <div class="price-change">
-          <span>${priceArrow}${Math.abs(priceChange).toFixed(2)}</span>
-          <span>${priceChangePercent.toFixed(2)}%</span>
+          <span>${priceArrow}${priceSign}${Math.abs(priceChange).toFixed(2)}</span>
+          <span>${priceSign}${Math.abs(priceChangePercent).toFixed(2)}%</span>
         </div>
       </div>
       <div class="right-section">
@@ -134,11 +144,11 @@ export async function GET(
         </div>
         <div class="stat-row">
           <span class="stat-label">Open Int.</span>
-          <span class="stat-value">${Math.abs(openInterest).toLocaleString()}</span>
+          <span class="stat-value">${formatNumber(Math.abs(openInterest))}</span>
         </div>
         <div class="stat-row">
           <span class="stat-label">Vol.</span>
-          <span class="stat-value">${Math.abs(volume).toLocaleString()}</span>
+          <span class="stat-value">${formatNumber(Math.abs(volume))}</span>
         </div>
       </div>
     </div>
