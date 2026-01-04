@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface Notification {
   id: string
@@ -77,6 +78,7 @@ const notificationColors: Record<string, string> = {
 }
 
 export default function ActivityPage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([])
@@ -159,11 +161,11 @@ export default function ActivityPage() {
         setNotifications(notifications.map(n =>
           n.id === id ? { ...n, is_read: true } : n
         ))
-        toast.success('Notification marked as read')
+        toast.success(t.dashboard.activity.toast.markedAsRead)
       }
     } catch (error) {
       console.error('Error marking notification as read:', error)
-      toast.error('Failed to mark as read')
+      toast.error(t.dashboard.activity.toast.failedToMark)
     }
   }
 
@@ -175,11 +177,11 @@ export default function ActivityPage() {
 
       if (response.ok) {
         setNotifications(notifications.map(n => ({ ...n, is_read: true })))
-        toast.success('All notifications marked as read')
+        toast.success(t.dashboard.activity.toast.allMarkedAsRead)
       }
     } catch (error) {
       console.error('Error marking all as read:', error)
-      toast.error('Failed to mark all as read')
+      toast.error(t.dashboard.activity.toast.failedToMarkAll)
     }
   }
 
@@ -191,11 +193,11 @@ export default function ActivityPage() {
 
       if (response.ok) {
         setNotifications(notifications.filter(n => n.id !== id))
-        toast.success('Notification deleted')
+        toast.success(t.dashboard.activity.toast.deleted)
       }
     } catch (error) {
       console.error('Error deleting notification:', error)
-      toast.error('Failed to delete notification')
+      toast.error(t.dashboard.activity.toast.failedToDelete)
     }
   }
 
@@ -215,7 +217,7 @@ export default function ActivityPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">Loading activity...</p>
+        <p className="text-muted-foreground">{t.dashboard.activity.loadingActivity}</p>
       </div>
     )
   }
@@ -224,13 +226,13 @@ export default function ActivityPage() {
     <div className="max-w-4xl mx-auto py-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Activity</h1>
-          <p className="text-muted-foreground">Stay updated with your latest interactions</p>
+          <h1 className="text-3xl font-bold">{t.dashboard.activity.title}</h1>
+          <p className="text-muted-foreground">{t.dashboard.activity.subtitle}</p>
         </div>
         {unreadCount > 0 && (
           <Button onClick={markAllAsRead} variant="outline">
             <CheckCheck className="h-4 w-4 mr-2" />
-            Mark all read
+            {t.dashboard.activity.markAllRead}
           </Button>
         )}
       </div>
@@ -238,13 +240,13 @@ export default function ActivityPage() {
       <Tabs defaultValue="all" onValueChange={setActiveFilter}>
         <TabsList className="grid grid-cols-6 w-full">
           <TabsTrigger value="all">
-            All
+            {t.dashboard.activity.tabs.all}
             {notifications.length > 0 && (
               <Badge variant="secondary" className="ml-2">{notifications.length}</Badge>
             )}
           </TabsTrigger>
           <TabsTrigger value="unread">
-            Unread
+            {t.dashboard.activity.tabs.unread}
             {unreadCount > 0 && (
               <Badge variant="destructive" className="ml-2">{unreadCount}</Badge>
             )}
@@ -268,11 +270,11 @@ export default function ActivityPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <Bell className="h-16 w-16 mx-auto text-muted-foreground opacity-50 mb-4" />
-                <h3 className="text-lg font-semibold mb-2">No notifications</h3>
+                <h3 className="text-lg font-semibold mb-2">{t.dashboard.activity.empty.noNotifications}</h3>
                 <p className="text-muted-foreground">
                   {activeFilter === 'unread'
-                    ? "You're all caught up!"
-                    : "You don't have any notifications yet"}
+                    ? t.dashboard.activity.empty.allCaughtUp
+                    : t.dashboard.activity.empty.noNotificationsYet}
                 </p>
               </CardContent>
             </Card>
@@ -329,7 +331,7 @@ export default function ActivityPage() {
                               href={link}
                               className="text-xs text-primary hover:underline font-medium"
                             >
-                              View
+                              {t.dashboard.activity.actions.view}
                             </Link>
                           )}
                         </div>

@@ -39,8 +39,8 @@ export default function AdminDashboard() {
     <div className="container mx-auto p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">{t('adminDashboard.title')}</h1>
-          <p className="text-muted-foreground">{t('adminDashboard.subtitle')}</p>
+          <h1 className="text-3xl font-bold">{t.adminDashboard.title}</h1>
+          <p className="text-muted-foreground">{t.adminDashboard.subtitle}</p>
         </div>
         <Shield className="h-12 w-12 text-primary" />
       </div>
@@ -48,45 +48,45 @@ export default function AdminDashboard() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('adminDashboard.totalUsers')}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.adminDashboard.totalUsers}</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalUsers}</div>
-            <p className="text-xs text-muted-foreground">{t('adminDashboard.registeredAccounts')}</p>
+            <p className="text-xs text-muted-foreground">{t.adminDashboard.registeredAccounts}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('adminDashboard.activeAnalyzers')}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.adminDashboard.activeAnalyzers}</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalAnalyzers}</div>
-            <p className="text-xs text-muted-foreground">{t('adminDashboard.creatingAnalyses')}</p>
+            <p className="text-xs text-muted-foreground">{t.adminDashboard.creatingAnalyses}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('adminDashboard.totalAnalyses')}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.adminDashboard.totalAnalyses}</CardTitle>
             <FileText className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.totalAnalyses}</div>
-            <p className="text-xs text-muted-foreground">{t('adminDashboard.publishedContent')}</p>
+            <p className="text-xs text-muted-foreground">{t.adminDashboard.publishedContent}</p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">{t('adminDashboard.activeUsers')}</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.adminDashboard.activeUsers}</CardTitle>
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.activeUsers}</div>
-            <p className="text-xs text-muted-foreground">{t('adminDashboard.last7Days')}</p>
+            <p className="text-xs text-muted-foreground">{t.adminDashboard.last7Days}</p>
           </CardContent>
         </Card>
       </div>
@@ -95,19 +95,19 @@ export default function AdminDashboard() {
         <TabsList>
           <TabsTrigger value="users">
             <Users className="h-4 w-4 mr-2" />
-            {t('adminDashboard.users')}
+            {t.adminDashboard.users}
           </TabsTrigger>
           <TabsTrigger value="content">
             <FileText className="h-4 w-4 mr-2" />
-            {t('adminDashboard.content')}
+            {t.adminDashboard.content}
           </TabsTrigger>
           <TabsTrigger value="analytics">
             <BarChart3 className="h-4 w-4 mr-2" />
-            {t('adminDashboard.analytics')}
+            {t.adminDashboard.analytics}
           </TabsTrigger>
           <TabsTrigger value="settings">
             <Settings className="h-4 w-4 mr-2" />
-            {t('adminDashboard.settings')}
+            {t.adminDashboard.settings}
           </TabsTrigger>
         </TabsList>
 

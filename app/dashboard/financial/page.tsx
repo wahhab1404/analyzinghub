@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DollarSign, TrendingUp, Users, CreditCard, ArrowUpRight, ArrowDownRight, Calendar } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 interface EarningsData {
   earnings: {
@@ -39,6 +40,7 @@ interface Transaction {
 }
 
 export default function FinancialDashboard() {
+  const { t } = useLanguage()
   const [loading, setLoading] = useState(true)
   const [earningsData, setEarningsData] = useState<EarningsData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -133,10 +135,10 @@ export default function FinancialDashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-            Financial Dashboard
+            {t.financialDashboard.title}
           </h1>
           <p className="text-muted-foreground mt-2">
-            Track your earnings, subscribers, and payouts in real-time
+            {t.financialDashboard.subtitle}
           </p>
         </div>
         <Badge variant="outline" className="text-sm py-2 px-4">
@@ -148,7 +150,7 @@ export default function FinancialDashboard() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <Card className="border-green-200 dark:border-green-900 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.totalEarnings}</CardTitle>
             <div className="p-2 bg-green-100 dark:bg-green-900 rounded-full">
               <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
             </div>
@@ -158,10 +160,10 @@ export default function FinancialDashboard() {
               {formatCurrency(earningsData.earnings.allTime.net)}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              From {formatCurrency(earningsData.earnings.allTime.gross)} gross
+              {t.financialDashboard.fromGross.replace('{amount}', formatCurrency(earningsData.earnings.allTime.gross))}
             </p>
             <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-              <span>Platform fee:</span>
+              <span>{t.financialDashboard.platformFee}</span>
               <span className="font-medium">
                 {formatCurrency(earningsData.earnings.allTime.platformFee)}
               </span>
@@ -171,7 +173,7 @@ export default function FinancialDashboard() {
 
         <Card className="border-blue-200 dark:border-blue-900 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/20 dark:to-cyan-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">This Month</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.thisMonth}</CardTitle>
             <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-full">
               <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
@@ -194,14 +196,14 @@ export default function FinancialDashboard() {
               </div>
             )}
             <p className="text-xs text-muted-foreground mt-2">
-              From {formatCurrency(earningsData.earnings.thisMonth.gross)} gross
+              {t.financialDashboard.fromGrossAmount.replace('{amount}', formatCurrency(earningsData.earnings.thisMonth.gross))}
             </p>
           </CardContent>
         </Card>
 
         <Card className="border-purple-200 dark:border-purple-900 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/20 dark:to-pink-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Subscribers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.subscribers}</CardTitle>
             <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-full">
               <Users className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
@@ -211,15 +213,15 @@ export default function FinancialDashboard() {
               {earningsData.subscribers.active}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Active subscribers
+              {t.financialDashboard.activeSubscribers}
             </p>
             <div className="flex items-center justify-between mt-2 text-xs">
               <span className="text-muted-foreground">
-                Total: <span className="font-medium">{earningsData.subscribers.total}</span>
+                {t.financialDashboard.totalSubscribers.replace('{count}', earningsData.subscribers.total.toString())}
               </span>
               {earningsData.subscribers.churned > 0 && (
                 <span className="text-orange-600">
-                  Churned: {earningsData.subscribers.churned}
+                  {t.financialDashboard.churned}: {earningsData.subscribers.churned}
                 </span>
               )}
             </div>
@@ -228,7 +230,7 @@ export default function FinancialDashboard() {
 
         <Card className="border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/20 dark:to-amber-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Payout</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.pendingPayout}</CardTitle>
             <div className="p-2 bg-orange-100 dark:bg-orange-900 rounded-full">
               <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
             </div>
@@ -238,12 +240,10 @@ export default function FinancialDashboard() {
               {formatCurrency(earningsData.payouts.pending)}
             </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Awaiting next payout cycle
+              {t.financialDashboard.awaitingNextPayout}
             </p>
             <div className="mt-2 text-xs text-muted-foreground">
-              Total paid: <span className="font-medium text-green-600">
-                {formatCurrency(earningsData.payouts.totalPaidOut)}
-              </span>
+              {t.financialDashboard.totalPaid.replace('{amount}', formatCurrency(earningsData.payouts.totalPaidOut))}
             </div>
           </CardContent>
         </Card>
@@ -251,8 +251,8 @@ export default function FinancialDashboard() {
 
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+          <TabsTrigger value="overview">{t.financialDashboard.overview}</TabsTrigger>
+          <TabsTrigger value="transactions">{t.financialDashboard.transactions}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">

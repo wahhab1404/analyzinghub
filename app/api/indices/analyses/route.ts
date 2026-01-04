@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { CreateAnalysisRequest, IndexAnalysisWithAuthor } from '@/services/indices/types';
 
 /**
@@ -8,7 +8,7 @@ import { CreateAnalysisRequest, IndexAnalysisWithAuthor } from '@/services/indic
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
     const { searchParams } = new URL(request.url);
 
     const indexSymbol = searchParams.get('index_symbol');
@@ -79,29 +79,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Count active trades for each analysis
-    const analysesWithCounts = await Promise.all(
+    // Fetch trades for each analysis
+    const analysesWithTrades = await Promise.all(
       (data || []).map(async (analysis) => {
-        const { count: tradesCount } = await supabase
+        const { data: trades } = await supabase
           .from('index_trades')
-          .select('*', { count: 'exact', head: true })
-          .eq('analysis_id', analysis.id);
-
-        const { count: activeTradesCount } = await supabase
-          .from('index_trades')
-          .select('*', { count: 'exact', head: true })
+          .select('*')
           .eq('analysis_id', analysis.id)
-          .eq('status', 'active');
+          .order('published_at', { ascending: false, nullsFirst: false });
+
+        const activeTrades = (trades || []).filter(t => t.status === 'active');
 
         return {
           ...analysis,
-          trades_count: tradesCount || 0,
-          active_trades_count: activeTradesCount || 0,
+          trades: trades || [],
+          trades_count: trades?.length || 0,
+          active_trades_count: activeTrades.length || 0,
         };
       })
     );
 
-    return NextResponse.json({ analyses: analysesWithCounts });
+    return NextResponse.json({ analyses: analysesWithTrades });
   } catch (error: any) {
     console.error('Error in GET /api/indices/analyses:', error);
     return NextResponse.json(
@@ -117,7 +115,7 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
 
     // Check authentication
     const {
@@ -165,7 +163,7 @@ export async function POST(request: NextRequest) {
     // Set published_at if status is published
     const published_at = body.status === 'published' ? new Date().toISOString() : null;
 
-    const { data: analysis, error: insertError } = await supabase
+    const { data: analysis, error: insertError} = await supabase
       .from('index_analyses')
       .insert({
         index_symbol: body.index_symbol,
@@ -176,6 +174,12 @@ export async function POST(request: NextRequest) {
         chart_embed_url: body.chart_embed_url || null,
         visibility: body.visibility || 'public',
         status: body.status || 'draft',
+        timeframe: body.timeframe || null,
+        schools_used: body.schools_used || [],
+        invalidation_price: body.invalidation_price || null,
+        targets: body.targets || [],
+        parent_analysis_id: body.parent_analysis_id || null,
+        telegram_channel_id: body.telegram_channel_id || null,
         published_at,
       })
       .select(`
@@ -187,6 +191,32 @@ export async function POST(request: NextRequest) {
     if (insertError) {
       console.error('Error creating analysis:', insertError);
       return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
+
+    // Publish to Telegram if requested and published
+    if (body.auto_publish_telegram && body.status === 'published' && body.telegram_channel_id) {
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        if (supabaseUrl && serviceRoleKey) {
+          await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({
+              entityType: 'analysis',
+              entityId: analysis.id,
+              channelId: body.telegram_channel_id,
+            }),
+          });
+        }
+      } catch (telegramError) {
+        console.error('Failed to publish to Telegram:', telegramError);
+        // Don't fail the request if Telegram fails
+      }
     }
 
     return NextResponse.json({ analysis }, { status: 201 });

@@ -39,14 +39,14 @@ export function OTPLoginForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || t('auth.sendingCode'));
+        throw new Error(data.error || t.auth.sendingCode);
       }
 
       setIsNewUser(data.isNewUser);
-      setSuccess(t('auth.verificationCodeSent'));
+      setSuccess(t.auth.verificationCodeSent);
       setStep(data.isNewUser ? 'username' : 'code');
     } catch (err: any) {
-      setError(err.message || t('auth.sendingCode'));
+      setError(err.message || t.auth.sendingCode);
     } finally {
       setLoading(false);
     }
@@ -75,10 +75,10 @@ export function OTPLoginForm() {
         if (data.remainingAttempts !== undefined) {
           setRemainingAttempts(data.remainingAttempts);
         }
-        throw new Error(data.error || t('auth.invalidCredentials'));
+        throw new Error(data.error || t.auth.invalidCredentials);
       }
 
-      setSuccess(t('auth.loginSuccessful'));
+      setSuccess(t.auth.loginSuccessful);
       setTimeout(() => {
         router.push('/dashboard/feed');
         router.refresh();

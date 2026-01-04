@@ -21,7 +21,7 @@ export default function DashboardPage() {
         if (!d.user) {
           router.push('/login')
         } else {
-          setUser(d.user)
+          router.push('/dashboard/feed')
         }
       })
       .catch(() => {

@@ -33,10 +33,10 @@ export async function GET(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({
+        hasActiveSubscription: false,
+        subscription: null,
+      })
     }
 
     const { searchParams } = new URL(request.url)

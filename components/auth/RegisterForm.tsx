@@ -92,7 +92,7 @@ export function RegisterForm() {
       }
 
       console.log('[RegisterForm] Registration successful, redirecting to dashboard')
-      window.location.href = '/dashboard'
+      window.location.href = '/dashboard/feed'
     } catch (err) {
       setError(err instanceof Error ? err.message : t.auth.accountCreated)
     } finally {

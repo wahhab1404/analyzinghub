@@ -21,7 +21,7 @@ export function createClient(cookieStore: ReadonlyRequestCookies) {
         {
           cookies: {
             get(name: string) {
-              return cookieStore.get(name)?.value
+              return cookieStore?.get?.(name)?.value
             },
             set() {},
             remove() {},
@@ -44,7 +44,7 @@ export function createClient(cookieStore: ReadonlyRequestCookies) {
     {
       cookies: {
         get(name: string) {
-          return cookieStore.get(name)?.value
+          return cookieStore?.get?.(name)?.value
         },
         set() {},
         remove() {},
@@ -85,7 +85,7 @@ export function createServerClient() {
       {
         cookies: {
           get(name: string) {
-            return cookieStore.get(name)?.value
+            return cookieStore?.get?.(name)?.value
           },
           set() {},
           remove() {},

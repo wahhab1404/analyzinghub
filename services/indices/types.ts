@@ -34,6 +34,12 @@ export interface IndexAnalysis {
   status: AnalysisStatus;
   views_count: number;
   likes_count: number;
+  timeframe: string | null;
+  schools_used: string[];
+  invalidation_price: number | null;
+  telegram_channel_id: string | null;
+  telegram_message_id: string | null;
+  telegram_published_at: string | null;
   created_at: string;
   published_at: string | null;
   updated_at: string;
@@ -100,6 +106,9 @@ export interface IndexTrade {
   expiry: string | null;
   option_type: OptionType | null;
   contract_multiplier: number;
+  trade_price_basis: 'OPTION_PREMIUM' | 'UNDERLYING_PRICE';
+  entry_price_source: 'polygon' | 'manual';
+  entry_override_reason: string | null;
   entry_underlying_snapshot: UnderlyingSnapshot;
   entry_contract_snapshot: ContractSnapshot;
   current_underlying: number | null;
@@ -111,6 +120,10 @@ export interface IndexTrade {
   targets: TradeTarget[];
   stoploss: TradeStoploss | null;
   notes: string | null;
+  win_condition_met: string | null;
+  loss_condition_met: string | null;
+  telegram_message_id: string | null;
+  telegram_published_at: string | null;
   last_quote_at: string | null;
   created_at: string;
   published_at: string | null;
@@ -131,7 +144,12 @@ export interface AnalysisUpdate {
   analysis_id: string;
   author_id: string;
   body: string;
+  text_en: string;
+  text_ar: string | null;
+  update_type: 'manual' | 'system' | 'target_hit' | 'stop_hit' | 'invalidation' | 'adjustment';
   attachment_url: string | null;
+  telegram_message_id: string | null;
+  telegram_published_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -149,8 +167,13 @@ export interface TradeUpdate {
   trade_id: string;
   author_id: string;
   body: string;
+  text_en: string;
+  text_ar: string | null;
+  update_type: 'manual' | 'system' | 'target_hit' | 'stop_hit' | 'entry_fill' | 'scale' | 'adjustment';
   attachment_url: string | null;
   changes: Record<string, { old: any; new: any }>;
+  telegram_message_id: string | null;
+  telegram_published_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +196,11 @@ export interface CreateAnalysisRequest {
   chart_embed_url?: string;
   visibility: AnalysisVisibility;
   status: AnalysisStatus;
+  timeframe?: string;
+  schools_used?: string[];
+  invalidation_price?: number;
+  telegram_channel_id?: string;
+  auto_publish_telegram?: boolean;
 }
 
 export interface UpdateAnalysisRequest {
@@ -189,6 +217,7 @@ export interface CreateTradeRequest {
   instrument_type: InstrumentType;
   direction: TradeDirection;
   underlying_index_symbol: IndexSymbol;
+  trade_price_basis?: 'OPTION_PREMIUM' | 'UNDERLYING_PRICE';
   polygon_option_ticker?: string; // Required for options
   strike?: number; // Required for options
   expiry?: string; // Required for options
@@ -196,6 +225,9 @@ export interface CreateTradeRequest {
   targets?: TradeTarget[];
   stoploss?: TradeStoploss;
   notes?: string;
+  entry_override?: number;
+  entry_override_reason?: string;
+  auto_publish_telegram?: boolean;
 }
 
 export interface UpdateTradeRequest {
@@ -206,14 +238,22 @@ export interface UpdateTradeRequest {
 }
 
 export interface CreateAnalysisUpdateRequest {
-  body: string;
+  body?: string; // For backward compatibility
+  text_en: string;
+  text_ar?: string;
+  update_type?: 'manual' | 'system' | 'target_hit' | 'stop_hit' | 'invalidation' | 'adjustment';
   attachment_url?: string;
+  auto_publish_telegram?: boolean;
 }
 
 export interface CreateTradeUpdateRequest {
-  body: string;
+  body?: string; // For backward compatibility
+  text_en: string;
+  text_ar?: string;
+  update_type?: 'manual' | 'system' | 'target_hit' | 'stop_hit' | 'entry_fill' | 'scale' | 'adjustment';
   attachment_url?: string;
   changes?: Record<string, { old: any; new: any }>;
+  auto_publish_telegram?: boolean;
 }
 
 // Realtime update types (for SSE streaming)

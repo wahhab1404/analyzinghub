@@ -1,26 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { polygonService } from '@/services/indices/polygon.service';
+import { createServerClient } from '@/lib/supabase/server';
+import { optionsChainService } from '@/services/indices/options-chain.service';
+import { optionsCacheService } from '@/services/indices/options-cache.service';
 
 /**
  * GET /api/indices/contracts
- * Fetch available options contracts for an underlying index
+ * Fetch curated options contracts with ATM-centered strike selection
+ *
+ * NEW IMPLEMENTATION:
+ * - Uses Polygon Option Chain Snapshot API (includes pricing + underlying)
+ * - ATM-centered strike selection algorithm
+ * - Auto-detects strike increments
+ * - DTE filtering (days to expiration)
+ * - Liquidity filtering (volume/OI)
+ * - Supabase caching with TTL
+ * - Grouped by expiration with curated strikes
  *
  * Query params:
  * - underlying: SPX | NDX | DJI (required)
- * - expiry: YYYY-MM-DD (optional)
- * - optionType: call | put (optional)
- * - minStrike: number (optional)
- * - maxStrike: number (optional)
- * - minVolume: number (optional)
- * - minOpenInterest: number (optional)
- * - minPremium: number (optional)
- * - maxPremium: number (optional)
- * - limit: number (default: 100, max: 250)
+ * - direction: call | put (required)
+ * - percentBand: % around ATM (default: 3, range: 1-10)
+ * - minDTE: min days to expiration (default: 0)
+ * - maxDTE: max days to expiration (default: 45)
+ * - maxExpirations: max expirations to return (default: 5)
+ * - strikesPerExpiration: strikes per expiration (default: 8)
+ * - includeOneITM: include 1 ITM strike (default: true)
+ * - minVolume: minimum volume filter (default: 0)
+ * - minOpenInterest: minimum OI filter (default: 0)
+ * - cacheTTL: cache TTL in seconds (default: 60)
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
 
     // Check authentication
     const {
@@ -57,7 +68,8 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
 
-    const underlying = searchParams.get('underlying');
+    // Validate required parameters
+    const underlying = searchParams.get('underlying')?.toUpperCase().trim();
     if (!underlying) {
       return NextResponse.json(
         { error: 'Missing required parameter: underlying' },
@@ -72,56 +84,89 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const filters: any = {
+    const direction = searchParams.get('direction') || searchParams.get('optionType');
+    if (!direction || !['call', 'put'].includes(direction)) {
+      return NextResponse.json(
+        { error: 'Missing or invalid required parameter: direction (call or put)' },
+        { status: 400 }
+      );
+    }
+
+    // Build enhanced config
+    const config: any = {
       underlying,
-      limit: Math.min(parseInt(searchParams.get('limit') || '100'), 250),
+      contractType: direction as 'call' | 'put',
     };
 
-    if (searchParams.get('expiry')) {
-      filters.expiry = searchParams.get('expiry');
+    // Parse optional parameters with validation
+    if (searchParams.get('percentBand')) {
+      const percentBand = parseFloat(searchParams.get('percentBand')!);
+      if (percentBand > 0 && percentBand <= 0.10) {
+        config.percentBand = percentBand;
+      } else {
+        return NextResponse.json(
+          { error: 'percentBand must be between 0 and 0.10 (0-10%)' },
+          { status: 400 }
+        );
+      }
     }
 
-    if (searchParams.get('optionType')) {
-      filters.optionType = searchParams.get('optionType');
+    if (searchParams.get('minDTE')) {
+      config.minDTE = Math.max(0, parseInt(searchParams.get('minDTE')!));
     }
 
-    if (searchParams.get('minStrike')) {
-      filters.minStrike = parseFloat(searchParams.get('minStrike')!);
+    if (searchParams.get('maxDTE')) {
+      config.maxDTE = Math.min(365, parseInt(searchParams.get('maxDTE')!));
     }
 
-    if (searchParams.get('maxStrike')) {
-      filters.maxStrike = parseFloat(searchParams.get('maxStrike')!);
+    if (searchParams.get('maxExpirations')) {
+      config.maxExpirations = Math.min(10, parseInt(searchParams.get('maxExpirations')!));
+    }
+
+    if (searchParams.get('strikesPerExpiration')) {
+      config.strikesPerExpiration = Math.min(20, parseInt(searchParams.get('strikesPerExpiration')!));
+    }
+
+    if (searchParams.get('includeOneITM') !== null) {
+      config.includeOneITM = searchParams.get('includeOneITM') === 'true';
     }
 
     if (searchParams.get('minVolume')) {
-      filters.minVolume = parseInt(searchParams.get('minVolume')!);
+      config.minVolume = parseInt(searchParams.get('minVolume')!);
     }
 
     if (searchParams.get('minOpenInterest')) {
-      filters.minOpenInterest = parseInt(searchParams.get('minOpenInterest')!);
+      config.minOpenInterest = parseInt(searchParams.get('minOpenInterest')!);
     }
 
-    if (searchParams.get('minPremium')) {
-      filters.minPremium = parseFloat(searchParams.get('minPremium')!);
-    }
+    const cacheTTL = parseInt(searchParams.get('cacheTTL') || '60');
 
-    if (searchParams.get('maxPremium')) {
-      filters.maxPremium = parseFloat(searchParams.get('maxPremium')!);
-    }
-
-    console.log('Fetching options chain with filters:', filters);
+    console.log('[API /indices/contracts] Request config:', JSON.stringify(config, null, 2));
 
     try {
-      const contracts = await polygonService.getOptionsChain(filters);
+      // Check cache first
+      let response = await optionsCacheService.get(config);
 
-      return NextResponse.json({
-        contracts,
-        count: contracts.length,
-      });
-    } catch (polygonError: any) {
-      console.error('Polygon API error:', polygonError);
+      if (response) {
+        console.log('[API /indices/contracts] Cache hit');
+        return NextResponse.json(response);
+      }
+
+      // Cache miss - fetch from Polygon
+      console.log('[API /indices/contracts] Cache miss - fetching from Polygon');
+      response = await optionsChainService.getOptionsChain(config);
+
+      // Cache the response
+      await optionsCacheService.set(config, response, cacheTTL);
+
+      return NextResponse.json(response);
+    } catch (error: any) {
+      console.error('[API /indices/contracts] Error:', error);
       return NextResponse.json(
-        { error: `Failed to fetch contracts: ${polygonError.message}` },
+        {
+          error: error.message || 'Failed to fetch options chain',
+          details: error.toString(),
+        },
         { status: 503 }
       );
     }

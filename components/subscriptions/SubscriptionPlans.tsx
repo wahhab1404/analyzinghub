@@ -51,7 +51,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
       }
     } catch (error) {
       console.error('Failed to load plans:', error)
-      toast.error(`${t('subscriptions.failedToLoadPlans')}. ${t('subscriptions.tryAgain')}`)
+      toast.error(`${t.subscriptions.failedToLoadPlans}. ${t.subscriptions.tryAgain}`)
     } finally {
       setLoading(false)
     }
@@ -86,7 +86,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
-        toast.error(t('subscriptions.loginToSubscribe'))
+        toast.error(t.subscriptions.loginToSubscribe)
         return
       }
 
@@ -102,21 +102,37 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
       const data = await response.json()
 
       if (!response.ok) {
-        toast.error(data.error || t('subscriptions.failedToSubscribe'))
+        if (data.requiresTelegram) {
+          toast.error(data.message || 'Please connect your Telegram account first', {
+            duration: 5000,
+            action: {
+              label: 'Go to Settings',
+              onClick: () => window.location.href = '/dashboard/settings?tab=telegram'
+            }
+          })
+          return
+        }
+        toast.error(data.error || t.subscriptions.failedToSubscribe)
         return
       }
 
-      toast.success(t('subscriptions.subscriptionActivated'))
+      toast.success(t.subscriptions.subscriptionActivated)
 
-      if (data.inviteLink) {
-        toast.info(t('subscriptions.telegramInviteAvailable'))
+      if (data.inviteLink && data.channelName) {
+        toast.success(`Join ${data.channelName} on Telegram!`, {
+          duration: 10000,
+          action: {
+            label: 'Join Channel',
+            onClick: () => window.open(data.inviteLink, '_blank')
+          }
+        })
       }
 
       await checkSubscriptions()
       await loadPlans()
     } catch (error) {
       console.error('Subscription error:', error)
-      toast.error(t('subscriptions.failedToSubscribe'))
+      toast.error(t.subscriptions.failedToSubscribe)
     } finally {
       setSubscribing(null)
     }
@@ -138,9 +154,9 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-2xl font-bold">{t('subscriptions.subscriptionPlans')}</h3>
+        <h3 className="text-2xl font-bold">{t.subscriptions.subscriptionPlans}</h3>
         <p className="text-muted-foreground">
-          {t('subscriptions.subscribeToGet').replace('{name}', analystName)}
+          {t.subscriptions.subscribeToGet.replace('{name}', analystName)}
         </p>
       </div>
 
@@ -162,7 +178,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
                     </CardDescription>
                   </div>
                   {isSubscribed && (
-                    <Badge variant="default">{t('subscriptions.active')}</Badge>
+                    <Badge variant="default">{t.subscriptions.active}</Badge>
                   )}
                 </div>
 
@@ -177,7 +193,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
                   </div>
                   {plan.price_cents === 0 && (
                     <Badge variant="secondary" className="mt-2">
-                      {t('subscriptions.freeTesting')}
+                      {t.subscriptions.freeTesting}
                     </Badge>
                   )}
                 </div>
@@ -200,7 +216,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
                 {plan.telegram_channel_id && (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Check className="h-4 w-4 text-primary" />
-                    <span>{t('subscriptions.includesTelegramAccess')}</span>
+                    <span>{t.subscriptions.includesTelegramAccess}</span>
                   </div>
                 )}
 
@@ -215,7 +231,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
                   <div className="flex items-center gap-1">
                     <Calendar className="h-4 w-4" />
                     <span>
-                      {t('subscriptions.daysCount').replace('{count}', plan.billing_interval === 'month' ? '30' : '365')}
+                      {t.subscriptions.daysCount.replace('{count}', plan.billing_interval === 'month' ? '30' : '365')}
                     </span>
                   </div>
                 </div>
@@ -226,12 +242,12 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
                   className="w-full"
                 >
                   {subscribing === plan.id
-                    ? t('subscriptions.subscribing')
+                    ? t.subscriptions.subscribing
                     : isSubscribed
-                    ? t('subscriptions.subscribed')
+                    ? t.subscriptions.subscribed
                     : isFull
-                    ? t('subscriptions.planFull')
-                    : t('subscriptions.subscribeNow')}
+                    ? t.subscriptions.planFull
+                    : t.subscriptions.subscribeNow}
                 </Button>
               </CardContent>
             </Card>

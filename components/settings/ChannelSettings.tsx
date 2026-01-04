@@ -49,6 +49,19 @@ export function ChannelSettings() {
     fetchStatus();
   }, []);
 
+  // Auto-select first available channel type when status loads
+  useEffect(() => {
+    if (status?.channels) {
+      const connectedTypes = status.channels.map(c => c.audienceType);
+      const availableTypes = (['public', 'followers', 'subscribers'] as const).filter(
+        type => !connectedTypes.includes(type)
+      );
+      if (availableTypes.length > 0 && connectedTypes.includes(selectedAudienceType)) {
+        setSelectedAudienceType(availableTypes[0]);
+      }
+    }
+  }, [status]);
+
   useEffect(() => {
     if (editingChannel && status?.channels) {
       const channel = status.channels.find(c => c.id === editingChannel);
@@ -109,6 +122,12 @@ export function ChannelSettings() {
   const connectChannel = async () => {
     if (!channelInput.trim()) {
       toast.error('Please enter a channel ID or username');
+      return;
+    }
+
+    // Check if this channel type is already connected
+    if (status?.channels?.some(c => c.audienceType === selectedAudienceType)) {
+      toast.error(`You already have a ${selectedAudienceType} channel connected. Please disconnect it first or select a different channel type.`);
       return;
     }
 
@@ -416,6 +435,13 @@ export function ChannelSettings() {
               <div className="border-t pt-4">
                 <h3 className="font-semibold mb-4">Add Another Channel</h3>
                 <div className="space-y-4">
+                  <Alert className="border-blue-500/50 bg-blue-500/10">
+                    <AlertCircle className="h-4 w-4 text-blue-500" />
+                    <AlertDescription className="text-blue-700 dark:text-blue-400">
+                      You can have one channel per audience type. Select an available type below.
+                    </AlertDescription>
+                  </Alert>
+
                   <div className="space-y-3 rounded-lg border p-4">
                     <Label htmlFor="audience-type">Channel Type</Label>
                     <Select
@@ -428,14 +454,23 @@ export function ChannelSettings() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="public" disabled={status.channels.some(c => c.audienceType === 'public')}>
-                          Public Channel (All Followers)
+                        <SelectItem
+                          value="public"
+                          disabled={status.channels.some(c => c.audienceType === 'public')}
+                        >
+                          Public Channel {status.channels.some(c => c.audienceType === 'public') ? '(Already Connected)' : ''}
                         </SelectItem>
-                        <SelectItem value="followers" disabled={status.channels.some(c => c.audienceType === 'followers')}>
-                          Followers-Only Channel
+                        <SelectItem
+                          value="followers"
+                          disabled={status.channels.some(c => c.audienceType === 'followers')}
+                        >
+                          Followers-Only Channel {status.channels.some(c => c.audienceType === 'followers') ? '(Already Connected)' : ''}
                         </SelectItem>
-                        <SelectItem value="subscribers" disabled={status.channels.some(c => c.audienceType === 'subscribers')}>
-                          Subscribers-Only Channel
+                        <SelectItem
+                          value="subscribers"
+                          disabled={status.channels.some(c => c.audienceType === 'subscribers')}
+                        >
+                          Subscribers-Only Channel {status.channels.some(c => c.audienceType === 'subscribers') ? '(Already Connected)' : ''}
                         </SelectItem>
                       </SelectContent>
                     </Select>

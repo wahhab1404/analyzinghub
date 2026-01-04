@@ -11,8 +11,10 @@ import { RecommendedAnalyzers } from '@/components/recommendations/RecommendedAn
 import { RecommendedSymbols } from '@/components/recommendations/RecommendedSymbols'
 import { RefreshCw, FileText, UserPlus, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 export default function FeedPage() {
+  const { t } = useTranslation()
   const router = useRouter()
   const [globalAnalyses, setGlobalAnalyses] = useState<any[]>([])
   const [followingAnalyses, setFollowingAnalyses] = useState<any[]>([])
@@ -84,13 +86,13 @@ export default function FeedPage() {
       const data = await response.json()
 
       if (data.success) {
-        toast.success(`Validation complete! Checked: ${data.results.checked}, Validated: ${data.results.validated}`)
+        toast.success(`${t.dashboard.feed.validation.complete} ${data.results.checked}, ${t.dashboard.feed.validation.validated} ${data.results.validated}`)
         fetchAnalyses()
       } else {
-        toast.error(data.error || 'Validation failed')
+        toast.error(data.error || t.dashboard.feed.validation.failed)
       }
     } catch (error) {
-      toast.error('Failed to validate prices')
+      toast.error(t.dashboard.feed.validation.failedToValidate)
     } finally {
       setValidating(false)
     }
@@ -105,7 +107,7 @@ export default function FeedPage() {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">Loading analyses...</p>
+        <p className="text-muted-foreground">{t.dashboard.feed.loadingAnalyses}</p>
       </div>
     )
   }
@@ -115,8 +117,8 @@ export default function FeedPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6 flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Analysis Feed</h1>
-            <p className="text-muted-foreground">Latest market analyses from expert traders</p>
+            <h1 className="text-3xl font-bold">{t.dashboard.feed.pageTitle}</h1>
+            <p className="text-muted-foreground">{t.dashboard.feed.pageSubtitle}</p>
           </div>
           <Button
             onClick={handleValidatePrices}
@@ -125,7 +127,7 @@ export default function FeedPage() {
             size="sm"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${validating ? 'animate-spin' : ''}`} />
-            {validating ? 'Validating...' : 'Check Prices'}
+            {validating ? t.dashboard.feed.validating : t.dashboard.feed.checkPrices}
           </Button>
         </div>
 
@@ -133,9 +135,9 @@ export default function FeedPage() {
           <div className="lg:col-span-2">
             <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
               <TabsList>
-                <TabsTrigger value="recommended">Recommended</TabsTrigger>
-                <TabsTrigger value="global">Global Feed</TabsTrigger>
-                <TabsTrigger value="following">Following</TabsTrigger>
+                <TabsTrigger value="recommended">{t.dashboard.feed.recommended}</TabsTrigger>
+                <TabsTrigger value="global">{t.dashboard.feed.globalFeed}</TabsTrigger>
+                <TabsTrigger value="following">{t.dashboard.feed.following}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="recommended" className="space-y-4">
@@ -150,14 +152,14 @@ export default function FeedPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-lg">
                     <FileText className="h-16 w-16 text-muted-foreground mb-4 opacity-50" />
-                    <h3 className="text-lg font-semibold mb-2">No Analyses Yet</h3>
+                    <h3 className="text-lg font-semibold mb-2">{t.dashboard.feed.emptyStates.noAnalysesYet}</h3>
                     <p className="text-muted-foreground text-center max-w-md mb-6">
-                      Be the first to share your market analysis and start building your following
+                      {t.dashboard.feed.emptyStates.beFirstToShare}
                     </p>
                     <Link href="/dashboard/create-analysis">
                       <Button>
                         <FileText className="h-4 w-4 mr-2" />
-                        Create Your First Analysis
+                        {t.dashboard.feed.emptyStates.createFirstAnalysis}
                       </Button>
                     </Link>
                   </div>
@@ -172,14 +174,14 @@ export default function FeedPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-lg">
                     <UserPlus className="h-16 w-16 text-muted-foreground mb-4 opacity-50" />
-                    <h3 className="text-lg font-semibold mb-2">No Followed Analyzers</h3>
+                    <h3 className="text-lg font-semibold mb-2">{t.dashboard.feed.emptyStates.noFollowedAnalyzers}</h3>
                     <p className="text-muted-foreground text-center max-w-md mb-6">
-                      Start following expert analyzers to see their market insights in your personalized feed
+                      {t.dashboard.feed.emptyStates.startFollowingExperts}
                     </p>
                     <Link href="/dashboard/search">
                       <Button>
                         <UserPlus className="h-4 w-4 mr-2" />
-                        Find Analyzers to Follow
+                        {t.dashboard.feed.emptyStates.findAnalyzersToFollow}
                       </Button>
                     </Link>
                   </div>

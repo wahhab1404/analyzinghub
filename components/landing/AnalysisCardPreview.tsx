@@ -1,30 +1,34 @@
 'use client'
 
-import { motion, useAnimationControls } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { TrendingUp, Clock, Target, AlertTriangle } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 export function AnalysisCardPreview() {
-  const controls = useAnimationControls()
   const [count, setCount] = useState(0)
 
   useEffect(() => {
-    controls.start({
-      scale: [1, 1.02, 1],
-      transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
-    })
-
     const interval = setInterval(() => {
       setCount((prev) => (prev < 2456.78 ? prev + 12.34 : 2456.78))
     }, 50)
 
     return () => clearInterval(interval)
-  }, [controls])
+  }, [])
 
   return (
-    <motion.div animate={controls} className="relative">
+    <motion.div
+      animate={{
+        scale: [1, 1.02, 1]
+      }}
+      transition={{
+        duration: 2,
+        repeat: Infinity,
+        ease: 'easeInOut'
+      }}
+      className="relative"
+    >
       <Card className="border-border bg-card p-6 shadow-2xl">
         <div className="mb-4 flex items-start justify-between">
           <div>

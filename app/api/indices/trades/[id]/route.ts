@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { UpdateTradeRequest } from '@/services/indices/types';
 
 /**
@@ -8,11 +8,22 @@ import { UpdateTradeRequest } from '@/services/indices/types';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
+
+    // Check authentication
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError) {
+      console.error('Auth error in GET /api/indices/trades/[id]:', authError);
+    }
 
     // Fetch trade
     const { data: trade, error: tradeError } = await supabase
@@ -25,7 +36,17 @@ export async function GET(
       .eq('id', id)
       .single();
 
-    if (tradeError || !trade) {
+    if (tradeError) {
+      console.error('Error fetching trade:', tradeError, 'Trade ID:', id, 'User:', user?.id);
+      return NextResponse.json({
+        error: 'Trade not found',
+        details: tradeError.message,
+        tradeId: id
+      }, { status: 404 });
+    }
+
+    if (!trade) {
+      console.error('Trade not found in database, ID:', id, 'User:', user?.id);
       return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
     }
 
@@ -62,10 +83,11 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
 
     // Check authentication
@@ -181,10 +203,11 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
 
     // Check authentication

@@ -58,6 +58,11 @@ interface AnalysisDetailViewProps {
       price_at_hit: number
       hit_at: string
     }>
+    analyzer_plans?: Array<{
+      id: string
+      name: string
+      is_active: boolean
+    }>
   }
 }
 
@@ -433,7 +438,9 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
               {analysis.visibility === 'subscribers' && (
                 <Badge variant="outline" className="bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 text-amber-900 border-amber-400 dark:from-amber-950/50 dark:via-yellow-950/50 dark:to-amber-950/50 dark:text-amber-200 dark:border-amber-600 font-bold shadow-md ring-1 ring-amber-200/50 dark:ring-amber-800/50">
                   <Lock className="h-3.5 w-3.5 mr-1.5 stroke-[2.5]" />
-                  Subscribers Only
+                  {analysis.analyzer_plans && analysis.analyzer_plans.length > 0
+                    ? `${analysis.analyzer_plans.filter(p => p.is_active).map(p => p.name).join(', ')}`
+                    : 'Subscribers Only'}
                 </Badge>
               )}
               {analysis.visibility === 'followers' && (

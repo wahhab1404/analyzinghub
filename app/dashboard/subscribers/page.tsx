@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { useLanguage } from '@/lib/i18n/language-context'
 import {
   Search,
   TrendingUp,
@@ -71,6 +72,7 @@ interface Subscriber {
 }
 
 export default function SubscribersManagement() {
+  const { t } = useLanguage()
   const [loading, setLoading] = useState(true)
   const [subscribers, setSubscribers] = useState<Subscriber[]>([])
   const [filteredSubscribers, setFilteredSubscribers] = useState<Subscriber[]>([])
@@ -153,12 +155,12 @@ export default function SubscribersManagement() {
 
   const getStatusBadge = (subscriber: Subscriber) => {
     if (subscriber.isExpired || subscriber.status === 'expired') {
-      return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />Expired</Badge>
+      return <Badge variant="destructive" className="gap-1"><XCircle className="h-3 w-3" />{t.financialDashboard.expired}</Badge>
     }
     if (subscriber.status === 'canceled') {
-      return <Badge variant="secondary" className="gap-1"><AlertCircle className="h-3 w-3" />Canceled</Badge>
+      return <Badge variant="secondary" className="gap-1"><AlertCircle className="h-3 w-3" />{t.financialDashboard.expiredCanceled}</Badge>
     }
-    return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle2 className="h-3 w-3" />Active</Badge>
+    return <Badge variant="default" className="gap-1 bg-green-600"><CheckCircle2 className="h-3 w-3" />{t.plansManagement.active}</Badge>
   }
 
   const getDaysRemaining = (endDate?: string) => {
@@ -176,7 +178,7 @@ export default function SubscribersManagement() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Loading subscribers...</div>
+        <div className="text-lg">{t.common.loading}</div>
       </div>
     )
   }
@@ -186,10 +188,10 @@ export default function SubscribersManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
-            Subscriber Management
+            {t.financialDashboard.subscribersTable}
           </h1>
           <p className="text-muted-foreground mt-2">
-            Comprehensive overview of your subscriber base and revenue
+            {t.financialDashboard.comprehensiveOverview}
           </p>
         </div>
       </div>
@@ -197,40 +199,40 @@ export default function SubscribersManagement() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className="border-blue-200 dark:border-blue-900 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/20 dark:to-cyan-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Subscribers</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.totalSubscribersLabel}</CardTitle>
             <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-full">
               <Users className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.total}</div>
-            <p className="text-xs text-muted-foreground mt-1">All-time subscribers</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.financialDashboard.allTimeSubscribers}</p>
           </CardContent>
         </Card>
 
         <Card className="border-green-200 dark:border-green-900 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.activeLabel}</CardTitle>
             <div className="p-2 bg-green-100 dark:bg-green-900 rounded-full">
               <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.active}</div>
-            <p className="text-xs text-muted-foreground mt-1">Currently subscribed</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.financialDashboard.currentlySubscribedLabel}</p>
           </CardContent>
         </Card>
 
         <Card className="border-orange-200 dark:border-orange-900 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-950/20 dark:to-amber-950/20">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Expired/Canceled</CardTitle>
+            <CardTitle className="text-sm font-medium">{t.financialDashboard.expiredCanceled}</CardTitle>
             <div className="p-2 bg-orange-100 dark:bg-orange-900 rounded-full">
               <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
             </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-orange-600 dark:text-orange-400">{stats.expired}</div>
-            <p className="text-xs text-muted-foreground mt-1">Past subscribers</p>
+            <p className="text-xs text-muted-foreground mt-1">{t.financialDashboard.pastSubscribers}</p>
           </CardContent>
         </Card>
       </div>
@@ -239,13 +241,13 @@ export default function SubscribersManagement() {
         <CardHeader className="border-b bg-gradient-to-r from-slate-50 to-gray-50 dark:from-slate-950/20 dark:to-gray-950/20">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-2xl">Subscribers</CardTitle>
-              <CardDescription className="mt-1">Detailed subscriber information and analytics</CardDescription>
+              <CardTitle className="text-2xl">{t.financialDashboard.subscribersTable}</CardTitle>
+              <CardDescription className="mt-1">{t.financialDashboard.subscribersTableDesc}</CardDescription>
             </div>
             <div className="relative w-72">
               <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name, email, or username..."
+                placeholder={t.financialDashboard.searchPlaceholder}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -256,12 +258,12 @@ export default function SubscribersManagement() {
         <CardContent className="p-6">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full max-w-md grid-cols-3">
-              <TabsTrigger value="all">All ({subscribers.length})</TabsTrigger>
+              <TabsTrigger value="all">{t.financialDashboard.all} ({subscribers.length})</TabsTrigger>
               <TabsTrigger value="active" className="data-[state=active]:bg-green-600 data-[state=active]:text-white">
-                Active ({stats.active})
+                {t.plansManagement.active} ({stats.active})
               </TabsTrigger>
               <TabsTrigger value="expired" className="data-[state=active]:bg-orange-600 data-[state=active]:text-white">
-                Expired ({stats.expired})
+                {t.financialDashboard.expired} ({stats.expired})
               </TabsTrigger>
             </TabsList>
 
@@ -446,25 +448,25 @@ export default function SubscribersManagement() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
                       <User className="h-4 w-4" />
-                      Subscriber Information
+                      {t.financialDashboard.subscriberInformation}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Member Since</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.memberSince}</span>
                       <span className="font-semibold">{formatDate(selectedSubscriber.memberSince)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Subscriber ID</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.subscriberId}</span>
                       <span className="font-mono text-xs">{selectedSubscriber.subscriberId.slice(0, 8)}...</span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Telegram</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.telegramStatus}</span>
                       <span className="font-semibold">
                         {selectedSubscriber.telegram.connected
                           ? `@${selectedSubscriber.telegram.username}`
-                          : 'Not Connected'}
+                          : t.financialDashboard.notConnected}
                       </span>
                     </div>
                   </CardContent>
@@ -474,29 +476,29 @@ export default function SubscribersManagement() {
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium flex items-center gap-2">
                       <Receipt className="h-4 w-4" />
-                      Subscription Details
+                      {t.financialDashboard.subscriptionDetails}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Plan</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.plan}</span>
                       <span className="font-semibold">{selectedSubscriber.plan.name}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Price</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.price}</span>
                       <span className="font-semibold">
                         {formatCurrency(selectedSubscriber.plan.price)}/{selectedSubscriber.plan.interval}
                       </span>
                     </div>
                     <Separator />
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Started</span>
+                      <span className="text-muted-foreground">{t.financialDashboard.started}</span>
                       <span className="font-semibold">{formatDate(selectedSubscriber.startDate)}</span>
                     </div>
                     {selectedSubscriber.endDate && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">
-                          {selectedSubscriber.canceledAt ? 'Ends' : 'Renews'}
+                          {selectedSubscriber.canceledAt ? t.financialDashboard.renews : t.financialDashboard.renews}
                         </span>
                         <span className="font-semibold">{formatDate(selectedSubscriber.endDate)}</span>
                       </div>
@@ -509,23 +511,23 @@ export default function SubscribersManagement() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <DollarSign className="h-5 w-5" />
-                    Revenue Summary
+                    {t.financialDashboard.revenueSummary}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="grid grid-cols-3 gap-6">
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Lifetime Value</p>
+                      <p className="text-sm text-muted-foreground">{t.financialDashboard.lifetimeValue}</p>
                       <p className="text-2xl font-bold">{formatCurrency(selectedSubscriber.lifetimeValue)}</p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Net Revenue</p>
+                      <p className="text-sm text-muted-foreground">{t.financialDashboard.netRevenue}</p>
                       <p className="text-2xl font-bold text-green-600">
                         {formatCurrency(selectedSubscriber.revenue.net)}
                       </p>
                     </div>
                     <div className="space-y-1">
-                      <p className="text-sm text-muted-foreground">Renewals</p>
+                      <p className="text-sm text-muted-foreground">{t.financialDashboard.renewals}</p>
                       <p className="text-2xl font-bold">{selectedSubscriber.renewals}</p>
                     </div>
                   </div>
@@ -536,17 +538,17 @@ export default function SubscribersManagement() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Receipt className="h-5 w-5" />
-                    Transaction History
+                    {t.financialDashboard.transactionHistory}
                   </CardTitle>
                   <CardDescription>
-                    {selectedSubscriber.transactions.length} completed transaction(s)
+                    {selectedSubscriber.transactions.length} {t.financialDashboard.completedTransactions}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   {selectedSubscriber.transactions.length === 0 ? (
                     <div className="text-center py-8 text-muted-foreground">
                       <Receipt className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                      <p>No transactions recorded yet</p>
+                      <p>{t.financialDashboard.noTransactionsYet}</p>
                     </div>
                   ) : (
                     <div className="space-y-3">

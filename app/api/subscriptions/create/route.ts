@@ -55,9 +55,28 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if user has Telegram connected
+    const { data: telegramAccount, error: telegramError } = await supabase
+      .from('telegram_accounts')
+      .select('id, chat_id, username')
+      .eq('user_id', user.id)
+      .is('revoked_at', null)
+      .maybeSingle()
+
+    if (!telegramAccount) {
+      return NextResponse.json(
+        {
+          error: 'Telegram not connected',
+          requiresTelegram: true,
+          message: 'Please connect your Telegram account first to receive subscription benefits'
+        },
+        { status: 400 }
+      )
+    }
+
     const { data: plan, error: planError } = await supabase
       .from('analyzer_plans')
-      .select('*, analyst_id, max_subscribers')
+      .select('*, analyst_id, max_subscribers, telegram_channel_id')
       .eq('id', planId)
       .eq('is_active', true)
       .single()
@@ -142,21 +161,24 @@ export async function POST(request: NextRequest) {
     }
 
     let inviteLink = null
+    let channelName = null
 
     if (plan.telegram_channel_id) {
       const { data: channel } = await supabase
         .from('telegram_channels')
-        .select('channel_id')
+        .select('channel_id, channel_name')
         .eq('user_id', plan.analyst_id)
-        .eq('channel_id', plan.telegram_channel_id)
+        .eq('id', plan.telegram_channel_id)
         .maybeSingle()
 
       if (channel) {
+        channelName = channel.channel_name
+
         const { data: membership, error: membershipError } = await supabase
           .from('telegram_memberships')
           .insert({
             subscription_id: subscription.id,
-            channel_id: plan.telegram_channel_id,
+            channel_id: channel.channel_id,
             status: 'pending',
           })
           .select('*')
@@ -172,7 +194,7 @@ export async function POST(request: NextRequest) {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
-                    chat_id: plan.telegram_channel_id,
+                    chat_id: channel.channel_id,
                     member_limit: 1,
                     expire_date: Math.floor(Date.now() / 1000) + 86400,
                   }),
@@ -215,6 +237,8 @@ export async function POST(request: NextRequest) {
       status: subscription.status,
       periodEnd: subscription.current_period_end,
       inviteLink,
+      channelName,
+      hasTelegramChannel: !!plan.telegram_channel_id,
     })
   } catch (error) {
     console.error('Subscription creation error:', error)

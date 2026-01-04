@@ -13,7 +13,10 @@ export async function GET(request: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json({
+        notifications: [],
+        unread_count: 0
+      })
     }
 
     const { data: notifications, error } = await supabase

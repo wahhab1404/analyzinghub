@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { CreateTradeUpdateRequest } from '@/services/indices/types';
 
 /**
@@ -8,10 +8,11 @@ import { CreateTradeUpdateRequest } from '@/services/indices/types';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const tradeId = params.id;
 
     // Check authentication

@@ -11,7 +11,11 @@
     "telegram:status": "tsx scripts/check-telegram-status.ts",
     "telegram:setup": "tsx scripts/setup-telegram-webhook.ts",
     "telegram:test": "tsx scripts/test-webhook-locally.ts",
-    "create:analyzer": "tsx scripts/create-analyzer-user.ts"
+    "create:analyzer": "tsx scripts/create-analyzer-user.ts",
+    "check:channels": "tsx scripts/check-my-channels.ts",
+    "sync:test": "npm install && npm run build",
+    "sync:push": "git add . && git commit -m 'Sync from Bolt' && git push origin main",
+    "sync:deploy": "npm run sync:test && npm run sync:push"
   },
   "dependencies": {
     "@fontsource/cairo": "^5.2.7",

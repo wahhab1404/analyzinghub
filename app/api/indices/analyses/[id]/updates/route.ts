@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { CreateAnalysisUpdateRequest } from '@/services/indices/types';
 
 /**
@@ -8,10 +8,11 @@ import { CreateAnalysisUpdateRequest } from '@/services/indices/types';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const analysisId = params.id;
 
     // Check authentication
@@ -44,9 +45,10 @@ export async function POST(
 
     const body: CreateAnalysisUpdateRequest = await request.json();
 
-    if (!body.body) {
+    const textEn = body.text_en || body.body || '';
+    if (!textEn) {
       return NextResponse.json(
-        { error: 'Missing required field: body' },
+        { error: 'Missing required field: text_en or body' },
         { status: 400 }
       );
     }
@@ -56,7 +58,10 @@ export async function POST(
       .insert({
         analysis_id: analysisId,
         author_id: user.id,
-        body: body.body,
+        body: textEn, // For backward compatibility
+        text_en: textEn,
+        text_ar: body.text_ar || null,
+        update_type: body.update_type || 'manual',
         attachment_url: body.attachment_url || null,
       })
       .select(`
@@ -68,6 +73,41 @@ export async function POST(
     if (insertError) {
       console.error('Error creating analysis update:', insertError);
       return NextResponse.json({ error: insertError.message }, { status: 500 });
+    }
+
+    // Publish to Telegram if requested
+    if (body.auto_publish_telegram) {
+      try {
+        const { data: analysisData } = await supabase
+          .from('index_analyses')
+          .select('telegram_channel_id')
+          .eq('id', analysisId)
+          .single();
+
+        const channelId = analysisData?.telegram_channel_id;
+
+        if (channelId) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+          if (supabaseUrl && serviceRoleKey) {
+            await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${serviceRoleKey}`,
+              },
+              body: JSON.stringify({
+                entityType: 'analysis_update',
+                entityId: update.id,
+                channelId: channelId,
+              }),
+            });
+          }
+        }
+      } catch (telegramError) {
+        console.error('Failed to publish update to Telegram:', telegramError);
+      }
     }
 
     return NextResponse.json({ update }, { status: 201 });

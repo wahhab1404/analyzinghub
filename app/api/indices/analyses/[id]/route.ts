@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { UpdateAnalysisRequest } from '@/services/indices/types';
 
 /**
@@ -8,10 +8,11 @@ import { UpdateAnalysisRequest } from '@/services/indices/types';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
 
     // Get current user
@@ -119,10 +120,11 @@ export async function GET(
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
 
     // Check authentication
@@ -204,10 +206,11 @@ export async function PATCH(
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const { id } = params;
 
     // Check authentication

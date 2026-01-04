@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import Link from 'next/link'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 interface AnalyzerWithPlans {
   id: string
@@ -24,6 +25,7 @@ interface AnalyzerWithPlans {
 }
 
 export default function SubscriptionsPage() {
+  const { t } = useLanguage()
   const [analyzers, setAnalyzers] = useState<AnalyzerWithPlans[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedAnalyzer, setSelectedAnalyzer] = useState<AnalyzerWithPlans | null>(null)
@@ -57,10 +59,10 @@ export default function SubscriptionsPage() {
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <Package className="h-8 w-8" />
-          Subscription Marketplace
+          {t.subscriptionMarketplace.title}
         </h1>
         <p className="text-muted-foreground mt-2">
-          Subscribe to top analyzers and get exclusive access to their analyses
+          {t.subscriptionMarketplace.subtitle}
         </p>
       </div>
 
@@ -68,11 +70,11 @@ export default function SubscriptionsPage() {
         <TabsList>
           <TabsTrigger value="marketplace">
             <Package className="h-4 w-4 mr-2" />
-            Browse Plans
+            {t.subscriptionMarketplace.browsePlans}
           </TabsTrigger>
           <TabsTrigger value="my-subscriptions">
             <TrendingUp className="h-4 w-4 mr-2" />
-            My Subscriptions
+            {t.subscriptionMarketplace.mySubscriptions}
           </TabsTrigger>
         </TabsList>
 
@@ -86,7 +88,7 @@ export default function SubscriptionsPage() {
               <CardContent className="py-12 text-center">
                 <Package className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
                 <p className="text-muted-foreground">
-                  No subscription plans available yet
+                  {t.subscriptionMarketplace.noPlansAvailable}
                 </p>
               </CardContent>
             </Card>

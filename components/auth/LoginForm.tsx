@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Loader as Loader2, KeyRound, Mail, Eye, EyeOff } from 'lucide-react'
+import { Loader2, KeyRound, Mail, Eye, EyeOff } from 'lucide-react'
 import { OTPLoginForm } from './OTPLoginForm'
 import { useTranslation } from '@/lib/i18n/language-context'
 
@@ -29,12 +29,12 @@ export function LoginForm() {
 
     try {
       if (!email || !password) {
-        throw new Error(t('forms.validation.fillAllFields'))
+        throw new Error(t.forms.validation.fillAllFields)
       }
 
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailRegex.test(email)) {
-        throw new Error(t('forms.validation.invalidEmail'))
+        throw new Error(t.forms.validation.invalidEmail)
       }
 
       console.log('[LoginForm] Submitting login:', {
@@ -59,7 +59,7 @@ export function LoginForm() {
         result = JSON.parse(responseText)
       } catch (parseError) {
         console.error('[LoginForm] Failed to parse response:', parseError)
-        throw new Error(t('forms.validation.invalidResponse'))
+        throw new Error(t.forms.validation.invalidResponse)
       }
 
       console.log('[LoginForm] Response:', {
@@ -74,14 +74,14 @@ export function LoginForm() {
           error: result.error,
           fullResult: result,
         })
-        throw new Error(result.error || t('auth.signInFailed'))
+        throw new Error(result.error || t.auth.signInFailed)
       }
 
       console.log('[LoginForm] Login successful, redirecting to dashboard')
       window.location.href = '/dashboard/feed'
     } catch (err) {
       console.error('[LoginForm] Login error:', err)
-      setError(err instanceof Error ? err.message : t('auth.signInFailed'))
+      setError(err instanceof Error ? err.message : t.auth.signInFailed)
       setLoading(false)
     }
   }

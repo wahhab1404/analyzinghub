@@ -1,7 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { polygonService } from '@/services/indices/polygon.service';
 import { CreateTradeRequest } from '@/services/indices/types';
+
+/**
+ * GET /api/indices/analyses/[id]/trades
+ * Fetch all trades for a specific analysis
+ */
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = createServerClient();
+    const params = await context.params;
+    const analysisId = params.id;
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: trades, error: tradesError } = await supabase
+      .from('index_trades')
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name, avatar_url)
+      `)
+      .eq('analysis_id', analysisId)
+      .order('created_at', { ascending: false });
+
+    if (tradesError) {
+      console.error('Error fetching trades:', tradesError);
+      return NextResponse.json({ error: tradesError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ trades: trades || [] });
+  } catch (error: any) {
+    console.error('Error in GET /api/indices/analyses/[id]/trades:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
 
 /**
  * POST /api/indices/analyses/[id]/trades
@@ -15,10 +61,11 @@ import { CreateTradeRequest } from '@/services/indices/types';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = createClient();
+    const supabase = createServerClient();
+    const params = await context.params;
     const analysisId = params.id;
 
     // Check authentication
@@ -142,7 +189,19 @@ export async function POST(
 
     // Initialize current and high/low values with entry values
     const entryUnderlying = underlyingSnapshot.price;
-    const entryContract = contractSnapshot.mid;
+    let entryContract = contractSnapshot.mid;
+    let entrySource: 'polygon' | 'manual' = 'polygon';
+    let overrideReason: string | null = null;
+
+    // Handle manual entry override if provided
+    if (body.entry_override !== undefined && body.entry_override !== null) {
+      entryContract = body.entry_override;
+      entrySource = 'manual';
+      overrideReason = body.entry_override_reason || 'Manual entry override';
+    }
+
+    // Use custom HTML template for screenshots (not external URLs)
+    const contractUrl: string | null = null;
 
     // Create the trade
     const { data: trade, error: insertError } = await supabase
@@ -159,6 +218,9 @@ export async function POST(
         strike: body.strike || null,
         expiry: body.expiry || null,
         option_type: body.option_type || null,
+        trade_price_basis: body.trade_price_basis || 'OPTION_PREMIUM',
+        entry_price_source: entrySource,
+        entry_override_reason: overrideReason,
         entry_underlying_snapshot: underlyingSnapshot,
         entry_contract_snapshot: contractSnapshot,
         current_underlying: entryUnderlying,
@@ -170,6 +232,7 @@ export async function POST(
         targets: body.targets || [],
         stoploss: body.stoploss || null,
         notes: body.notes || null,
+        contract_url: contractUrl,
         last_quote_at: new Date().toISOString(),
         published_at: new Date().toISOString(),
       })
@@ -187,7 +250,45 @@ export async function POST(
     console.log(`Trade ${trade.id} published with entry prices:`, {
       underlying: entryUnderlying,
       contract: entryContract,
+      source: entrySource,
     });
+
+    // Publish to Telegram if requested
+    if (body.auto_publish_telegram) {
+      try {
+        // Get analysis telegram channel
+        const { data: analysisData } = await supabase
+          .from('index_analyses')
+          .select('telegram_channel_id')
+          .eq('id', analysisId)
+          .single();
+
+        const channelId = analysisData?.telegram_channel_id;
+
+        if (channelId) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+          if (supabaseUrl && serviceRoleKey) {
+            await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${serviceRoleKey}`,
+              },
+              body: JSON.stringify({
+                entityType: 'trade',
+                entityId: trade.id,
+                channelId: channelId,
+              }),
+            });
+          }
+        }
+      } catch (telegramError) {
+        console.error('Failed to publish trade to Telegram:', telegramError);
+        // Don't fail the request if Telegram fails
+      }
+    }
 
     return NextResponse.json({ trade }, { status: 201 });
   } catch (error: any) {
