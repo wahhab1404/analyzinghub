@@ -116,17 +116,30 @@ Deno.serve(async (req: Request) => {
 
           if (snapshotResponse.ok) {
             const snapshotData = await snapshotResponse.json();
-            messageData = {
-              photo: snapshotData.imageUrl,
-              caption: tradeMessage.caption,
-            };
-            console.log("[indices-telegram-publisher] Snapshot generated:", snapshotData.imageUrl);
+            if (snapshotData.ok && snapshotData.imageUrl) {
+              messageData = {
+                photo: snapshotData.imageUrl,
+                caption: tradeMessage.caption,
+              };
+              console.log("[indices-telegram-publisher] Snapshot generated successfully:", snapshotData.imageUrl);
+            } else {
+              console.error("[indices-telegram-publisher] Snapshot response invalid:", snapshotData);
+              messageData = { text: tradeMessage.caption };
+            }
           } else {
-            console.warn("[indices-telegram-publisher] Snapshot generation failed, sending text only");
+            const errorText = await snapshotResponse.text();
+            console.error("[indices-telegram-publisher] Snapshot generation failed:", {
+              status: snapshotResponse.status,
+              statusText: snapshotResponse.statusText,
+              error: errorText,
+            });
             messageData = { text: tradeMessage.caption };
           }
-        } catch (snapshotError) {
-          console.error("[indices-telegram-publisher] Snapshot error:", snapshotError);
+        } catch (snapshotError: any) {
+          console.error("[indices-telegram-publisher] Snapshot error:", {
+            message: snapshotError.message,
+            stack: snapshotError.stack,
+          });
           messageData = { text: tradeMessage.caption };
         }
       }

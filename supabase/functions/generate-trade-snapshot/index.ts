@@ -12,102 +12,52 @@ interface SnapshotRequest {
   isNewHigh?: boolean;
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
+function generateSnapshotHTML(trade: any): string {
+  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const currentPrice = trade.current_contract || entryPrice;
+  const priceChange = currentPrice - entryPrice;
+  const priceChangePercent = (priceChange / entryPrice) * 100;
+
+  const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
+  const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
+  const underlyingChange = underlyingPrice - underlyingEntryPrice;
+  const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
+
+  const mid = trade.entry_contract_snapshot?.mid || currentPrice;
+  const openInterest = trade.entry_contract_snapshot?.open_interest || 0;
+  const volume = trade.entry_contract_snapshot?.volume || 0;
+
+  const now = new Date();
+  const timestamp = `Open, ${now.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })} ${now.toLocaleDateString('en-US', {
+    day: '2-digit',
+    month: '2-digit',
+  })} ET`;
+
+  const isPriceUp = priceChange >= 0;
+  const priceColor = isPriceUp ? '#10b981' : '#ef4444';
+  const priceArrow = isPriceUp ? '▲' : '▼';
+  const isUnderlyingUp = underlyingChange >= 0;
+
+  const formatExpiry = (expiry: string) => {
+    const date = new Date(expiry);
+    return date.toLocaleDateString('en-US', {
+      day: '2-digit',
+      month: 'short',
+      year: '2-digit',
     });
-  }
+  };
 
-  try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+  const symbol = trade.polygon_option_ticker || 'SPX';
+  const strike = trade.strike || 0;
+  const expiry = trade.expiry || new Date().toISOString();
+  const optionType = trade.option_type === 'call' ? 'Call' : 'Put';
+  const underlyingSymbol = trade.analysis?.index_symbol || 'SPX';
 
-    const payload: SnapshotRequest = await req.json();
-    console.log("[generate-trade-snapshot] Generating snapshot for trade:", payload.tradeId);
-
-    const { data: trade, error: tradeError } = await supabase
-      .from("index_trades")
-      .select(`
-        *,
-        author:profiles!author_id(id, full_name),
-        analysis:index_analyses!analysis_id(id, title, index_symbol)
-      `)
-      .eq("id", payload.tradeId)
-      .single();
-
-    if (tradeError || !trade) {
-      return new Response(
-        JSON.stringify({ ok: false, error: "Trade not found" }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-    const currentPrice = trade.current_contract || entryPrice;
-    const priceChange = currentPrice - entryPrice;
-    const priceChangePercent = (priceChange / entryPrice) * 100;
-
-    const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
-    const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
-    const underlyingChange = underlyingPrice - underlyingEntryPrice;
-    const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
-
-    const mid = trade.entry_contract_snapshot?.mid || currentPrice;
-    const openInterest = trade.entry_contract_snapshot?.open_interest || 0;
-    const volume = trade.entry_contract_snapshot?.volume || 0;
-
-    const now = new Date();
-    const timestamp = `Open, ${now.toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    })} ${now.toLocaleDateString("en-US", {
-      day: "2-digit",
-      month: "2-digit",
-    })} ET`;
-
-    const data = {
-      symbol: trade.polygon_option_ticker || "SPX",
-      strike: trade.strike || 0,
-      expiry: trade.expiry || new Date().toISOString(),
-      optionType: trade.option_type === "call" ? "Call" : "Put",
-      currentPrice,
-      entryPrice,
-      priceChange,
-      priceChangePercent,
-      mid,
-      openInterest,
-      volume,
-      underlyingSymbol: trade.analysis?.index_symbol || "SPX",
-      underlyingPrice,
-      underlyingChange,
-      underlyingChangePercent,
-      timestamp,
-      isNewHigh: payload.isNewHigh || false,
-    };
-
-    const isPriceUp = data.priceChange >= 0;
-    const priceColor = isPriceUp ? "#10b981" : "#ef4444";
-    const priceArrow = isPriceUp ? "▲" : "▼";
-    const isUnderlyingUp = data.underlyingChange >= 0;
-
-    const formatExpiry = (expiry: string) => {
-      const date = new Date(expiry);
-      return date.toLocaleDateString("en-US", {
-        day: "2-digit",
-        month: "short",
-        year: "2-digit",
-      });
-    };
-
-    const html = `
-<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
@@ -137,104 +87,131 @@ Deno.serve(async (req: Request) => {
     .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 2px solid #f0f0f0; }
     .underlying-info { display: flex; gap: 28px; align-items: center; }
     .underlying-symbol { font-size: 32px; color: #1a1a1a; font-weight: 600; }
-    .underlying-price { font-size: 32px; color: ${isUnderlyingUp ? "#34c759" : "#8e8e93"}; font-weight: 600; }
+    .underlying-price { font-size: 32px; color: ${isUnderlyingUp ? '#34c759' : '#8e8e93'}; font-weight: 600; }
     .timestamp { font-size: 24px; color: #8e8e93; }
-    ${data.isNewHigh ? `
-    .new-high-badge {
-      position: absolute;
-      top: 48px;
-      right: 60px;
-      background: linear-gradient(135deg, #34c759 0%, #30d158 100%);
-      color: white;
-      padding: 18px 36px;
-      border-radius: 16px;
-      font-size: 28px;
-      font-weight: 700;
-      box-shadow: 0 12px 24px rgba(52, 199, 89, 0.35);
-      letter-spacing: 0.5px;
-    }
-    ` : ""}
   </style>
 </head>
 <body>
-  ${data.isNewHigh ? '<div class="new-high-badge">🚀 NEW HIGH!</div>' : ""}
   <div class="container">
     <div class="header">
-      <div class="title">${data.symbol.split(":")[1] || data.symbol} $${data.strike.toLocaleString()}</div>
-      <div class="subtitle">${formatExpiry(data.expiry)} (W) ${data.optionType} ${Math.abs(data.openInterest).toLocaleString()}</div>
+      <div class="title">${symbol.split(':')[1] || symbol} $${strike.toLocaleString()}</div>
+      <div class="subtitle">${formatExpiry(expiry)} (W) ${optionType} ${Math.abs(openInterest).toLocaleString()}</div>
     </div>
     <div class="content-section">
       <div class="left-section">
-        <div class="current-price">${data.currentPrice.toFixed(2)}</div>
+        <div class="current-price">${currentPrice.toFixed(2)}</div>
         <div class="price-change">
-          <span>${priceArrow}${Math.abs(data.priceChange).toFixed(2)}</span>
-          <span>${data.priceChangePercent.toFixed(2)}%</span>
+          <span>${priceArrow}${Math.abs(priceChange).toFixed(2)}</span>
+          <span>${priceChangePercent.toFixed(2)}%</span>
         </div>
       </div>
       <div class="right-section">
         <div class="stat-row">
           <span class="stat-label">Mid</span>
-          <span class="stat-value">${data.mid.toFixed(2)}</span>
+          <span class="stat-value">${mid.toFixed(2)}</span>
         </div>
         <div class="stat-row">
           <span class="stat-label">Open Int.</span>
-          <span class="stat-value">${Math.abs(data.openInterest).toLocaleString()}</span>
+          <span class="stat-value">${Math.abs(openInterest).toLocaleString()}</span>
         </div>
         <div class="stat-row">
           <span class="stat-label">Vol.</span>
-          <span class="stat-value">${Math.abs(data.volume).toLocaleString()}</span>
+          <span class="stat-value">${Math.abs(volume).toLocaleString()}</span>
         </div>
       </div>
     </div>
     <div class="footer">
       <div class="underlying-info">
-        <span class="underlying-symbol">${data.underlyingSymbol}</span>
+        <span class="underlying-symbol">${underlyingSymbol}</span>
         <span class="underlying-price">
-          ${data.underlyingPrice.toFixed(2)}
-          ${data.underlyingChangePercent >= 0 ? "+" : ""}${data.underlyingChangePercent.toFixed(2)}%
+          ${underlyingPrice.toFixed(2)}
+          ${underlyingChangePercent >= 0 ? '+' : ''}${underlyingChangePercent.toFixed(2)}%
         </span>
       </div>
-      <div class="timestamp">${data.timestamp}</div>
+      <div class="timestamp">${timestamp}</div>
     </div>
   </div>
 </body>
 </html>`;
+}
+
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 200,
+      headers: corsHeaders,
+    });
+  }
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const payload: SnapshotRequest = await req.json();
+    console.log("[generate-trade-snapshot] Generating snapshot for trade:", payload.tradeId);
+
+    const { data: trade, error: tradeError } = await supabase
+      .from("index_trades")
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name),
+        analysis:index_analyses!analysis_id(id, title, index_symbol)
+      `)
+      .eq("id", payload.tradeId)
+      .single();
+
+    if (tradeError || !trade) {
+      console.error("[generate-trade-snapshot] Trade not found:", tradeError);
+      return new Response(
+        JSON.stringify({ ok: false, error: "Trade not found" }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    }
+
+    console.log("[generate-trade-snapshot] Trade data:", {
+      id: trade.id,
+      ticker: trade.polygon_option_ticker,
+      hasEntrySnapshot: !!trade.entry_contract_snapshot,
+      currentPrice: trade.current_contract,
+    });
 
     const screenshotApiKey = Deno.env.get("SCREENSHOT_API_KEY") || "VHC72UO-TWQF3WH-N8SXQDS-R77KQPZ";
     const screenshotUrl = `https://shot.screenshotapi.net/screenshot`;
 
-    const contractUrl = trade.contract_url;
-    let screenshotParams;
+    // Generate HTML directly
+    const html = generateSnapshotHTML(trade);
 
-    if (contractUrl) {
-      screenshotParams = new URLSearchParams({
-        token: screenshotApiKey,
-        url: contractUrl,
-        width: "1200",
-        height: "800",
-        output: "image",
-        file_type: "png",
-        wait_for_event: "networkidle",
-        delay: "2000",
-        full_page: "false",
-      });
-    } else {
-      screenshotParams = new URLSearchParams({
-        token: screenshotApiKey,
-        url: `data:text/html,${encodeURIComponent(html)}`,
-        width: "1280",
-        height: "720",
-        output: "image",
-        file_type: "png",
-        wait_for_event: "load",
-      });
-    }
+    // Encode HTML as data URL
+    const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 
-    console.log("[generate-trade-snapshot] Fetching screenshot...");
-    const screenshotResponse = await fetch(`${screenshotUrl}?${screenshotParams.toString()}`);
+    console.log("[generate-trade-snapshot] Generating screenshot from inline HTML");
+
+    const screenshotParams = new URLSearchParams({
+      token: screenshotApiKey,
+      url: dataUrl,
+      width: "1280",
+      height: "720",
+      output: "image",
+      file_type: "png",
+      wait_for_event: "load",
+      delay: "1000",
+    });
+
+    const fullScreenshotUrl = `${screenshotUrl}?${screenshotParams.toString()}`;
+    const screenshotResponse = await fetch(fullScreenshotUrl);
 
     if (!screenshotResponse.ok) {
-      throw new Error(`Screenshot API failed: ${screenshotResponse.statusText}`);
+      const errorBody = await screenshotResponse.text();
+      console.error("[generate-trade-snapshot] Screenshot API error:", {
+        status: screenshotResponse.status,
+        statusText: screenshotResponse.statusText,
+        body: errorBody,
+      });
+      throw new Error(`Screenshot API failed: ${screenshotResponse.statusText} - ${errorBody}`);
     }
 
     const imageBlob = await screenshotResponse.blob();
@@ -256,13 +233,31 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Failed to upload image: ${uploadError.message}`);
     }
 
+    console.log("[generate-trade-snapshot] Upload successful:", uploadData);
+
+    const actualPath = uploadData.path;
     const { data: publicUrlData } = supabase.storage
       .from("chart-images")
-      .getPublicUrl(fileName);
+      .getPublicUrl(actualPath);
 
     const publicUrl = publicUrlData.publicUrl;
 
-    console.log("[generate-trade-snapshot] Snapshot generated successfully:", publicUrl);
+    console.log("[generate-trade-snapshot] Snapshot generated successfully");
+    console.log("[generate-trade-snapshot] Public URL:", publicUrl);
+
+    // Save the snapshot URL to the trade record
+    const { error: updateError } = await supabase
+      .from("index_trades")
+      .update({
+        contract_url: publicUrl,
+      })
+      .eq("id", payload.tradeId);
+
+    if (updateError) {
+      console.error("[generate-trade-snapshot] Failed to update trade with snapshot URL:", updateError);
+    } else {
+      console.log("[generate-trade-snapshot] Trade updated with snapshot URL");
+    }
 
     return new Response(
       JSON.stringify({

@@ -9,8 +9,10 @@ export async function middleware(request: NextRequest) {
   })
 
   const isSharePage = request.nextUrl.pathname.startsWith('/share')
+  const isSnapshotAPI = request.nextUrl.pathname.includes('/snapshot-html')
 
-  if (isSharePage) {
+  // Skip middleware for public routes (no authentication required)
+  if (isSharePage || isSnapshotAPI) {
     return response
   }
 

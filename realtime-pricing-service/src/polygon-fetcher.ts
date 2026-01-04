@@ -199,7 +199,7 @@ export class PolygonQuoteFetcher {
             continue;
           }
 
-          const data = await response.json();
+          const data = await response.json() as any;
 
           if (data.results && data.results.last_quote) {
             const lastQuote = data.results.last_quote;
