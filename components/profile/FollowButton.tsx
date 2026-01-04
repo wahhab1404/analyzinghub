@@ -82,7 +82,7 @@ export function FollowButton({ profileId, initialIsFollowing, onFollowChange }: 
         : 'rounded-full bg-blue-600 hover:bg-blue-700 text-white transition-colors'
       }
     >
-      {isLoading ? t.followButton.loading : isFollowing ? (isHovered ? t.followButton.unfollow : t.followButton.following) : t.followButton.follow}
+      {isLoading ? t('followButton.loading') : isFollowing ? (isHovered ? t('followButton.unfollow') : t('followButton.following')) : t('followButton.follow')}
     </Button>
   )
 }
