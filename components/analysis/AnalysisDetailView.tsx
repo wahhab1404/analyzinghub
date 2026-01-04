@@ -23,7 +23,7 @@ import { getTextDirection } from '@/lib/utils'
 interface AnalysisDetailViewProps {
   analysis: {
     id: string
-    post_type?: 'analysis' | 'news' | 'article'
+    post_type?: 'analysis' | 'news' | 'article' | 'indices'
     direction?: 'Long' | 'Short' | 'Neutral'
     stop_loss?: number
     analysis_type?: 'classic' | 'elliott_wave' | 'harmonics' | 'ict' | 'other'
@@ -32,20 +32,28 @@ interface AnalysisDetailViewProps {
     summary?: string
     description?: string
     content?: string
+    body?: string
     source_url?: string
-    chart_image_url: string | null
+    chart_image_url?: string | null
     created_at: string
     status?: 'IN_PROGRESS' | 'SUCCESS' | 'FAILED'
     validated_at?: string | null
     is_following?: boolean
     is_own_post?: boolean
+    is_index_analysis?: boolean
     visibility?: 'public' | 'followers' | 'subscribers' | 'private'
-    profiles: {
+    // Index analysis specific fields
+    index_symbol?: string
+    timeframe?: string
+    schools_used?: string[]
+    invalidation_price?: number
+    // Regular analysis fields
+    profiles?: {
       id: string
       full_name: string
       avatar_url: string | null
     }
-    symbols: {
+    symbols?: {
       symbol: string
     }
     analysis_targets?: Array<{
@@ -78,6 +86,14 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
   const [showImageViewer, setShowImageViewer] = useState(false)
   const [isBroadcasting, setIsBroadcasting] = useState(false)
   const analytics = useAnalytics()
+
+  // Handle both regular analyses and index analyses
+  const isIndexAnalysis = analysis.is_index_analysis || analysis.post_type === 'indices'
+  const symbol = isIndexAnalysis ? analysis.index_symbol : analysis.symbols?.symbol
+  const authorName = analysis.profiles?.full_name || 'Unknown'
+  const authorAvatar = analysis.profiles?.avatar_url || null
+  const authorId = analysis.profiles?.id || ''
+  const analysisContent = analysis.content || analysis.body || analysis.description || ''
 
   const postType = analysis.post_type || 'analysis'
 
@@ -228,11 +244,11 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
     if (!analysis.chart_image_url) return
 
     try {
-      const filename = `${analysis.symbols.symbol}_${analysis.id.substring(0, 8)}.png`
+      const filename = `${symbol}_${analysis.id.substring(0, 8)}.png`
       await downloadImageWithWatermark(
         analysis.chart_image_url,
-        analysis.profiles.full_name,
-        analysis.symbols.symbol,
+        authorName,
+        symbol || 'analysis',
         filename
       )
       toast.success('Image downloaded successfully')
@@ -246,8 +262,8 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
       const sortedTargets = analysis.analysis_targets ? [...analysis.analysis_targets].sort((a, b) => a.price - b.price) : []
       const dataUrl = await generatePostSnapshot(
         analysis.id,
-        analysis.profiles.full_name,
-        analysis.symbols.symbol,
+        authorName,
+        symbol || 'analysis',
         postType,
         {
           title: analysis.title,
@@ -261,7 +277,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
       )
 
       const link = document.createElement('a')
-      link.download = `${analysis.symbols.symbol}_snapshot_${analysis.id.substring(0, 8)}.png`
+      link.download = `${symbol || 'analysis'}_snapshot_${analysis.id.substring(0, 8)}.png`
       link.href = dataUrl
       link.click()
       toast.success('Snapshot downloaded successfully')
@@ -403,7 +419,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
               <Avatar className="h-10 w-10">
                 <AvatarImage src={analysis.profiles.avatar_url || undefined} />
                 <AvatarFallback>
-                  {analysis.profiles.full_name
+                  {authorName
                     .split(' ')
                     .map((n: string) => n[0])
                     .join('')
@@ -412,7 +428,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
               </Avatar>
               <div>
                 <p className="font-semibold">
-                  {analysis.profiles.full_name}
+                  {authorName}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {formatDistanceToNow(new Date(analysis.created_at), { addSuffix: true })}
@@ -429,7 +445,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
           </div>
 
           <div className="flex items-center justify-between flex-wrap gap-3">
-            <h1 className="text-2xl font-bold">{analysis.symbols.symbol}</h1>
+            <h1 className="text-2xl font-bold">{symbol}</h1>
             <div className="flex items-center gap-2 flex-wrap">
               <Badge variant="outline" className={getPostTypeColor()}>
                 <span className="mr-1">{getPostTypeIcon()}</span>
@@ -614,7 +630,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
             </div>
           )}
 
-          <StockPrice symbol={analysis.symbols.symbol} />
+          {symbol && <StockPrice symbol={symbol} />}
 
           <Separator />
 
@@ -670,8 +686,8 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
 
               <ShareMenu
                 url={`/share/${analysis.id}`}
-                title={`${analysis.symbols.symbol} - ${getPostTypeLabel()} by ${analysis.profiles.full_name}`}
-                description={analysis.title || analysis.summary || `${analysis.direction} position on ${analysis.symbols.symbol}`}
+                title={`${symbol} - ${getPostTypeLabel()} by ${authorName}`}
+                description={analysis.title || analysis.summary || `${analysis.direction} position on ${symbol}`}
                 onDownloadImage={analysis.chart_image_url ? handleDownloadImage : undefined}
                 onDownloadSnapshot={handleDownloadSnapshot}
               />
@@ -706,7 +722,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
       {analysis.chart_image_url && (
         <ImageViewer
           src={analysis.chart_image_url}
-          alt={`${analysis.symbols.symbol} chart`}
+          alt={`${symbol || 'Analysis'} chart`}
           open={showImageViewer}
           onOpenChange={setShowImageViewer}
           onDownload={handleDownloadImage}

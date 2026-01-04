@@ -19,7 +19,8 @@ export async function GET(
 
     console.log('Fetching analysis with ID:', id)
 
-    const { data: analysis, error } = await supabase
+    // Try to fetch from regular analyses table first
+    let { data: analysis, error } = await supabase
       .from('analyses')
       .select(`
         *,
@@ -47,7 +48,46 @@ export async function GET(
       .eq('id', id)
       .maybeSingle()
 
-    if (error) {
+    let isIndexAnalysis = false
+
+    // If not found in analyses, try index_analyses table
+    if (!analysis && !error) {
+      const { data: indexAnalysis, error: indexError } = await supabase
+        .from('index_analyses')
+        .select(`
+          *,
+          author:profiles!author_id(
+            id,
+            full_name,
+            avatar_url,
+            bio,
+            role:roles(name)
+          )
+        `)
+        .eq('id', id)
+        .maybeSingle()
+
+      if (indexError) {
+        console.error('Supabase error fetching index analysis:', indexError)
+        return NextResponse.json({
+          error: 'Failed to fetch analysis',
+          details: indexError.message
+        }, { status: 500 })
+      }
+
+      if (indexAnalysis) {
+        // Transform index analysis to match regular analysis structure
+        analysis = {
+          ...indexAnalysis,
+          profiles: indexAnalysis.author,
+          analyzer_id: indexAnalysis.author_id,
+          post_type: 'indices',
+        }
+        isIndexAnalysis = true
+      }
+    }
+
+    if (error && !analysis) {
       console.error('Supabase error fetching analysis:', error)
       return NextResponse.json({
         error: 'Failed to fetch analysis',
@@ -97,6 +137,7 @@ export async function GET(
         is_following: isFollowing,
         is_own_post: isOwnPost,
         is_subscribed: isSubscribed,
+        is_index_analysis: isIndexAnalysis,
       }
     })
   } catch (error) {
