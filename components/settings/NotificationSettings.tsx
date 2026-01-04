@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Loader2, Bell, Send } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 interface NotificationPreferences {
   alerts_enabled: boolean
@@ -22,6 +23,7 @@ interface NotificationPreferences {
 }
 
 export function NotificationSettings() {
+  const { t } = useLanguage()
   const [preferences, setPreferences] = useState<NotificationPreferences>({
     alerts_enabled: true,
     target_alerts_enabled: true,
@@ -60,7 +62,7 @@ export function NotificationSettings() {
       }
     } catch (error) {
       console.error('Error fetching preferences:', error)
-      toast.error('Failed to load notification preferences')
+      toast.error(t.settings.notificationPreferences.failedToLoadPreferences)
     } finally {
       setIsLoading(false)
     }
@@ -78,13 +80,13 @@ export function NotificationSettings() {
       })
 
       if (response.ok) {
-        toast.success('Notification preferences updated')
+        toast.success(t.settings.notificationPreferences.notificationPreferencesUpdated)
       } else {
-        toast.error('Failed to update preferences')
+        toast.error(t.settings.notificationPreferences.failedToUpdatePreferences)
       }
     } catch (error) {
       console.error('Error updating preferences:', error)
-      toast.error('Failed to update preferences')
+      toast.error(t.settings.notificationPreferences.failedToUpdatePreferences)
     } finally {
       setIsSaving(false)
     }
@@ -105,10 +107,10 @@ export function NotificationSettings() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bell className="h-5 w-5" />
-          Notification Preferences
+          {t.settings.notificationPreferences.title}
         </CardTitle>
         <CardDescription>
-          Configure when you want to receive notifications about your analyses
+          {t.settings.notificationPreferences.description}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -116,10 +118,10 @@ export function NotificationSettings() {
           <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
             <div className="space-y-0.5">
               <Label htmlFor="alerts-enabled" className="text-base font-medium">
-                Enable All Alerts
+                {t.settings.notificationPreferences.enableAllAlerts}
               </Label>
               <p className="text-sm text-muted-foreground">
-                Master switch for all price alert notifications
+                {t.settings.notificationPreferences.enableAllAlertsDescription}
               </p>
             </div>
             <Switch
@@ -139,10 +141,10 @@ export function NotificationSettings() {
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <Label htmlFor="target-alerts" className="text-base font-medium">
-                  Target Price Alerts
+                  {t.settings.notificationPreferences.targetPriceAlerts}
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Get notified when your target price is reached
+                  {t.settings.notificationPreferences.targetPriceAlertsDescription}
                 </p>
               </div>
               <Switch
@@ -158,10 +160,10 @@ export function NotificationSettings() {
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <Label htmlFor="stop-alerts" className="text-base font-medium">
-                  Stop Loss Alerts
+                  {t.settings.notificationPreferences.stopLossAlerts}
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Get notified when your stop loss is triggered
+                  {t.settings.notificationPreferences.stopLossAlertsDescription}
                 </p>
               </div>
               <Switch
@@ -179,16 +181,16 @@ export function NotificationSettings() {
         <div className="border-t pt-6 space-y-4">
           <div className="flex items-center gap-2 mb-4">
             <Send className="h-5 w-5 text-muted-foreground" />
-            <h3 className="text-lg font-semibold">Telegram Notifications</h3>
+            <h3 className="text-lg font-semibold">{t.settings.notificationPreferences.telegramNotifications}</h3>
           </div>
 
           <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
             <div className="space-y-0.5">
               <Label htmlFor="telegram-enabled" className="text-base font-medium">
-                Enable Telegram Notifications
+                {t.settings.notificationPreferences.enableTelegramNotifications}
               </Label>
               <p className="text-sm text-muted-foreground">
-                Receive notifications via Telegram (requires linked account)
+                {t.settings.notificationPreferences.enableTelegramNotificationsDescription}
               </p>
             </div>
             <Switch
@@ -208,10 +210,10 @@ export function NotificationSettings() {
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <Label htmlFor="telegram-target" className="text-base font-medium">
-                  Target Hit Notifications
+                  {t.settings.notificationPreferences.targetHitNotifications}
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Get notified when a target price is reached
+                  {t.settings.notificationPreferences.targetHitNotificationsDescription}
                 </p>
               </div>
               <Switch
@@ -227,10 +229,10 @@ export function NotificationSettings() {
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <Label htmlFor="telegram-stop" className="text-base font-medium">
-                  Stop Loss Notifications
+                  {t.settings.notificationPreferences.stopLossNotifications}
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Get notified when a stop loss is triggered
+                  {t.settings.notificationPreferences.stopLossNotificationsDescription}
                 </p>
               </div>
               <Switch
@@ -246,10 +248,10 @@ export function NotificationSettings() {
             <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
               <div className="space-y-0.5">
                 <Label htmlFor="telegram-new" className="text-base font-medium">
-                  New Analysis Notifications
+                  {t.settings.notificationPreferences.newAnalysisNotifications}
                 </Label>
                 <p className="text-sm text-muted-foreground">
-                  Get notified when followed analyzers publish new analyses
+                  {t.settings.notificationPreferences.newAnalysisNotificationsDescription}
                 </p>
               </div>
               <Switch
@@ -264,14 +266,14 @@ export function NotificationSettings() {
 
             <div className="rounded-lg border p-4 space-y-4">
               <div className="space-y-2">
-                <Label className="text-base font-medium">Quiet Hours</Label>
+                <Label className="text-base font-medium">{t.settings.notificationPreferences.quietHours}</Label>
                 <p className="text-sm text-muted-foreground">
-                  Mute notifications during specific hours (optional)
+                  {t.settings.notificationPreferences.quietHoursDescription}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="quiet-start">Start Hour</Label>
+                  <Label htmlFor="quiet-start">{t.settings.notificationPreferences.startHour}</Label>
                   <Select
                     value={preferences.quiet_hours_start?.toString() || 'none'}
                     onValueChange={(value) =>
@@ -283,10 +285,10 @@ export function NotificationSettings() {
                     disabled={!preferences.telegram_enabled}
                   >
                     <SelectTrigger id="quiet-start">
-                      <SelectValue placeholder="Select hour" />
+                      <SelectValue placeholder={t.settings.notificationPreferences.selectHour} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Disabled</SelectItem>
+                      <SelectItem value="none">{t.settings.notificationPreferences.disabled}</SelectItem>
                       {Array.from({ length: 24 }, (_, i) => (
                         <SelectItem key={i} value={i.toString()}>
                           {i.toString().padStart(2, '0')}:00
@@ -296,7 +298,7 @@ export function NotificationSettings() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="quiet-end">End Hour</Label>
+                  <Label htmlFor="quiet-end">{t.settings.notificationPreferences.endHour}</Label>
                   <Select
                     value={preferences.quiet_hours_end?.toString() || 'none'}
                     onValueChange={(value) =>
@@ -308,10 +310,10 @@ export function NotificationSettings() {
                     disabled={!preferences.telegram_enabled}
                   >
                     <SelectTrigger id="quiet-end">
-                      <SelectValue placeholder="Select hour" />
+                      <SelectValue placeholder={t.settings.notificationPreferences.selectHour} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="none">Disabled</SelectItem>
+                      <SelectItem value="none">{t.settings.notificationPreferences.disabled}</SelectItem>
                       {Array.from({ length: 24 }, (_, i) => (
                         <SelectItem key={i} value={i.toString()}>
                           {i.toString().padStart(2, '0')}:00
@@ -328,7 +330,7 @@ export function NotificationSettings() {
         <div className="flex justify-end">
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Changes
+            {isSaving ? t.settings.notificationPreferences.saving : t.settings.notificationPreferences.saveChanges}
           </Button>
         </div>
       </CardContent>
