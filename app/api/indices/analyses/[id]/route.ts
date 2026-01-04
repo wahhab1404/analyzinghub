@@ -14,6 +14,11 @@ export async function GET(
     const supabase = createClient();
     const { id } = params;
 
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     // Fetch analysis
     const { data: analysis, error: analysisError } = await supabase
       .from('index_analyses')
@@ -26,6 +31,35 @@ export async function GET(
 
     if (analysisError || !analysis) {
       return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
+    }
+
+    // Check if user is a trader and has access to this analysis
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role_id, roles(name)')
+        .eq('id', user.id)
+        .single();
+
+      const roleName = (profile as any)?.roles?.name;
+
+      // If user is a Trader, check if they're subscribed to the analyzer
+      if (roleName === 'Trader' && analysis.author_id !== user.id) {
+        const { data: subscription } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('subscriber_id', user.id)
+          .eq('analyst_id', analysis.author_id)
+          .eq('status', 'active')
+          .single();
+
+        if (!subscription) {
+          return NextResponse.json(
+            { error: 'You must be subscribed to this analyzer to view their indices analyses' },
+            { status: 403 }
+          );
+        }
+      }
     }
 
     // Fetch trades for this analysis

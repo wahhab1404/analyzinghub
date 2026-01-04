@@ -78,7 +78,7 @@ const navItems: NavItem[] = [
     titleKey: 'nav.indices',
     href: '/dashboard/indices',
     icon: LineChart,
-    roles: ['SuperAdmin', 'Analyzer'],
+    roles: ['SuperAdmin', 'Analyzer', 'Trader'],
   },
   {
     titleKey: 'nav.create',

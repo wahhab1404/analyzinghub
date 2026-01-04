@@ -17,6 +17,11 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '20');
     const offset = parseInt(searchParams.get('offset') || '0');
 
+    // Get current user to check their role and subscriptions
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     let query = supabase
       .from('index_analyses')
       .select(`
@@ -33,6 +38,38 @@ export async function GET(request: NextRequest) {
 
     if (visibility) {
       query = query.eq('visibility', visibility);
+    }
+
+    // If user is authenticated, check if they're a trader and filter by subscriptions
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role_id, roles(name)')
+        .eq('id', user.id)
+        .single();
+
+      const roleName = (profile as any)?.roles?.name;
+
+      // If user is a Trader, only show analyses from subscribed analyzers
+      if (roleName === 'Trader') {
+        // Get list of analysts the user is subscribed to
+        const { data: subscriptions } = await supabase
+          .from('subscriptions')
+          .select('analyst_id')
+          .eq('subscriber_id', user.id)
+          .eq('status', 'active');
+
+        const subscribedAnalystIds = subscriptions?.map(s => s.analyst_id) || [];
+
+        // If trader has no subscriptions, return empty array
+        if (subscribedAnalystIds.length === 0) {
+          return NextResponse.json({ analyses: [] });
+        }
+
+        // Filter analyses by subscribed analyzers
+        query = query.in('author_id', subscribedAnalystIds);
+      }
+      // Analyzers and Admins can see all analyses (no additional filter needed)
     }
 
     const { data, error } = await query;

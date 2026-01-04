@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { AnalysisCard } from '@/components/analysis/AnalysisCard'
 import { Badge } from '@/components/ui/badge'
 import { Sparkles, TrendingUp, Star, Users, Award } from 'lucide-react'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 interface Analysis {
   id: string
@@ -70,6 +71,7 @@ const reasonIcons: Record<string, any> = {
 }
 
 export function RecommendedFeed() {
+  const { t } = useTranslation()
   const [recommendations, setRecommendations] = useState<AnalysisRecommendation[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -96,7 +98,7 @@ export function RecommendedFeed() {
       <div className="space-y-4">
         <div className="flex items-center gap-2 mb-4">
           <Sparkles className="w-5 h-5 text-blue-600" />
-          <h2 className="text-lg font-semibold">Recommended for You</h2>
+          <h2 className="text-lg font-semibold">{t.dashboard.feed.recommendations.title}</h2>
         </div>
         {[...Array(3)].map((_, i) => (
           <div key={i} className="bg-white dark:bg-neutral-900 rounded-lg p-6 animate-pulse">
@@ -119,14 +121,14 @@ export function RecommendedFeed() {
     <div className="space-y-4">
       <div className="flex items-center gap-2 mb-4">
         <Sparkles className="w-5 h-5 text-blue-600" />
-        <h2 className="text-lg font-semibold">Recommended for You</h2>
+        <h2 className="text-lg font-semibold">{t.dashboard.feed.recommendations.title}</h2>
       </div>
       {recommendations.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 border-2 border-dashed rounded-lg">
           <Sparkles className="h-16 w-16 text-muted-foreground mb-4 opacity-50" />
-          <h3 className="text-lg font-semibold mb-2">No Recommendations Yet</h3>
+          <h3 className="text-lg font-semibold mb-2">{t.dashboard.feed.recommendations.noRecommendations}</h3>
           <p className="text-muted-foreground text-center max-w-md">
-            Start following analysts and interacting with analyses to get personalized recommendations
+            {t.dashboard.feed.recommendations.startFollowing}
           </p>
         </div>
       ) : (

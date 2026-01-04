@@ -12,8 +12,10 @@ import { PlanManagement } from '@/components/settings/PlanManagement'
 import { AdminSettings } from '@/components/settings/AdminSettings'
 import { Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { useTranslation } from '@/lib/i18n/language-context'
 
 export default function SettingsPage() {
+  const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState<any>(null)
   const router = useRouter()
@@ -64,22 +66,22 @@ export default function SettingsPage() {
   return (
     <div className="container max-w-4xl py-8">
       <div className="mb-6">
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-3xl font-bold tracking-tight">{t.settings.title}</h1>
         <p className="text-muted-foreground mt-2">
-          Manage your account settings and preferences
+          {t.settings.subtitle}
         </p>
       </div>
 
       <Tabs defaultValue="profile" className="space-y-6">
         <div className="w-full overflow-x-auto">
           <TabsList className="inline-flex w-full min-w-max md:w-full md:min-w-0 md:grid md:grid-cols-4 lg:grid-cols-6">
-            <TabsTrigger value="profile" className="flex-shrink-0">Profile</TabsTrigger>
-            <TabsTrigger value="security" className="flex-shrink-0">Security</TabsTrigger>
-            <TabsTrigger value="notifications" className="flex-shrink-0">Notifications</TabsTrigger>
-            <TabsTrigger value="telegram" className="flex-shrink-0">Telegram</TabsTrigger>
-            {isAnalyzer && <TabsTrigger value="channel" className="flex-shrink-0">Channel</TabsTrigger>}
-            {isAnalyzer && <TabsTrigger value="plans" className="flex-shrink-0">Plans</TabsTrigger>}
-            {isAdmin && <TabsTrigger value="admin" className="flex-shrink-0">Admin</TabsTrigger>}
+            <TabsTrigger value="profile" className="flex-shrink-0">{t.settings.tabs.profile}</TabsTrigger>
+            <TabsTrigger value="security" className="flex-shrink-0">{t.settings.tabs.security}</TabsTrigger>
+            <TabsTrigger value="notifications" className="flex-shrink-0">{t.settings.tabs.notifications}</TabsTrigger>
+            <TabsTrigger value="telegram" className="flex-shrink-0">{t.settings.tabs.telegram}</TabsTrigger>
+            {isAnalyzer && <TabsTrigger value="channel" className="flex-shrink-0">{t.settings.tabs.channel}</TabsTrigger>}
+            {isAnalyzer && <TabsTrigger value="plans" className="flex-shrink-0">{t.settings.tabs.plans}</TabsTrigger>}
+            {isAdmin && <TabsTrigger value="admin" className="flex-shrink-0">{t.settings.tabs.admin}</TabsTrigger>}
           </TabsList>
         </div>
 

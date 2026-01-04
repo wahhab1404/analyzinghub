@@ -59,9 +59,14 @@ export function NotificationsPanel() {
         const data = await response.json()
         setNotifications(data.notifications || [])
         setUnreadCount(data.unread_count || 0)
+      } else if (response.status === 401) {
+        setNotifications([])
+        setUnreadCount(0)
       }
     } catch (error) {
       console.error('Error fetching notifications:', error)
+      setNotifications([])
+      setUnreadCount(0)
     } finally {
       setIsLoading(false)
     }

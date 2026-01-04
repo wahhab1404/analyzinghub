@@ -39,9 +39,12 @@ export function SubscriptionStatusBadge({
       if (response.ok) {
         const data = await response.json()
         setIsSubscribed(data.hasActiveSubscription)
+      } else if (response.status === 401) {
+        setIsSubscribed(false)
       }
     } catch (error) {
       console.error('Failed to check subscription status:', error)
+      setIsSubscribed(false)
     } finally {
       setLoading(false)
     }
@@ -63,9 +66,9 @@ export function SubscriptionStatusBadge({
     const subscriptionSection = document.getElementById('subscription-plans')
     if (subscriptionSection) {
       subscriptionSection.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      toast.info(t('subscriptions.chooseSubscriptionPlan'))
+      toast.info(t.subscriptions.chooseSubscriptionPlan)
     } else {
-      toast.info(t('subscriptions.visitProfileForPlans').replace('{name}', analyzerName || 'the analyzer'))
+      toast.info(t.subscriptions.visitProfileForPlans.replace('{name}', analyzerName || 'the analyzer'))
     }
   }
 
@@ -80,7 +83,7 @@ export function SubscriptionStatusBadge({
         className="gap-1.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
       >
         <Check className="h-3 w-3" />
-        {t('subscriptions.subscribed')}
+        {t.subscriptions.subscribed}
       </Badge>
     )
   }
@@ -94,7 +97,7 @@ export function SubscriptionStatusBadge({
         className="gap-1.5 border-blue-600 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950"
       >
         <Package className="h-3 w-3" />
-        {t('subscriptions.subscribe')}
+        {t.subscriptions.subscribe}
       </Button>
     )
   }
