@@ -95,7 +95,7 @@ export function formatAnalysisMessage(
   message += `${bodyPreview}\n\n`;
   
   if (analysis.invalidation_price) {
-    message += `<b>⚠️ Invalidation:</b> $${analysis.invalidation_price.toFixed(2)}\n\n`;
+    message += `<b>⚠️ Invalidation:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
   
   message += `<a href="${analysisUrl}">📈 View Full Analysis</a>`;
@@ -108,7 +108,7 @@ export function formatAnalysisMessage(
   message += `<b>العنوان:</b> ${analysis.title}\n\n`;
   
   if (analysis.invalidation_price) {
-    message += `<b>⚠️ الإبطال:</b> $${analysis.invalidation_price.toFixed(2)}\n\n`;
+    message += `<b>⚠️ الإبطال:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
   
   message += `<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;
@@ -126,30 +126,39 @@ export function formatTradeMessage(
   const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;
   const stopPrice = trade.stoploss?.level;
 
+  // Extract clean symbol from polygon ticker (e.g., "O:SPX251231C06090000" -> "SPX")
+  let cleanSymbol = trade.analysis.index_symbol;
+  if (trade.polygon_option_ticker) {
+    const parts = trade.polygon_option_ticker.split(':');
+    if (parts.length > 1) {
+      const tickerPart = parts[1];
+      cleanSymbol = tickerPart.replace(/\d{6}[CP]\d{8}$/, '');
+    }
+  }
+
   let message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE</b>\n\n";
   message += `<b>Index:</b> ${trade.analysis.index_symbol}\n`;
   message += `<b>Analysis:</b> ${trade.analysis.title}\n`;
   message += `<b>Direction:</b> ${trade.direction.toUpperCase()}\n`;
 
   if (trade.polygon_option_ticker) {
-    message += `<b>Contract:</b> ${trade.polygon_option_ticker}\n`;
-    message += `<b>Strike:</b> $${trade.strike?.toFixed(2)}\n`;
+    message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
     message += `<b>Expiry:</b> ${trade.expiry}\n`;
   }
 
-  message += `<b>Entry:</b> $${entryPrice.toFixed(4)}\n`;
+  message += `<b>Entry:</b> ${entryPrice.toFixed(2)}\n`;
 
   if (isNewHigh && trade.contract_high_since) {
-    message += `<b>Current:</b> $${trade.current_contract?.toFixed(4)} 🎉\n`;
-    message += `<b>Highest:</b> $${trade.contract_high_since.toFixed(4)}\n`;
+    message += `<b>Current:</b> ${trade.current_contract?.toFixed(2)} 🎉\n`;
+    message += `<b>Highest:</b> ${trade.contract_high_since.toFixed(2)}\n`;
   }
 
   if (target1) {
-    message += `<b>Target 1:</b> $${target1.toFixed(4)}\n`;
+    message += `<b>Target 1:</b> ${target1.toFixed(2)}\n`;
   }
 
   if (stopPrice) {
-    message += `<b>Stop Loss:</b> $${stopPrice.toFixed(4)}\n`;
+    message += `<b>Stop Loss:</b> ${stopPrice.toFixed(2)}\n`;
   }
 
   message += `\n<b>Analyst:</b> ${trade.author.full_name}\n\n`;
@@ -162,22 +171,22 @@ export function formatTradeMessage(
   message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
 
   if (trade.polygon_option_ticker) {
-    message += `<b>العقد:</b> ${trade.polygon_option_ticker}\n`;
+    message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
   }
 
-  message += `<b>الدخول:</b> $${entryPrice.toFixed(4)}\n`;
+  message += `<b>الدخول:</b> ${entryPrice.toFixed(2)}\n`;
 
   if (isNewHigh && trade.contract_high_since) {
-    message += `<b>الحالي:</b> $${trade.current_contract?.toFixed(4)} 🎉\n`;
-    message += `<b>الأعلى:</b> $${trade.contract_high_since.toFixed(4)}\n`;
+    message += `<b>الحالي:</b> ${trade.current_contract?.toFixed(2)} 🎉\n`;
+    message += `<b>الأعلى:</b> ${trade.contract_high_since.toFixed(2)}\n`;
   }
 
   if (target1) {
-    message += `<b>الهدف 1:</b> $${target1.toFixed(4)}\n`;
+    message += `<b>الهدف 1:</b> ${target1.toFixed(2)}\n`;
   }
 
   if (stopPrice) {
-    message += `<b>وقف الخسارة:</b> $${stopPrice.toFixed(4)}\n`;
+    message += `<b>وقف الخسارة:</b> ${stopPrice.toFixed(2)}\n`;
   }
 
   message += `\n<b>المحلل:</b> ${trade.author.full_name}\n\n`;
@@ -239,25 +248,34 @@ export function formatTradeResultMessage(
   const highestPrice = trade.contract_high_since || 0;
   const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
 
+  // Extract clean symbol from polygon ticker
+  let cleanSymbol = trade.analysis.index_symbol;
+  if (trade.polygon_option_ticker) {
+    const parts = trade.polygon_option_ticker.split(':');
+    if (parts.length > 1) {
+      const tickerPart = parts[1];
+      cleanSymbol = tickerPart.replace(/\d{6}[CP]\d{8}$/, '');
+    }
+  }
+
   let message = "";
-  
+
   if (isWin) {
     message = "🎉 <b>TRADE WIN!</b>\n\n";
   } else {
     message = "🛑 <b>TRADE STOPPED</b>\n\n";
   }
-  
+
   message += `<b>Index:</b> ${trade.analysis.index_symbol}\n`;
   message += `<b>Direction:</b> ${trade.direction.toUpperCase()}\n`;
-  
+
   if (trade.polygon_option_ticker) {
-    message += `<b>Contract:</b> ${trade.polygon_option_ticker}\n`;
-    message += `<b>Strike:</b> $${trade.strike?.toFixed(2)}\n`;
+    message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
   }
   
-  message += `<b>Entry:</b> $${entryPrice.toFixed(4)}\n`;
-  message += `<b>Close:</b> $${currentPrice.toFixed(4)}\n`;
-  message += `<b>Highest After Entry:</b> $${highestPrice.toFixed(4)}\n`;
+  message += `<b>Entry:</b> ${entryPrice.toFixed(2)}\n`;
+  message += `<b>Close:</b> ${currentPrice.toFixed(2)}\n`;
+  message += `<b>Highest After Entry:</b> ${highestPrice.toFixed(2)}\n`;
   message += `<b>P/L:</b> ${pnlPercent}%\n\n`;
   
   if (isWin && trade.win_condition_met) {
@@ -279,14 +297,14 @@ export function formatTradeResultMessage(
   
   message += `<b>المؤشر:</b> ${trade.analysis.index_symbol}\n`;
   message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
-  
+
   if (trade.polygon_option_ticker) {
-    message += `<b>العقد:</b> ${trade.polygon_option_ticker}\n`;
+    message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
   }
   
-  message += `<b>الدخول:</b> $${entryPrice.toFixed(4)}\n`;
-  message += `<b>الإغلاق:</b> $${currentPrice.toFixed(4)}\n`;
-  message += `<b>أعلى سعر بعد الدخول:</b> $${highestPrice.toFixed(4)}\n`;
+  message += `<b>الدخول:</b> ${entryPrice.toFixed(2)}\n`;
+  message += `<b>الإغلاق:</b> ${currentPrice.toFixed(2)}\n`;
+  message += `<b>أعلى سعر بعد الدخول:</b> ${highestPrice.toFixed(2)}\n`;
   message += `<b>الربح/الخسارة:</b> ${pnlPercent}%\n\n`;
   
   message += `<b>المحلل:</b> ${trade.author.full_name}\n\n`;

@@ -1,0 +1,4 @@
+databento==0.38.0
+python-dotenv==1.0.0
+supabase==2.3.4
+websockets==12.0

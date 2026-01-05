@@ -1,373 +1,170 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
-import { formatAnalysisMessage, formatTradeMessage, formatUpdateMessage, formatTradeResultMessage } from "./message-formatter.ts";
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
+import {
+  formatAnalysisMessage,
+  formatTradeMessage,
+  formatUpdateMessage,
+  formatTradeResultMessage,
+} from './message-formatter.ts';
+
+const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const BASE_URL = 'https://analyzinghub.com';
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
 interface PublishRequest {
-  entityType: "analysis" | "trade" | "analysis_update" | "trade_update" | "trade_result";
-  entityId: string;
-  channelId: string;
-  forceResend?: boolean;
+  type: 'new_analysis' | 'new_trade' | 'trade_update' | 'trade_result' | 'analysis_update';
+  data: any;
+  channelId?: string;
   isNewHigh?: boolean;
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  imageUrl?: string
+) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  
+  const body: any = {
+    chat_id: chatId,
+    text,
+    parse_mode: 'HTML',
+    disable_web_page_preview: false,
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Telegram API error: ${error}`);
+  }
+
+  return response.json();
+}
+
+async function sendTelegramPhoto(
+  chatId: string,
+  photoUrl: string,
+  caption: string
+) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  
+  const body = {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: 'HTML',
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Telegram API error: ${error}`);
+  }
+
+  return response.json();
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const { data: botTokenSetting } = await supabase
-      .from("admin_settings")
-      .select("setting_value")
-      .eq("setting_key", "telegram_bot_token")
-      .maybeSingle();
-
-    const botToken = botTokenSetting?.setting_value || Deno.env.get("TELEGRAM_BOT_TOKEN");
-    if (!botToken) {
-      throw new Error("TELEGRAM_BOT_TOKEN not configured");
-    }
-
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const payload: PublishRequest = await req.json();
-    console.log("[indices-telegram-publisher] Processing request:", {
-      entityType: payload.entityType,
-      entityId: payload.entityId,
-      channelId: payload.channelId,
-    });
 
-    const { data: channel, error: channelError } = await supabase
-      .from("telegram_channels")
-      .select("*")
-      .eq("id", payload.channelId)
-      .eq("enabled", true)
-      .maybeSingle();
+    console.log('Publishing to Telegram:', payload.type);
 
-    if (channelError || !channel) {
-      console.error("[indices-telegram-publisher] Channel not found:", channelError);
+    let message: { text?: string; caption?: string; snapshotImageUrl?: string };
+    let channelIds: string[] = [];
+
+    // Determine which channels to publish to
+    if (payload.channelId) {
+      channelIds = [payload.channelId];
+    } else if (payload.data.author_id) {
+      const { data: channels } = await supabase
+        .from('analyzer_telegram_channels')
+        .select('telegram_channel_id')
+        .eq('analyzer_id', payload.data.author_id)
+        .eq('is_connected', true)
+        .in('broadcast_type', ['both', 'auto']);
+      
+      channelIds = channels?.map(c => c.telegram_channel_id) || [];
+    }
+
+    if (channelIds.length === 0) {
       return new Response(
-        JSON.stringify({ ok: false, error: "Channel not found or disabled" }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        JSON.stringify({ error: 'No active channels found' }),
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    let messageData: { text?: string; caption?: string; photo?: string } | null = null;
-    let entity: any = null;
-    const isNewHigh = payload.entityType === "trade" && (payload as any).isNewHigh === true;
-
-    if (payload.entityType === "analysis") {
-      const { data } = await supabase
-        .from("index_analyses")
-        .select(`
-          *,
-          author:profiles!author_id(id, full_name, email)
-        `)
-        .eq("id", payload.entityId)
-        .single();
-
-      entity = data;
-      if (entity) {
-        messageData = formatAnalysisMessage(entity, appBaseUrl);
-      }
-    } else if (payload.entityType === "trade") {
-      const { data } = await supabase
-        .from("index_trades")
-        .select(`
-          *,
-          author:profiles!author_id(id, full_name),
-          analysis:index_analyses!analysis_id(id, title, index_symbol)
-        `)
-        .eq("id", payload.entityId)
-        .single();
-
-      entity = data;
-      if (entity) {
-        const tradeMessage = formatTradeMessage(entity, appBaseUrl, isNewHigh);
-        
-        try {
-          console.log("[indices-telegram-publisher] Generating snapshot for trade:", payload.entityId);
-          const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${supabaseKey}`,
-            },
-            body: JSON.stringify({
-              tradeId: payload.entityId,
-              isNewHigh: isNewHigh,
-            }),
-          });
-
-          if (snapshotResponse.ok) {
-            const snapshotData = await snapshotResponse.json();
-            if (snapshotData.ok && snapshotData.imageUrl) {
-              messageData = {
-                photo: snapshotData.imageUrl,
-                caption: tradeMessage.caption,
-              };
-              console.log("[indices-telegram-publisher] Snapshot generated successfully:", snapshotData.imageUrl);
-            } else {
-              console.error("[indices-telegram-publisher] Snapshot response invalid:", snapshotData);
-              messageData = { text: tradeMessage.caption };
-            }
-          } else {
-            const errorText = await snapshotResponse.text();
-            console.error("[indices-telegram-publisher] Snapshot generation failed:", {
-              status: snapshotResponse.status,
-              statusText: snapshotResponse.statusText,
-              error: errorText,
-            });
-            messageData = { text: tradeMessage.caption };
-          }
-        } catch (snapshotError: any) {
-          console.error("[indices-telegram-publisher] Snapshot error:", {
-            message: snapshotError.message,
-            stack: snapshotError.stack,
-          });
-          messageData = { text: tradeMessage.caption };
-        }
-      }
-    } else if (payload.entityType === "analysis_update") {
-      const { data } = await supabase
-        .from("analysis_updates")
-        .select(`
-          *,
-          author:profiles!author_id(id, full_name),
-          analysis:index_analyses!analysis_id(id, title, index_symbol)
-        `)
-        .eq("id", payload.entityId)
-        .single();
-      
-      entity = data;
-      if (entity) {
-        messageData = formatUpdateMessage(entity, "analysis", appBaseUrl);
-      }
-    } else if (payload.entityType === "trade_update") {
-      const { data } = await supabase
-        .from("trade_updates")
-        .select(`
-          *,
-          author:profiles!author_id(id, full_name),
-          trade:index_trades!trade_id(
-            id,
-            polygon_option_ticker,
-            strike,
-            expiry,
-            analysis:index_analyses!analysis_id(id, title, index_symbol)
-          )
-        `)
-        .eq("id", payload.entityId)
-        .single();
-      
-      entity = data;
-      if (entity) {
-        messageData = formatUpdateMessage(entity, "trade", appBaseUrl);
-      }
-    } else if (payload.entityType === "trade_result") {
-      const { data } = await supabase
-        .from("index_trades")
-        .select(`
-          *,
-          author:profiles!author_id(id, full_name),
-          analysis:index_analyses!analysis_id(id, title, index_symbol)
-        `)
-        .eq("id", payload.entityId)
-        .single();
-      
-      entity = data;
-      if (entity && (entity.status === "tp_hit" || entity.status === "sl_hit")) {
-        messageData = formatTradeResultMessage(entity, appBaseUrl);
-      }
-    }
-
-    if (!messageData || !entity) {
-      console.error("[indices-telegram-publisher] Entity not found or invalid");
-      return new Response(
-        JSON.stringify({ ok: false, error: "Entity not found or invalid" }),
-        {
-          status: 404,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
-    }
-
-    const payloadContent = JSON.stringify({
-      type: payload.entityType,
-      text: messageData.text || messageData.caption,
-      photo: messageData.photo,
-    });
-    
-    const payloadHash = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(payloadContent)
-    ).then(buf => Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join(""));
-
-    if (!payload.forceResend) {
-      const { data: existingLog } = await supabase
-        .from("telegram_send_log")
-        .select("id")
-        .eq("entity_type", payload.entityType)
-        .eq("entity_id", payload.entityId)
-        .eq("channel_id", payload.channelId)
-        .eq("payload_hash", payloadHash)
-        .eq("status", "sent")
-        .maybeSingle();
-
-      if (existingLog) {
-        console.log("[indices-telegram-publisher] Message already sent, skipping");
-        return new Response(
-          JSON.stringify({ ok: true, skipped: true, reason: "Already sent" }),
-          {
-            status: 200,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          }
+    // Format message based on type
+    switch (payload.type) {
+      case 'new_analysis':
+        message = formatAnalysisMessage(payload.data, BASE_URL);
+        break;
+      case 'new_trade':
+        message = formatTradeMessage(payload.data, BASE_URL, payload.isNewHigh || false);
+        break;
+      case 'trade_result':
+        message = formatTradeResultMessage(payload.data, BASE_URL);
+        break;
+      case 'trade_update':
+      case 'analysis_update':
+        message = formatUpdateMessage(
+          payload.data,
+          payload.type === 'trade_update' ? 'trade' : 'analysis',
+          BASE_URL
         );
-      }
+        break;
+      default:
+        throw new Error(`Unknown message type: ${payload.type}`);
     }
 
-    const { data: logEntry, error: logError } = await supabase
-      .from("telegram_send_log")
-      .insert({
-        entity_type: payload.entityType,
-        entity_id: payload.entityId,
-        channel_id: payload.channelId,
-        payload_hash: payloadHash,
-        status: "pending",
-      })
-      .select()
-      .single();
-
-    if (logError) {
-      console.error("[indices-telegram-publisher] Failed to create log entry:", logError);
-      throw new Error("Failed to create log entry");
-    }
-
-    let telegramResult: any;
-    const telegramBaseUrl = `https://api.telegram.org/bot${botToken}`;
-
-    try {
-      if (messageData.photo) {
-        const response = await fetch(`${telegramBaseUrl}/sendPhoto`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: channel.channel_id,
-            photo: messageData.photo,
-            caption: messageData.caption,
-            parse_mode: "HTML",
-          }),
-        });
-        telegramResult = await response.json();
-      } else {
-        const response = await fetch(`${telegramBaseUrl}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: channel.channel_id,
-            text: messageData.text,
-            parse_mode: "HTML",
-            disable_web_page_preview: false,
-          }),
-        });
-        telegramResult = await response.json();
-      }
-
-      if (!telegramResult.ok) {
-        throw new Error(JSON.stringify(telegramResult));
-      }
-
-      await supabase
-        .from("telegram_send_log")
-        .update({
-          status: "sent",
-          telegram_message_id: telegramResult.result.message_id?.toString(),
-          telegram_chat_id: channel.channel_id,
-          sent_at: new Date().toISOString(),
-        })
-        .eq("id", logEntry.id);
-
-      const updateData = {
-        telegram_message_id: telegramResult.result.message_id?.toString(),
-        telegram_published_at: new Date().toISOString(),
-      };
-
-      if (payload.entityType === "analysis") {
-        await supabase.from("index_analyses").update(updateData).eq("id", payload.entityId);
-      } else if (payload.entityType === "trade") {
-        await supabase.from("index_trades").update(updateData).eq("id", payload.entityId);
-      } else if (payload.entityType === "analysis_update") {
-        await supabase.from("analysis_updates").update(updateData).eq("id", payload.entityId);
-      } else if (payload.entityType === "trade_update") {
-        await supabase.from("trade_updates").update(updateData).eq("id", payload.entityId);
-      }
-
-      console.log("[indices-telegram-publisher] Message sent successfully:", {
-        messageId: telegramResult.result.message_id,
-        chatId: channel.channel_id,
-      });
-
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          messageId: telegramResult.result.message_id,
-          chatId: channel.channel_id,
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Send to all channels
+    const results = [];
+    for (const channelId of channelIds) {
+      try {
+        let result;
+        if (message.snapshotImageUrl && message.caption) {
+          result = await sendTelegramPhoto(channelId, message.snapshotImageUrl, message.caption);
+        } else if (message.text) {
+          result = await sendTelegramMessage(channelId, message.text);
         }
-      );
-    } catch (sendError: any) {
-      console.error("[indices-telegram-publisher] Failed to send message:", sendError);
-      
-      await supabase
-        .from("telegram_send_log")
-        .update({
-          status: "failed",
-          error: sendError.message || JSON.stringify(sendError),
-          retry_count: (logEntry.retry_count || 0) + 1,
-        })
-        .eq("id", logEntry.id);
-
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Failed to send Telegram message",
-          details: sendError.message,
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+        results.push({ channelId, success: true, result });
+      } catch (error: any) {
+        console.error(`Failed to send to ${channelId}:`, error);
+        results.push({ channelId, success: false, error: error.message });
+      }
     }
-  } catch (error: any) {
-    console.error("[indices-telegram-publisher] Error:", error);
+
     return new Response(
-      JSON.stringify({
-        ok: false,
-        error: error.message,
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      JSON.stringify({ success: true, results }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  } catch (error: any) {
+    console.error('Error in indices-telegram-publisher:', error);
+    return new Response(
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

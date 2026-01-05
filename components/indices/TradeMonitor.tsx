@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft } from 'lucide-react'
+import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot } from 'lucide-react'
 import { toast } from 'sonner'
+import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 
 interface Trade {
   id: string
@@ -49,6 +50,10 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
   const [trade, setTrade] = useState<Trade | null>(null)
   const [loading, setLoading] = useState(true)
   const [priceHistory, setPriceHistory] = useState<number[]>([])
+  const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null)
+  const [secondsAgo, setSecondsAgo] = useState(0)
+  const [refreshSecondsAgo, setRefreshSecondsAgo] = useState(0)
+  const [marketStatus, setMarketStatus] = useState(getMarketStatus())
 
   useEffect(() => {
     fetchTrade()
@@ -56,12 +61,51 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
     return () => clearInterval(interval)
   }, [tradeId])
 
+  useEffect(() => {
+    if (!trade?.last_quote_at) return
+
+    const updateSecondsAgo = () => {
+      const lastUpdate = new Date(trade.last_quote_at).getTime()
+      const now = Date.now()
+      const seconds = Math.floor((now - lastUpdate) / 1000)
+      setSecondsAgo(seconds)
+    }
+
+    updateSecondsAgo()
+    const interval = setInterval(updateSecondsAgo, 1000)
+    return () => clearInterval(interval)
+  }, [trade?.last_quote_at])
+
+  useEffect(() => {
+    if (!lastFetchTime) return
+
+    const updateRefreshTime = () => {
+      const seconds = Math.floor((Date.now() - lastFetchTime.getTime()) / 1000)
+      setRefreshSecondsAgo(seconds)
+    }
+
+    updateRefreshTime()
+    const interval = setInterval(updateRefreshTime, 1000)
+    return () => clearInterval(interval)
+  }, [lastFetchTime])
+
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      setMarketStatus(getMarketStatus())
+    }
+
+    updateMarketStatus()
+    const interval = setInterval(updateMarketStatus, 60000) // Update every minute
+    return () => clearInterval(interval)
+  }, [])
+
   const fetchTrade = async () => {
     try {
       const response = await fetch(`/api/indices/trades/${tradeId}`)
       if (response.ok) {
         const data = await response.json()
         setTrade(data.trade)
+        setLastFetchTime(new Date())
 
         if (data.trade) {
           setPriceHistory(prev => [...prev.slice(-29), data.trade.current_contract])
@@ -140,15 +184,30 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="h-4 w-4 mr-1" />
-          Back
-        </Button>
-        <Badge variant="default">
-          <Activity className="h-3 w-3 mr-1 animate-pulse" />
-          Live Monitoring
-        </Badge>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Back
+          </Button>
+          <Badge variant="default">
+            <Activity className="h-3 w-3 mr-1 animate-pulse" />
+            Live Monitoring
+          </Badge>
+          <Badge
+            variant={marketStatus.isOpen ? 'default' : 'outline'}
+            className={marketStatus.isOpen ? 'bg-green-500' : 'border-yellow-500 text-yellow-700'}
+          >
+            <CircleDot className="h-3 w-3 mr-1" />
+            {marketStatus.message}
+          </Badge>
+        </div>
+        {lastFetchTime && (
+          <div className="text-xs text-muted-foreground flex items-center gap-1">
+            <Activity className="h-3 w-3" />
+            Refreshed {refreshSecondsAgo}s ago • {formatMarketTime()}
+          </div>
+        )}
       </div>
 
       <Card>
@@ -203,8 +262,26 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     </span>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Last updated: {new Date(trade.last_quote_at).toLocaleTimeString()}
+                <div className="text-xs text-muted-foreground mt-1 flex items-center justify-center gap-2">
+                  <Clock className="h-3 w-3" />
+                  <span>
+                    {secondsAgo < 60
+                      ? `${secondsAgo}s ago`
+                      : secondsAgo < 3600
+                      ? `${Math.floor(secondsAgo / 60)}m ago`
+                      : new Date(trade.last_quote_at).toLocaleTimeString()
+                    }
+                  </span>
+                  {secondsAgo > 120 && (
+                    <Badge variant="outline" className="text-xs border-yellow-500 text-yellow-600">
+                      Stale
+                    </Badge>
+                  )}
+                  {!marketStatus.isOpen && (
+                    <Badge variant="outline" className="text-xs border-gray-400 text-gray-600">
+                      Market Closed
+                    </Badge>
+                  )}
                 </div>
               </div>
 

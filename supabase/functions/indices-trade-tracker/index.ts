@@ -19,9 +19,10 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const polygonApiKey = Deno.env.get("POLYGON_API_KEY");
+    const databentoApiKey = Deno.env.get("DATABENTO_API_KEY");
 
-    if (!polygonApiKey) {
-      throw new Error("POLYGON_API_KEY not configured");
+    if (!polygonApiKey && !databentoApiKey) {
+      throw new Error("No API keys configured");
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -76,16 +77,18 @@ Deno.serve(async (req: Request) => {
 
     for (const trade of trades as any[]) {
       try {
-        const underlyingQuote = await fetchPolygonQuote(
+        const underlyingQuote = await fetchQuote(
           trade.polygon_underlying_index_ticker,
-          polygonApiKey
+          polygonApiKey,
+          databentoApiKey
         );
 
         let contractQuote = null;
         if (trade.polygon_option_ticker) {
-          contractQuote = await fetchPolygonQuote(
+          contractQuote = await fetchQuote(
             trade.polygon_option_ticker,
-            polygonApiKey
+            polygonApiKey,
+            databentoApiKey
           );
         }
 
@@ -124,12 +127,10 @@ Deno.serve(async (req: Request) => {
         const target1Price = trade.targets && trade.targets.length > 0 ? trade.targets[0]?.level : null;
         const stopPrice = trade.stoploss?.level;
 
-        // Send new high notification if applicable
         if (isNewHigh) {
           const percentGain = ((newContractHigh - entryPrice) / entryPrice * 100).toFixed(2);
           console.log(`New high detected for trade ${trade.id}: $${newContractHigh} (+${percentGain}%)`);
 
-          // Create update record
           await supabase.from("trade_updates").insert({
             trade_id: trade.id,
             author_id: trade.author_id,
@@ -138,7 +139,6 @@ Deno.serve(async (req: Request) => {
             update_type: "new_high",
           });
 
-          // Send to Telegram with snapshot
           const channelId = trade.analysis?.telegram_channel_id;
           if (channelId) {
             try {
@@ -196,7 +196,7 @@ Deno.serve(async (req: Request) => {
         if (statusChanged) {
           updates.status = newStatus;
           updates.closed_at = new Date().toISOString();
-          
+
           if (newStatus === "tp_hit") {
             updates.win_condition_met = condition;
           } else if (newStatus === "sl_hit") {
@@ -267,34 +267,139 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+async function fetchQuote(ticker: string, polygonApiKey: string | undefined, databentoApiKey: string | undefined) {
+  const isOption = ticker.startsWith('O:');
+
+  if (isOption && databentoApiKey) {
+    const databentoQuote = await fetchDatabentoQuote(ticker, databentoApiKey);
+    if (databentoQuote) return databentoQuote;
+  }
+
+  if (polygonApiKey) {
+    return await fetchPolygonQuote(ticker, polygonApiKey);
+  }
+
+  return null;
+}
+
+async function fetchDatabentoQuote(ticker: string, apiKey: string) {
+  try {
+    const symbol = convertToDatabentoSymbol(ticker);
+    const url = `https://hist.databento.com/v0/timeseries.get_range`;
+
+    const now = new Date();
+    const start = new Date(now.getTime() - 60000);
+
+    const params = new URLSearchParams({
+      dataset: 'OPRA.PILLAR',
+      symbols: symbol,
+      schema: 'mbp-1',
+      start: start.toISOString(),
+      end: now.toISOString(),
+      stype_in: 'raw_symbol',
+      encoding: 'json',
+    });
+
+    const response = await fetch(`${url}?${params}`, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error(`Databento API error for ${ticker}: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.text();
+    const lines = data.trim().split('\n').filter(l => l);
+
+    if (lines.length === 0) return null;
+
+    const lastLine = lines[lines.length - 1];
+    const quote = JSON.parse(lastLine);
+
+    const bid = quote.bid_px_00 ? quote.bid_px_00 / 1e9 : 0;
+    const ask = quote.ask_px_00 ? quote.ask_px_00 / 1e9 : 0;
+    const mid = (bid + ask) / 2;
+
+    console.log(`Databento quote for ${ticker}: bid=${bid}, ask=${ask}, mid=${mid}`);
+
+    return {
+      ticker: ticker,
+      price: mid || bid || ask,
+      bid,
+      ask,
+      last: mid,
+      updated: quote.ts_event,
+    };
+  } catch (error) {
+    console.error(`Error fetching Databento quote for ${ticker}:`, error);
+    return null;
+  }
+}
+
+function convertToDatabentoSymbol(polygonTicker: string): string {
+  if (!polygonTicker.startsWith('O:')) return polygonTicker;
+
+  const cleaned = polygonTicker.substring(2);
+  return cleaned;
+}
+
 async function fetchPolygonQuote(ticker: string, apiKey: string) {
   try {
-    const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`;
+    const isOption = ticker.startsWith('O:');
+
+    let url: string;
+    if (isOption) {
+      url = `https://api.polygon.io/v3/quotes/${ticker}?order=desc&limit=1&apiKey=${apiKey}`;
+    } else {
+      url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`;
+    }
+
     const response = await fetch(url);
-    
+
     if (!response.ok) {
+      console.error(`Polygon API error for ${ticker}: ${response.status}`);
       return null;
     }
 
     const data = await response.json();
-    
-    if (data.status === "OK" && data.ticker) {
-      const snapshot = data.ticker;
-      const price = snapshot.lastTrade?.p || snapshot.prevDay?.c || null;
-      
-      return {
-        ticker: snapshot.ticker,
-        price,
-        bid: snapshot.lastQuote?.P,
-        ask: snapshot.lastQuote?.p,
-        last: snapshot.lastTrade?.p,
-        updated: snapshot.updated,
-      };
+
+    if (isOption) {
+      if (data.status === "OK" && data.results && data.results.length > 0) {
+        const quote = data.results[0];
+        const mid = (quote.bid_price + quote.ask_price) / 2;
+
+        return {
+          ticker: ticker,
+          price: mid || quote.bid_price || quote.ask_price,
+          bid: quote.bid_price,
+          ask: quote.ask_price,
+          last: quote.bid_price,
+          updated: quote.sip_timestamp,
+        };
+      }
+    } else {
+      if (data.status === "OK" && data.ticker) {
+        const snapshot = data.ticker;
+        const price = snapshot.lastTrade?.p || snapshot.prevDay?.c || null;
+
+        return {
+          ticker: snapshot.ticker,
+          price,
+          bid: snapshot.lastQuote?.P,
+          ask: snapshot.lastQuote?.p,
+          last: snapshot.lastTrade?.p,
+          updated: snapshot.updated,
+        };
+      }
     }
-    
+
     return null;
   } catch (error) {
-    console.error("Error fetching quote:", error);
+    console.error(`Error fetching Polygon quote for ${ticker}:`, error);
     return null;
   }
 }

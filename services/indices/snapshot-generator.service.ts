@@ -293,7 +293,7 @@ export class SnapshotGeneratorService {
     })} ET`;
 
     return {
-      symbol: trade.polygon_option_ticker?.split(':')[0] || 'SPX',
+      symbol: trade.analysis?.index_symbol || 'SPX',
       strike: trade.strike || 0,
       expiry: trade.expiry || new Date().toISOString(),
       optionType: trade.option_type === 'call' ? 'Call' : 'Put',

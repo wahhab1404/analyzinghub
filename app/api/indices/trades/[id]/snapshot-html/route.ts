@@ -83,11 +83,21 @@ export async function GET(
       });
     };
 
-    const symbol = trade.polygon_option_ticker || 'SPX';
     const strike = trade.strike || 0;
     const expiry = trade.expiry || new Date().toISOString();
     const optionType = trade.option_type === 'call' ? 'Call' : 'Put';
     const underlyingSymbol = trade.analysis?.index_symbol || 'SPX';
+
+    // Extract clean symbol from polygon ticker (e.g., "O:SPX251231C06090000" -> "SPX")
+    let cleanSymbol = underlyingSymbol;
+    if (trade.polygon_option_ticker) {
+      const parts = trade.polygon_option_ticker.split(':');
+      if (parts.length > 1) {
+        // Extract just the index name (SPX, NDX, etc.) from the date/strike combo
+        const tickerPart = parts[1];
+        cleanSymbol = tickerPart.replace(/\d{6}[CP]\d{8}$/, '');
+      }
+    }
 
     const html = `<!DOCTYPE html>
 <html>
@@ -126,7 +136,7 @@ export async function GET(
 <body>
   <div class="container">
     <div class="header">
-      <div class="title">${symbol.split(':')[1] || symbol} $${strike.toLocaleString()}</div>
+      <div class="title">${cleanSymbol} ${strike.toLocaleString()}</div>
       <div class="subtitle">${formatExpiry(expiry)} (W) ${optionType}</div>
     </div>
     <div class="content-section">
