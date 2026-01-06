@@ -26,28 +26,30 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get all published analyses with targets
     const { data: analyses, error: analysesError } = await supabase
       .from("index_analyses")
       .select("id, index_symbol, title, author_id, targets, targets_hit, telegram_channel_id")
       .eq("status", "published")
-      .not("targets", "eq", "[]")
       .order("last_target_check_at", { ascending: true, nullsFirst: true })
       .limit(50);
+
+    const analysesWithTargets = (analyses || []).filter(
+      (a: any) => a.targets && Array.isArray(a.targets) && a.targets.length > 0
+    );
 
     if (analysesError) {
       console.error("Error fetching analyses:", analysesError);
       throw analysesError;
     }
 
-    if (!analyses || analyses.length === 0) {
+    if (!analysesWithTargets || analysesWithTargets.length === 0) {
       return new Response(
-        JSON.stringify({ ok: true, message: "No analyses to check", processed: 0 }),
+        JSON.stringify({ ok: true, message: "No analyses with targets to check", processed: 0 }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    console.log(`Found ${analyses.length} analyses to check`);
+    console.log(`Found ${analysesWithTargets.length} analyses with targets to check`);
 
     const results = {
       processed: 0,
@@ -55,9 +57,8 @@ Deno.serve(async (req: Request) => {
       errors: 0,
     };
 
-    for (const analysis of analyses as any[]) {
+    for (const analysis of analysesWithTargets) {
       try {
-        // Get index reference
         const { data: indexRef } = await supabase
           .from("indices_reference")
           .select("polygon_index_ticker")
@@ -69,7 +70,6 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        // Fetch current price from Polygon
         const currentPrice = await fetchPolygonPrice(
           indexRef.polygon_index_ticker,
           polygonApiKey
@@ -84,18 +84,14 @@ Deno.serve(async (req: Request) => {
         const targetsHit = analysis.targets_hit || [];
         const newTargetsHit: number[] = [];
 
-        // Check each target
         for (let i = 0; i < targets.length; i++) {
           const target = targets[i];
           
-          // Skip if already hit
           if (targetsHit.includes(i) || target.reached) {
             continue;
           }
 
           const targetLevel = parseFloat(target.level);
-          
-          // Check if price reached target (with 0.1% tolerance)
           const tolerance = targetLevel * 0.001;
           const priceReached = Math.abs(currentPrice - targetLevel) <= tolerance;
 
@@ -103,14 +99,12 @@ Deno.serve(async (req: Request) => {
             console.log(`Target ${i} hit for analysis ${analysis.id}: $${currentPrice} (Target: $${targetLevel})`);
             newTargetsHit.push(i);
 
-            // Mark target as reached
             targets[i] = {
               ...target,
               reached: true,
               reached_at: new Date().toISOString(),
             };
 
-            // Record target hit
             await supabase.from("analysis_target_hits").insert({
               analysis_id: analysis.id,
               target_index: i,
@@ -118,16 +112,16 @@ Deno.serve(async (req: Request) => {
               hit_price: currentPrice,
             });
 
-            // Create update
+            const updateText = `🎯 ${target.label || `Target ${i + 1}`} reached at $${currentPrice.toFixed(2)}!`;
             await supabase.from("analysis_updates").insert({
               analysis_id: analysis.id,
               author_id: analysis.author_id,
-              text_en: `🎯 ${target.label || `Target ${i + 1}`} reached at $${currentPrice.toFixed(2)}!`,
+              body: updateText,
+              text_en: updateText,
               text_ar: `🎯 ${target.label || `الهدف ${i + 1}`} تم الوصول إلى $${currentPrice.toFixed(2)}!`,
               update_type: "target_hit",
             });
 
-            // Send Telegram notification
             if (analysis.telegram_channel_id) {
               try {
                 await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
@@ -151,7 +145,6 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // Update analysis
         if (newTargetsHit.length > 0) {
           await supabase
             .from("index_analyses")
@@ -162,7 +155,6 @@ Deno.serve(async (req: Request) => {
             })
             .eq("id", analysis.id);
         } else {
-          // Just update last check time
           await supabase
             .from("index_analyses")
             .update({ last_target_check_at: new Date().toISOString() })
@@ -195,7 +187,7 @@ Deno.serve(async (req: Request) => {
 
 async function fetchPolygonPrice(ticker: string, apiKey: string): Promise<number | null> {
   try {
-    const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`;
+    const url = `https://api.polygon.io/v3/snapshot?ticker.any_of=${ticker}&apiKey=${apiKey}`;
     const response = await fetch(url);
     
     if (!response.ok) {
@@ -204,9 +196,10 @@ async function fetchPolygonPrice(ticker: string, apiKey: string): Promise<number
 
     const data = await response.json();
     
-    if (data.status === "OK" && data.ticker) {
-      const snapshot = data.ticker;
-      const price = snapshot.lastTrade?.p || snapshot.prevDay?.c || null;
+    if (data.status === "OK" && data.results && data.results.length > 0) {
+      const snapshot = data.results[0];
+      const price = snapshot.value || snapshot.session?.close || snapshot.session?.previous_close || null;
+      console.log(`Fetched ${ticker}: $${price}`);
       return price;
     }
     

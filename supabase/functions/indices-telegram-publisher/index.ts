@@ -1,5 +1,5 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.58.0';
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import {
   formatAnalysisMessage,
   formatTradeMessage,
@@ -81,7 +81,7 @@ async function sendTelegramPhoto(
   return response.json();
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -97,24 +97,45 @@ serve(async (req) => {
 
     // Determine which channels to publish to
     if (payload.channelId) {
-      channelIds = [payload.channelId];
+      // Check if channelId is a UUID (from telegram_channels table) or actual channel ID
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.channelId);
+
+      if (isUuid) {
+        // Look up the actual channel_id from the UUID
+        const { data: channelData } = await supabase
+          .from('telegram_channels')
+          .select('channel_id')
+          .eq('id', payload.channelId)
+          .eq('enabled', true)
+          .single();
+
+        if (channelData?.channel_id) {
+          channelIds = [channelData.channel_id];
+        }
+      } else {
+        // Already a channel ID (e.g., "-1002607859974")
+        channelIds = [payload.channelId];
+      }
     } else if (payload.data.author_id) {
       const { data: channels } = await supabase
-        .from('analyzer_telegram_channels')
-        .select('telegram_channel_id')
-        .eq('analyzer_id', payload.data.author_id)
-        .eq('is_connected', true)
-        .in('broadcast_type', ['both', 'auto']);
-      
-      channelIds = channels?.map(c => c.telegram_channel_id) || [];
+        .from('telegram_channels')
+        .select('channel_id')
+        .eq('user_id', payload.data.author_id)
+        .eq('enabled', true)
+        .eq('notify_new_analysis', true);
+
+      channelIds = channels?.map(c => c.channel_id) || [];
     }
 
     if (channelIds.length === 0) {
+      console.error('No active channels found for publishing');
       return new Response(
         JSON.stringify({ error: 'No active channels found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    console.log('Publishing to Telegram channels:', channelIds);
 
     // Format message based on type
     switch (payload.type) {

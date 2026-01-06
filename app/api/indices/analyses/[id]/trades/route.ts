@@ -238,7 +238,8 @@ export async function POST(
       })
       .select(`
         *,
-        author:profiles!author_id(id, full_name, avatar_url)
+        author:profiles!author_id(id, full_name, avatar_url),
+        analysis:index_analyses!analysis_id(id, title, index_symbol, telegram_channel_id)
       `)
       .single();
 
@@ -270,18 +271,26 @@ export async function POST(
           const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
           if (supabaseUrl && serviceRoleKey) {
-            await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+            const response = await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${serviceRoleKey}`,
               },
               body: JSON.stringify({
-                entityType: 'trade',
-                entityId: trade.id,
+                type: 'new_trade',
+                data: trade,
                 channelId: channelId,
+                isNewHigh: false,
               }),
             });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('Telegram trade publish failed:', errorText);
+            } else {
+              console.log('Successfully published trade to Telegram');
+            }
           }
         }
       } catch (telegramError) {

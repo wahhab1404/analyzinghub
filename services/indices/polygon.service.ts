@@ -104,7 +104,7 @@ class PolygonService {
    * Get current snapshot of an index (I:SPX, I:NDX, I:DJI)
    * Used when publishing trades to capture entry price
    *
-   * Uses Polygon's aggregates endpoint to get actual index values
+   * Uses Polygon's real-time snapshot endpoint to get current index values
    */
   async getIndexSnapshot(polygonIndexTicker: string): Promise<IndexSnapshot> {
     if (!POLYGON_API_KEY) {
@@ -116,9 +116,9 @@ class PolygonService {
       ? polygonIndexTicker
       : `I:${polygonIndexTicker}`;
 
-    // Use aggregates endpoint for previous day's data (most reliable)
-    // GET /v2/aggs/ticker/{ticker}/prev
-    const url = `${POLYGON_BASE_URL}/v2/aggs/ticker/${indexTicker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+    // Use snapshot endpoint for real-time data
+    // GET /v3/snapshot?ticker.any_of={ticker}
+    const url = `${POLYGON_BASE_URL}/v3/snapshot?ticker.any_of=${indexTicker}&apiKey=${POLYGON_API_KEY}`;
 
     console.log('Fetching index snapshot:', url.replace(POLYGON_API_KEY!, '[REDACTED]'));
 
@@ -130,21 +130,22 @@ class PolygonService {
       }
 
       const result = data.results[0];
-      const price = result.c; // Close price
-      const high = result.h;
-      const low = result.l;
-      const open = result.o;
+      const price = result.value || result.session?.close || result.session?.previous_close;
+
+      if (!price) {
+        throw new Error(`No valid price found in snapshot for ${indexTicker}`);
+      }
 
       return {
         ticker: polygonIndexTicker,
         value: price,
         session: {
-          high: high,
-          low: low,
-          open: open,
-          previousClose: price, // Using close as previous close for now
+          high: result.session?.high || price,
+          low: result.session?.low || price,
+          open: result.session?.open || price,
+          previousClose: result.session?.previous_close || price,
         },
-        timestamp: new Date(result.t).toISOString(),
+        timestamp: result.updated ? new Date(result.updated).toISOString() : new Date().toISOString(),
       };
     } catch (error) {
       console.error(`Failed to fetch index snapshot for ${indexTicker}:`, error);

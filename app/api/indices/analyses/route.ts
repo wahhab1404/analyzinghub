@@ -200,18 +200,25 @@ export async function POST(request: NextRequest) {
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
         if (supabaseUrl && serviceRoleKey) {
-          await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+          const response = await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${serviceRoleKey}`,
             },
             body: JSON.stringify({
-              entityType: 'analysis',
-              entityId: analysis.id,
+              type: 'new_analysis',
+              data: analysis,
               channelId: body.telegram_channel_id,
             }),
           });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Telegram publish failed:', errorText);
+          } else {
+            console.log('Successfully published analysis to Telegram');
+          }
         }
       } catch (telegramError) {
         console.error('Failed to publish to Telegram:', telegramError);

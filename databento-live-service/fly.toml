@@ -3,6 +3,7 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+  builder = "default"
 
 [env]
   LOG_LEVEL = "INFO"
@@ -27,4 +28,4 @@ primary_region = "iad"
 [[vm]]
   cpu_kind = "shared"
   cpus = 1
-  memory_mb = 512
+  memory_mb = 256

@@ -19,10 +19,12 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const polygonApiKey = Deno.env.get("POLYGON_API_KEY");
-    const databentoApiKey = Deno.env.get("DATABENTO_API_KEY");
 
-    if (!polygonApiKey && !databentoApiKey) {
-      throw new Error("No API keys configured");
+    console.log("[CONFIG CHECK] Polygon API Key present:", !!polygonApiKey);
+    console.log("[CONFIG CHECK] Polygon API Key length:", polygonApiKey?.length || 0);
+
+    if (!polygonApiKey) {
+      throw new Error("POLYGON_API_KEY not configured in Edge Function secrets");
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -77,18 +79,16 @@ Deno.serve(async (req: Request) => {
 
     for (const trade of trades as any[]) {
       try {
-        const underlyingQuote = await fetchQuote(
+        const underlyingQuote = await fetchPolygonQuote(
           trade.polygon_underlying_index_ticker,
-          polygonApiKey,
-          databentoApiKey
+          polygonApiKey
         );
 
         let contractQuote = null;
         if (trade.polygon_option_ticker) {
-          contractQuote = await fetchQuote(
+          contractQuote = await fetchPolygonQuote(
             trade.polygon_option_ticker,
-            polygonApiKey,
-            databentoApiKey
+            polygonApiKey
           );
         }
 
@@ -105,23 +105,21 @@ Deno.serve(async (req: Request) => {
           last_quote_at: new Date().toISOString(),
         };
 
-        const previousContractHigh = trade.contract_high_since || newContract;
+        const entryUnderlyingPrice = trade.entry_underlying_snapshot?.price || newUnderlying;
+        const entryContractPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || newContract;
+
+        const previousContractHigh = trade.contract_high_since || entryContractPrice;
+        const previousContractLow = trade.contract_low_since || entryContractPrice;
+        const previousUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
+        const previousUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
+
         const newContractHigh = Math.max(previousContractHigh, newContract);
         const isNewHigh = newContractHigh > previousContractHigh;
 
-        updates.underlying_high_since = Math.max(
-          trade.underlying_high_since || newUnderlying,
-          newUnderlying
-        );
-        updates.underlying_low_since = Math.min(
-          trade.underlying_low_since || newUnderlying,
-          newUnderlying
-        );
+        updates.underlying_high_since = Math.max(previousUnderlyingHigh, newUnderlying);
+        updates.underlying_low_since = Math.min(previousUnderlyingLow, newUnderlying);
         updates.contract_high_since = newContractHigh;
-        updates.contract_low_since = Math.min(
-          trade.contract_low_since || newContract,
-          newContract
-        );
+        updates.contract_low_since = Math.min(previousContractLow, newContract);
 
         const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const target1Price = trade.targets && trade.targets.length > 0 ? trade.targets[0]?.level : null;
@@ -142,20 +140,31 @@ Deno.serve(async (req: Request) => {
           const channelId = trade.analysis?.telegram_channel_id;
           if (channelId) {
             try {
-              await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${supabaseKey}`,
-                },
-                body: JSON.stringify({
-                  entityType: "trade",
-                  entityId: trade.id,
-                  channelId: channelId,
-                  isNewHigh: true,
-                  forceResend: true,
-                }),
-              });
+              const { data: fullTrade } = await supabase
+                .from("index_trades")
+                .select(`
+                  *,
+                  author:profiles!author_id(id, full_name, avatar_url),
+                  analysis:index_analyses!analysis_id(id, title, index_symbol, telegram_channel_id)
+                `)
+                .eq("id", trade.id)
+                .single();
+
+              if (fullTrade) {
+                await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    type: "new_trade",
+                    data: fullTrade,
+                    channelId: fullTrade.analysis?.telegram_channel_id || channelId,
+                    isNewHigh: true,
+                  }),
+                });
+              }
             } catch (e) {
               console.error("Failed to send new high notification:", e);
             }
@@ -214,18 +223,30 @@ Deno.serve(async (req: Request) => {
           const channelId = trade.analysis?.telegram_channel_id;
           if (channelId) {
             try {
-              await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  "Authorization": `Bearer ${supabaseKey}`,
-                },
-                body: JSON.stringify({
-                  entityType: "trade_result",
-                  entityId: trade.id,
-                  channelId: channelId,
-                }),
-              });
+              const { data: fullTrade } = await supabase
+                .from("index_trades")
+                .select(`
+                  *,
+                  author:profiles!author_id(id, full_name, avatar_url),
+                  analysis:index_analyses!analysis_id(id, title, index_symbol, telegram_channel_id)
+                `)
+                .eq("id", trade.id)
+                .single();
+
+              if (fullTrade) {
+                await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    type: "trade_result",
+                    data: fullTrade,
+                    channelId: fullTrade.analysis?.telegram_channel_id || channelId,
+                  }),
+                });
+              }
             } catch (e) {
               console.error("Failed to trigger Telegram:", e);
             }
@@ -267,93 +288,16 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-async function fetchQuote(ticker: string, polygonApiKey: string | undefined, databentoApiKey: string | undefined) {
-  const isOption = ticker.startsWith('O:');
-
-  if (isOption && databentoApiKey) {
-    const databentoQuote = await fetchDatabentoQuote(ticker, databentoApiKey);
-    if (databentoQuote) return databentoQuote;
-  }
-
-  if (polygonApiKey) {
-    return await fetchPolygonQuote(ticker, polygonApiKey);
-  }
-
-  return null;
-}
-
-async function fetchDatabentoQuote(ticker: string, apiKey: string) {
-  try {
-    const symbol = convertToDatabentoSymbol(ticker);
-    const url = `https://hist.databento.com/v0/timeseries.get_range`;
-
-    const now = new Date();
-    const start = new Date(now.getTime() - 60000);
-
-    const params = new URLSearchParams({
-      dataset: 'OPRA.PILLAR',
-      symbols: symbol,
-      schema: 'mbp-1',
-      start: start.toISOString(),
-      end: now.toISOString(),
-      stype_in: 'raw_symbol',
-      encoding: 'json',
-    });
-
-    const response = await fetch(`${url}?${params}`, {
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Accept': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Databento API error for ${ticker}: ${response.status}`);
-      return null;
-    }
-
-    const data = await response.text();
-    const lines = data.trim().split('\n').filter(l => l);
-
-    if (lines.length === 0) return null;
-
-    const lastLine = lines[lines.length - 1];
-    const quote = JSON.parse(lastLine);
-
-    const bid = quote.bid_px_00 ? quote.bid_px_00 / 1e9 : 0;
-    const ask = quote.ask_px_00 ? quote.ask_px_00 / 1e9 : 0;
-    const mid = (bid + ask) / 2;
-
-    console.log(`Databento quote for ${ticker}: bid=${bid}, ask=${ask}, mid=${mid}`);
-
-    return {
-      ticker: ticker,
-      price: mid || bid || ask,
-      bid,
-      ask,
-      last: mid,
-      updated: quote.ts_event,
-    };
-  } catch (error) {
-    console.error(`Error fetching Databento quote for ${ticker}:`, error);
-    return null;
-  }
-}
-
-function convertToDatabentoSymbol(polygonTicker: string): string {
-  if (!polygonTicker.startsWith('O:')) return polygonTicker;
-
-  const cleaned = polygonTicker.substring(2);
-  return cleaned;
-}
-
 async function fetchPolygonQuote(ticker: string, apiKey: string) {
   try {
     const isOption = ticker.startsWith('O:');
+    const isIndex = ticker.startsWith('I:');
 
     let url: string;
     if (isOption) {
       url = `https://api.polygon.io/v3/quotes/${ticker}?order=desc&limit=1&apiKey=${apiKey}`;
+    } else if (isIndex) {
+      url = `https://api.polygon.io/v3/snapshot?ticker.any_of=${ticker}&apiKey=${apiKey}`;
     } else {
       url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${ticker}?apiKey=${apiKey}`;
     }
@@ -379,6 +323,27 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
           ask: quote.ask_price,
           last: quote.bid_price,
           updated: quote.sip_timestamp,
+        };
+      }
+    } else if (isIndex) {
+      if (data.status === "OK" && data.results && data.results.length > 0) {
+        const snapshot = data.results[0];
+        const price = snapshot.value || snapshot.session?.close || snapshot.session?.previous_close;
+
+        console.log(`Index snapshot for ${ticker}:`, JSON.stringify(snapshot));
+
+        if (!price) {
+          console.error(`No price found in snapshot for ${ticker}`);
+          return null;
+        }
+
+        return {
+          ticker: ticker,
+          price: price,
+          bid: price,
+          ask: price,
+          last: price,
+          updated: snapshot.updated || Date.now(),
         };
       }
     } else {
