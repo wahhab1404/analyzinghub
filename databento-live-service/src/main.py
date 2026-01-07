@@ -220,13 +220,18 @@ class DatabentoLiveService:
 
         for symbol in symbols:
             try:
-                # SPX options trade on OPRA.PILLAR (extended hours 24/5)
-                # Indices trade on XNAS.ITCH
-                is_index = symbol.startswith('I:')
-                dataset = 'XNAS.ITCH' if is_index else 'OPRA.PILLAR'
-                schema = 'mbp-1'
+                # Skip index symbols - Databento can't mix datasets in one session
+                # We focus on options (OPRA.PILLAR) since that's our primary use case
+                if symbol.startswith('I:'):
+                    logger.info(f"⏭️  Skipping index {symbol} - focusing on options only")
+                    continue
 
-                logger.info(f"📡 Subscribing to {symbol} on {dataset} (extended hours enabled)")
+                # SPX options trade on OPRA.PILLAR (extended hours 24/5)
+                # Use 'tbbo' schema (Top of Book Best Offer) for options
+                dataset = 'OPRA.PILLAR'
+                schema = 'tbbo'
+
+                logger.info(f"📡 Subscribing to {symbol} on {dataset} with {schema} schema")
 
                 self.client.subscribe(
                     dataset=dataset,
@@ -334,6 +339,17 @@ class DatabentoLiveService:
 
 def main():
     try:
+        # Log dependency versions for troubleshooting
+        import supabase
+        import gotrue
+        import httpx
+        logger.info("="*60)
+        logger.info("📦 DEPENDENCY VERSIONS")
+        logger.info(f"   supabase: {supabase.__version__}")
+        logger.info(f"   gotrue: {gotrue.__version__}")
+        logger.info(f"   httpx: {httpx.__version__}")
+        logger.info("="*60)
+
         service = DatabentoLiveService()
         service.start()
     except Exception as e:
