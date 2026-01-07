@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info } from 'lucide-react'
 import { toast } from 'sonner'
+import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 
 interface Trade {
   id: string
@@ -41,12 +43,22 @@ interface TradesListProps {
 export function TradesList({ analysisId, onSelectTrade }: TradesListProps) {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
+  const [marketStatus, setMarketStatus] = useState(getMarketStatus())
 
   useEffect(() => {
     fetchTrades()
     const interval = setInterval(fetchTrades, 30000)
     return () => clearInterval(interval)
   }, [analysisId])
+
+  useEffect(() => {
+    const updateMarketStatus = () => {
+      setMarketStatus(getMarketStatus())
+    }
+    updateMarketStatus()
+    const interval = setInterval(updateMarketStatus, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   const fetchTrades = async () => {
     try {
@@ -111,6 +123,28 @@ export function TradesList({ analysisId, onSelectTrade }: TradesListProps) {
 
   return (
     <div className="space-y-4">
+      {!marketStatus.isOpen && (
+        <Alert>
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Badge
+                variant="outline"
+                className="border-yellow-500 text-yellow-700"
+              >
+                <CircleDot className="h-3 w-3 mr-1" />
+                {marketStatus.message}
+              </Badge>
+              <span className="text-sm">
+                Options prices update during Regular Trading Hours (9:30 AM - 4:00 PM ET).
+                Current prices reflect the last available quote from the most recent trading session.
+                Current time: {formatMarketTime()}
+              </span>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {trades.map((trade) => {
         const pnl = calculatePnL(trade)
         const hitsTarget = trade.targets.filter(t => t.hit).length
