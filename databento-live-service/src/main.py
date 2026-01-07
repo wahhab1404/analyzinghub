@@ -279,6 +279,27 @@ class DatabentoLiveService:
         except Exception as e:
             logger.error(f"Database update error for {databento_symbol}: {e}")
 
+    def _close_unresolvable_trades(self, symbols: List[str]):
+        """Close trades for symbols that Databento cannot resolve (expired/delisted)"""
+        for symbol in symbols:
+            try:
+                polygon_ticker = self._convert_databento_to_polygon(symbol)
+                logger.info(f"🔒 Auto-closing unresolvable contract: {polygon_ticker}")
+
+                self.supabase.table('index_trades') \
+                    .update({
+                        'status': 'closed',
+                        'outcome': 'expired',
+                        'closed_at': datetime.utcnow().isoformat(),
+                        'close_reason': 'Contract expired/delisted - symbol not found in data feed'
+                    }) \
+                    .eq('polygon_option_ticker', polygon_ticker) \
+                    .eq('status', 'active') \
+                    .execute()
+
+            except Exception as e:
+                logger.error(f"Failed to close trade for {symbol}: {e}")
+
     def _subscribe_to_symbols(self, symbols: Set[str]):
         """Subscribe to live data for given symbols"""
         if not symbols:
@@ -297,6 +318,7 @@ class DatabentoLiveService:
         # Subscribe to each symbol individually to identify which ones fail
         successful = []
         failed = []
+        unresolvable = []
 
         for symbol in option_symbols:
             try:
@@ -311,16 +333,29 @@ class DatabentoLiveService:
                 self.subscribed_symbols.add(symbol)
 
             except Exception as e:
+                error_msg = str(e)
                 failed.append(symbol)
-                logger.warning(f"   ⚠️  Failed to subscribe to {symbol}: {e}")
+
+                # Check if this is a symbol resolution failure (expired/delisted)
+                if "Failed to resolve symbol" in error_msg or "symbol not found" in error_msg.lower():
+                    unresolvable.append(symbol)
+                    logger.warning(f"   ⚠️  Symbol {symbol} not found in feed (likely expired/delisted)")
+                else:
+                    logger.warning(f"   ⚠️  Failed to subscribe to {symbol}: {e}")
+
+        # Auto-close trades for unresolvable symbols
+        if unresolvable:
+            logger.info(f"🔒 Closing {len(unresolvable)} expired/delisted contracts...")
+            self._close_unresolvable_trades(unresolvable)
 
         if successful:
             logger.info(f"✅ Successfully subscribed to {len(successful)} contracts")
 
         if failed:
-            logger.warning(f"⚠️  Failed to subscribe to {len(failed)} contracts (may be expired or inactive)")
+            logger.warning(f"⚠️  Failed to subscribe to {len(failed)} contracts")
 
-        if not successful:
+        # Only raise error if ALL symbols failed AND none were auto-closed
+        if not successful and not unresolvable:
             raise ValueError("No symbols could be subscribed - all failed")
 
     def start(self):
@@ -389,6 +424,16 @@ class DatabentoLiveService:
                 continue
 
             except Exception as e:
+                error_msg = str(e)
+
+                # Handle "Failed to resolve symbol" errors from gateway
+                if "Failed to resolve symbol" in error_msg:
+                    logger.warning(f"⚠️  Gateway rejected symbols: {error_msg}")
+                    logger.info("🔄 Refreshing symbol list and retrying in 60 seconds...")
+                    time.sleep(60)
+                    retry_count = 0  # Reset retry count, try with fresh symbols
+                    continue
+
                 logger.error(f"Service error: {e}")
                 retry_count += 1
                 if retry_count < max_retries:
