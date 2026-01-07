@@ -3,7 +3,6 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
-  builder = "default"
 
 [env]
   LOG_LEVEL = "INFO"
