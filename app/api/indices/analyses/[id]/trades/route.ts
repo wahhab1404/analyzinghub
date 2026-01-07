@@ -203,6 +203,10 @@ export async function POST(
     // Use custom HTML template for screenshots (not external URLs)
     const contractUrl: string | null = null;
 
+    // Determine telegram channel ID
+    // Priority: body.telegram_channel_id > analysis.telegram_channel_id
+    let telegramChannelId = body.telegram_channel_id || null;
+
     // Create the trade
     const { data: trade, error: insertError } = await supabase
       .from('index_trades')
@@ -233,6 +237,8 @@ export async function POST(
         stoploss: body.stoploss || null,
         notes: body.notes || null,
         contract_url: contractUrl,
+        telegram_channel_id: telegramChannelId,
+        telegram_send_enabled: true,
         last_quote_at: new Date().toISOString(),
         published_at: new Date().toISOString(),
       })
@@ -254,19 +260,61 @@ export async function POST(
       source: entrySource,
     });
 
+    // Generate snapshot image and wait for completion
+    let snapshotUrl: string | null = null;
+    try {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (supabaseUrl && serviceRoleKey) {
+        console.log('Generating snapshot for trade:', trade.id);
+        const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            tradeId: trade.id,
+            isNewHigh: false,
+          }),
+        });
+
+        if (snapshotResponse.ok) {
+          const result = await snapshotResponse.json();
+          snapshotUrl = result.imageUrl;
+          console.log('Snapshot generated successfully:', snapshotUrl);
+
+          // Update trade with snapshot URL
+          trade.contract_url = snapshotUrl;
+        } else {
+          const errorText = await snapshotResponse.text();
+          console.error('Snapshot generation failed:', errorText);
+        }
+      }
+    } catch (snapshotError) {
+      console.error('Failed to generate snapshot:', snapshotError);
+    }
+
     // Publish to Telegram if requested
     if (body.auto_publish_telegram) {
       try {
-        // Get analysis telegram channel
-        const { data: analysisData } = await supabase
-          .from('index_analyses')
-          .select('telegram_channel_id')
-          .eq('id', analysisId)
-          .single();
+        // Determine which channel to use (trade override > analysis default)
+        let channelId = trade.telegram_channel_id;
 
-        const channelId = analysisData?.telegram_channel_id;
+        if (!channelId) {
+          const { data: analysisData } = await supabase
+            .from('index_analyses')
+            .select('telegram_channel_id')
+            .eq('id', analysisId)
+            .maybeSingle();
+
+          channelId = analysisData?.telegram_channel_id;
+        }
 
         if (channelId) {
+          console.log(`Publishing trade ${trade.id} to Telegram channel ${channelId}`);
+
           const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
           const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -289,9 +337,14 @@ export async function POST(
               const errorText = await response.text();
               console.error('Telegram trade publish failed:', errorText);
             } else {
-              console.log('Successfully published trade to Telegram');
+              const result = await response.json();
+              console.log('Successfully published trade to Telegram:', result);
             }
+          } else {
+            console.error('Missing Supabase URL or service role key for Telegram publishing');
           }
+        } else {
+          console.log('No telegram channel configured for this trade or analysis');
         }
       } catch (telegramError) {
         console.error('Failed to publish trade to Telegram:', telegramError);

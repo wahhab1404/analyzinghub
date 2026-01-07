@@ -15,6 +15,7 @@ export async function trackEvent(params: TrackEventParams): Promise<void> {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify(params),
     })
   } catch (error) {

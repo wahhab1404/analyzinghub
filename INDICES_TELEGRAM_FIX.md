@@ -1,6 +1,101 @@
-# Indices Telegram & Price Updates Fix
+# Indices Telegram & Recommendations Performance Fix
 
-## Issues Fixed
+## Latest Fixes (January 7, 2026)
+
+### Issue 1: Indices Hub Telegram Messages Not Sending
+**Status:** ✅ FIXED (Edge Function Needs Deployment)
+
+**Problem:** Telegram messages not being sent when creating analyses or trades in Indices Hub.
+
+**Root Causes:**
+1. Trade endpoint wasn't accepting/storing `telegram_channel_id` parameter
+2. Missing comprehensive logging for debugging
+3. No fallback logic for channel ID resolution
+
+**Changes Made:**
+- **`/app/api/indices/analyses/[id]/trades/route.ts`:**
+  - Now accepts and stores `telegram_channel_id` from request body
+  - Added telegram channel fallback logic (trade channel → analysis channel)
+  - Stores `telegram_send_enabled` flag
+  - Enhanced logging for debugging
+
+- **`/app/api/indices/analyses/route.ts`:**
+  - Enhanced logging for Telegram publishing attempts
+  - Better error messages
+
+- **`/supabase/functions/indices-telegram-publisher/index.ts`:**
+  - Added comprehensive `[IndicesPublisher]` logging
+  - Better error details when no channels found
+
+**Deployment Required:** You must redeploy the `indices-telegram-publisher` edge function for the enhanced logging to take effect.
+
+```bash
+npx supabase functions deploy indices-telegram-publisher
+```
+
+**Quick Diagnosis (Run This First!):**
+```bash
+npm run test:indices:telegram
+```
+
+This diagnostic script will:
+- ✅ Check if the edge function is deployed
+- ✅ Find your most recent trade
+- ✅ Verify telegram channels are configured
+- ✅ Test sending a message to the edge function
+- ✅ Show you exactly what's failing
+
+**Manual Testing Instructions:**
+1. Go to Indices Hub
+2. Create a new analysis with a telegram channel selected
+3. Check "Auto-publish to Telegram"
+4. Create the analysis
+5. Add a trade to the analysis
+6. Check "Auto-publish to Telegram"
+7. Check your Telegram channel - message should appear immediately
+8. Check Supabase edge function logs for `[IndicesPublisher]` entries
+
+**Common Issues & Solutions:**
+
+1. **Edge function not deployed:**
+   - Run: `npx supabase functions deploy indices-telegram-publisher`
+   - Or deploy via Supabase Dashboard
+
+2. **No telegram channels found:**
+   - Go to Settings > Telegram
+   - Enable at least one channel
+   - Make sure notify_new_analysis is enabled
+
+3. **Channel ID mismatch:**
+   - When creating a trade, select the same channel as the analysis
+   - Or let it inherit from the analysis default channel
+
+4. **Silent failures:**
+   - Check browser console for API errors
+   - Check Supabase edge function logs for `[IndicesPublisher]` entries
+   - Check server logs (if self-hosting)
+
+### Issue 2: Recommended Analyzers/Symbols Loading Very Slowly
+**Status:** ✅ FIXED
+
+**Problem:** "Recommended Analyzers" and "Recommended Symbols" taking very long to load, sometimes timing out.
+
+**Root Cause:** Complex recommendation queries with no timeout protection, causing indefinite waits.
+
+**Changes Made:**
+- **`/app/api/recommendations/analyzers/route.ts`:**
+  - Added 3-second timeout using Promise.race()
+  - Graceful fallback to empty results on timeout
+
+- **`/app/api/recommendations/symbols/route.ts`:**
+  - Added 3-second timeout using Promise.race()
+  - Graceful fallback to empty results on timeout
+
+**Result:** Recommendations now load within 3 seconds or show empty state gracefully.
+
+---
+
+## Previous Issues Fixed
 
 ### 1. New Index Analyses Not Sending to Telegram
 **Problem:** When creating a new index analysis, the Telegram notification was not being sent.

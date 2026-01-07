@@ -196,6 +196,8 @@ export async function POST(request: NextRequest) {
     // Publish to Telegram if requested and published
     if (body.auto_publish_telegram && body.status === 'published' && body.telegram_channel_id) {
       try {
+        console.log(`Publishing analysis ${analysis.id} to Telegram channel ${body.telegram_channel_id}`);
+
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -215,10 +217,13 @@ export async function POST(request: NextRequest) {
 
           if (!response.ok) {
             const errorText = await response.text();
-            console.error('Telegram publish failed:', errorText);
+            console.error('Telegram analysis publish failed:', errorText);
           } else {
-            console.log('Successfully published analysis to Telegram');
+            const result = await response.json();
+            console.log('Successfully published analysis to Telegram:', result);
           }
+        } else {
+          console.error('Missing Supabase URL or service role key for Telegram publishing');
         }
       } catch (telegramError) {
         console.error('Failed to publish to Telegram:', telegramError);

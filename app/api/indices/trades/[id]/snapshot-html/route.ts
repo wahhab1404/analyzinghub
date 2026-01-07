@@ -49,12 +49,21 @@ export async function GET(
     const priceChange = currentPrice - entryPrice;
     const priceChangePercent = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;
 
+    const highSinceEntry = trade.contract_high_since || currentPrice;
+    const lowSinceEntry = trade.contract_low_since || currentPrice;
+
+    const qty = trade.qty || 1;
+    const multiplier = trade.contract_multiplier || 100;
+    const netPnl = priceChange * multiplier * qty;
+
     const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
     const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
     const underlyingChange = underlyingPrice - underlyingEntryPrice;
     const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
 
     const mid = trade.entry_contract_snapshot?.mid || currentPrice;
+    const bid = trade.entry_contract_snapshot?.bid || 0;
+    const ask = trade.entry_contract_snapshot?.ask || 0;
     const openInterest = trade.entry_contract_snapshot?.open_interest || 0;
     const volume = trade.entry_contract_snapshot?.volume || 0;
 
@@ -99,6 +108,9 @@ export async function GET(
       }
     }
 
+    const pnlColor = netPnl >= 0 ? '#10b981' : '#ef4444';
+    const pnlSign = netPnl >= 0 ? '+' : '';
+
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -108,66 +120,217 @@ export async function GET(
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', sans-serif;
-      background: #ffffff;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       width: 1280px;
       height: 720px;
-      padding: 48px 60px;
+      padding: 40px;
       position: relative;
     }
-    .container { height: 100%; display: flex; flex-direction: column; }
-    .header { margin-bottom: 48px; }
-    .title { font-size: 56px; font-weight: 600; color: #1a1a1a; margin-bottom: 8px; letter-spacing: -0.5px; }
-    .subtitle { font-size: 28px; color: #8e8e93; font-weight: 400; }
-    .content-section { display: flex; justify-content: space-between; margin-bottom: 48px; flex: 1; }
-    .left-section { display: flex; flex-direction: column; justify-content: center; }
-    .current-price { font-size: 140px; font-weight: 700; color: ${priceColor}; line-height: 1; margin-bottom: 20px; letter-spacing: -2px; }
-    .price-change { display: flex; gap: 16px; align-items: center; font-size: 38px; font-weight: 600; color: ${priceColor}; }
-    .right-section { display: flex; flex-direction: column; gap: 24px; justify-content: center; min-width: 320px; }
-    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-    .stat-label { font-size: 24px; color: #8e8e93; font-weight: 400; }
-    .stat-value { font-size: 32px; color: #1a1a1a; font-weight: 600; }
-    .footer { display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 2px solid #f0f0f0; }
-    .underlying-info { display: flex; gap: 28px; align-items: center; }
-    .underlying-symbol { font-size: 32px; color: #1a1a1a; font-weight: 600; }
-    .underlying-price { font-size: 32px; color: ${isUnderlyingUp ? '#34c759' : '#8e8e93'}; font-weight: 600; }
-    .timestamp { font-size: 24px; color: #8e8e93; }
+    .card {
+      background: white;
+      border-radius: 24px;
+      padding: 48px;
+      height: 100%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 40px;
+      padding-bottom: 32px;
+      border-bottom: 3px solid #f0f0f5;
+    }
+    .title-section { }
+    .title {
+      font-size: 52px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-bottom: 8px;
+      letter-spacing: -1px;
+    }
+    .subtitle {
+      font-size: 24px;
+      color: #8e8e93;
+      font-weight: 500;
+    }
+    .status-badge {
+      background: ${priceColor};
+      color: white;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 20px;
+      font-weight: 600;
+      text-align: center;
+    }
+    .main-content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      flex: 1;
+      margin-bottom: 32px;
+    }
+    .price-section {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+    .current-price {
+      font-size: 120px;
+      font-weight: 800;
+      color: ${priceColor};
+      line-height: 1;
+      margin-bottom: 20px;
+      letter-spacing: -3px;
+    }
+    .price-details {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .price-change {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+      font-size: 36px;
+      font-weight: 600;
+      color: ${priceColor};
+    }
+    .pnl-display {
+      font-size: 32px;
+      font-weight: 700;
+      color: ${pnlColor};
+      margin-top: 8px;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+    .stat-box {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 16px;
+      border: 2px solid #e9ecef;
+    }
+    .stat-label {
+      font-size: 18px;
+      color: #8e8e93;
+      font-weight: 500;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-value {
+      font-size: 32px;
+      color: #1a1a1a;
+      font-weight: 700;
+    }
+    .stat-value.positive { color: #10b981; }
+    .stat-value.negative { color: #ef4444; }
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 28px;
+      border-top: 3px solid #f0f0f5;
+    }
+    .underlying-info {
+      display: flex;
+      gap: 32px;
+      align-items: center;
+      background: #f8f9fa;
+      padding: 16px 28px;
+      border-radius: 12px;
+    }
+    .underlying-symbol {
+      font-size: 28px;
+      color: #1a1a1a;
+      font-weight: 700;
+    }
+    .underlying-price {
+      font-size: 28px;
+      color: ${isUnderlyingUp ? '#10b981' : '#ef4444'};
+      font-weight: 700;
+    }
+    .timestamp {
+      font-size: 22px;
+      color: #8e8e93;
+      font-weight: 500;
+    }
+    .branding {
+      position: absolute;
+      top: 32px;
+      right: 48px;
+      font-size: 24px;
+      font-weight: 700;
+      color: white;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="branding">AnalyzingHub</div>
+  <div class="card">
     <div class="header">
-      <div class="title">${cleanSymbol} ${strike.toLocaleString()}</div>
-      <div class="subtitle">${formatExpiry(expiry)} (W) ${optionType}</div>
-    </div>
-    <div class="content-section">
-      <div class="left-section">
-        <div class="current-price">${currentPrice.toFixed(2)}</div>
-        <div class="price-change">
-          <span>${priceArrow}${priceSign}${Math.abs(priceChange).toFixed(2)}</span>
-          <span>${priceSign}${Math.abs(priceChangePercent).toFixed(2)}%</span>
-        </div>
+      <div class="title-section">
+        <div class="title">${cleanSymbol} $${strike.toLocaleString()}</div>
+        <div class="subtitle">${formatExpiry(expiry)} • ${optionType} • ${trade.author.full_name}</div>
       </div>
-      <div class="right-section">
-        <div class="stat-row">
-          <span class="stat-label">Mid</span>
-          <span class="stat-value">${mid.toFixed(2)}</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Open Int.</span>
-          <span class="stat-value">${formatNumber(Math.abs(openInterest))}</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-label">Vol.</span>
-          <span class="stat-value">${formatNumber(Math.abs(volume))}</span>
-        </div>
+      <div class="status-badge">
+        ${priceArrow} ${priceSign}${Math.abs(priceChangePercent).toFixed(2)}%
       </div>
     </div>
+
+    <div class="main-content">
+      <div class="price-section">
+        <div class="current-price">$${currentPrice.toFixed(2)}</div>
+        <div class="price-details">
+          <div class="price-change">
+            <span>${priceArrow} ${priceSign}$${Math.abs(priceChange).toFixed(2)}</span>
+          </div>
+          <div class="pnl-display">
+            P/L: ${pnlSign}$${Math.abs(netPnl).toFixed(2)}
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-box">
+          <div class="stat-label">Entry Price</div>
+          <div class="stat-value">$${entryPrice.toFixed(2)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Quantity</div>
+          <div class="stat-value">${qty}x</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">High Since Entry</div>
+          <div class="stat-value positive">$${highSinceEntry.toFixed(2)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Low Since Entry</div>
+          <div class="stat-value negative">$${lowSinceEntry.toFixed(2)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Bid / Ask</div>
+          <div class="stat-value">${bid.toFixed(2)} / ${ask.toFixed(2)}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Volume</div>
+          <div class="stat-value">${formatNumber(Math.abs(volume))}</div>
+        </div>
+      </div>
+    </div>
+
     <div class="footer">
       <div class="underlying-info">
         <span class="underlying-symbol">${underlyingSymbol}</span>
         <span class="underlying-price">
-          ${underlyingPrice.toFixed(2)}
-          ${underlyingChangePercent >= 0 ? '+' : ''}${underlyingChangePercent.toFixed(2)}%
+          $${underlyingPrice.toFixed(2)}
+          ${underlyingChangePercent >= 0 ? '▲' : '▼'}${Math.abs(underlyingChangePercent).toFixed(2)}%
         </span>
       </div>
       <div class="timestamp">${timestamp}</div>

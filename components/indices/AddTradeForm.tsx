@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Loader2, Plus, Trash2, Search, Calendar, TrendingUp } from 'lucide-react'
+import { Loader as Loader2, Plus, Trash2, Search, Calendar, TrendingUp } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { createClient } from '@/lib/supabase/client'
 
 interface AddTradeFormProps {
   analysisId: string
@@ -51,6 +52,14 @@ interface Target {
 
 type DatePreset = 'today' | 'tomorrow' | 'week' | 'month' | 'custom'
 
+interface TelegramChannel {
+  id: string
+  channel_name: string
+  channel_id: string
+  source: 'analyst' | 'plan' | 'analysis'
+  plan_name?: string
+}
+
 export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: AddTradeFormProps) {
   const [loading, setLoading] = useState(false)
   const [searchingContracts, setSearchingContracts] = useState(false)
@@ -58,6 +67,8 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
   const [selectedContract, setSelectedContract] = useState<OptionContract | null>(null)
   const [datePreset, setDatePreset] = useState<DatePreset>('week')
   const [customDate, setCustomDate] = useState('')
+  const [channels, setChannels] = useState<TelegramChannel[]>([])
+  const [loadingChannels, setLoadingChannels] = useState(true)
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
@@ -71,8 +82,82 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
     targets: [{ price: '', percentage: '' }] as Array<{ price: string, percentage: string }>,
     stoploss: { price: '', percentage: '' },
     notes: '',
+    telegram_channel_id: 'analysis' as string,
     auto_publish_telegram: false,
   })
+
+  useEffect(() => {
+    fetchTelegramChannels()
+  }, [analysisId])
+
+  const fetchTelegramChannels = async () => {
+    try {
+      const supabase = createClient()
+
+      const { data: user } = await supabase.auth.getUser()
+      if (!user?.user?.id) {
+        setLoadingChannels(false)
+        return
+      }
+
+      const channels: TelegramChannel[] = []
+
+      const { data: analysisData } = await supabase
+        .from('index_analyses')
+        .select('telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
+        .eq('id', analysisId)
+        .maybeSingle()
+
+      if (analysisData?.telegram_channel_id && analysisData.telegram_channels) {
+        channels.push({
+          id: 'analysis',
+          channel_name: `Analysis Default: ${analysisData.telegram_channels.channel_name}`,
+          channel_id: analysisData.telegram_channels.channel_id,
+          source: 'analysis' as const
+        })
+      }
+
+      const { data: analystData } = await supabase
+        .from('telegram_channels')
+        .select('id, channel_name, channel_id')
+        .eq('user_id', user.user.id)
+        .eq('enabled', true)
+
+      if (analystData) {
+        channels.push(...analystData.map(ch => ({
+          ...ch,
+          source: 'analyst' as const
+        })))
+      }
+
+      const { data: planData } = await supabase
+        .from('analyzer_plans')
+        .select('id, name, telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
+        .eq('analyst_id', user.user.id)
+        .eq('is_active', true)
+        .not('telegram_channel_id', 'is', null)
+
+      if (planData) {
+        for (const plan of planData) {
+          if (plan.telegram_channels) {
+            channels.push({
+              id: plan.telegram_channels.id,
+              channel_name: plan.telegram_channels.channel_name,
+              channel_id: plan.telegram_channels.channel_id,
+              source: 'plan' as const,
+              plan_name: plan.name
+            })
+          }
+        }
+      }
+
+      setChannels(channels)
+    } catch (error) {
+      console.error('Error fetching channels:', error)
+    } finally {
+      setLoadingChannels(false)
+    }
+  }
 
   const getDTERange = (preset: DatePreset): { minDTE: number; maxDTE: number } => {
     const now = new Date()
@@ -212,6 +297,10 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
           }
         : null
 
+      const telegramChannelId = formData.telegram_channel_id && formData.telegram_channel_id !== 'none'
+        ? (formData.telegram_channel_id === 'analysis' ? null : formData.telegram_channel_id)
+        : null
+
       const payload = {
         instrument_type: formData.instrument_type,
         direction: formData.direction,
@@ -225,6 +314,7 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
         targets,
         stoploss,
         notes: formData.notes || null,
+        telegram_channel_id: telegramChannelId,
         auto_publish_telegram: formData.auto_publish_telegram,
       }
 
@@ -630,20 +720,90 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
           />
         </div>
 
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="auto_publish"
-            checked={formData.auto_publish_telegram}
-            onCheckedChange={(checked) =>
-              setFormData({ ...formData, auto_publish_telegram: checked as boolean })
-            }
-          />
-          <label
-            htmlFor="auto_publish"
-            className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-          >
-            Auto-publish to Telegram
-          </label>
+        <div className="space-y-4 border-t pt-4">
+          <h4 className="font-medium">Telegram Publishing</h4>
+
+          {loadingChannels ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading channels...
+            </div>
+          ) : channels.length === 0 ? (
+            <div className="text-sm text-muted-foreground p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
+              No Telegram channels available. Set up channels in Settings or on the parent analysis.
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="telegram_channel">Telegram Channel</Label>
+                <Select
+                  value={formData.telegram_channel_id}
+                  onValueChange={(value) => setFormData({ ...formData, telegram_channel_id: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channels.filter(ch => ch.source === 'analysis').length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                          Analysis Default
+                        </div>
+                        {channels.filter(ch => ch.source === 'analysis').map(channel => (
+                          <SelectItem key={channel.id} value={channel.id}>
+                            {channel.channel_name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    {channels.filter(ch => ch.source === 'analyst').length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
+                          Analyst Channels
+                        </div>
+                        {channels.filter(ch => ch.source === 'analyst').map(channel => (
+                          <SelectItem key={channel.id} value={channel.id}>
+                            {channel.channel_name}
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    {channels.filter(ch => ch.source === 'plan').length > 0 && (
+                      <>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
+                          Plan Channels
+                        </div>
+                        {channels.filter(ch => ch.source === 'plan').map(channel => (
+                          <SelectItem key={channel.id} value={channel.id}>
+                            {channel.channel_name} ({channel.plan_name})
+                          </SelectItem>
+                        ))}
+                      </>
+                    )}
+                    <SelectItem value="none">None (Don't publish)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {formData.telegram_channel_id && formData.telegram_channel_id !== 'none' && (
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="auto_publish"
+                    checked={formData.auto_publish_telegram}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, auto_publish_telegram: checked as boolean })
+                    }
+                  />
+                  <label
+                    htmlFor="auto_publish"
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                  >
+                    Auto-publish to Telegram when trade is created
+                  </label>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </div>
 

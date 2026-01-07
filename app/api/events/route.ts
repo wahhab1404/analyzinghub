@@ -11,17 +11,13 @@ export async function POST(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
     const body = await request.json()
     const { entity_type, entity_id, event_type, metadata } = body
 
     if (!entity_type || !entity_id || !event_type) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
+        { tracked: false, message: 'Missing required fields' },
+        { status: 200 }
       )
     }
 
@@ -30,16 +26,36 @@ export async function POST(request: NextRequest) {
 
     if (!validEntityTypes.includes(entity_type)) {
       return NextResponse.json(
-        { error: 'Invalid entity_type' },
-        { status: 400 }
+        { tracked: false, message: 'Invalid entity_type' },
+        { status: 200 }
       )
     }
 
     if (!validEventTypes.includes(event_type)) {
       return NextResponse.json(
-        { error: 'Invalid event_type' },
-        { status: 400 }
+        { tracked: false, message: 'Invalid event_type' },
+        { status: 200 }
       )
+    }
+
+    if (!user) {
+      return NextResponse.json({
+        tracked: false,
+        message: 'Event tracking requires authentication'
+      }, { status: 200 })
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile) {
+      return NextResponse.json({
+        tracked: false,
+        message: 'Profile not found'
+      }, { status: 200 })
     }
 
     const { data, error } = await supabase
@@ -56,15 +72,18 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Track event error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+      return NextResponse.json({
+        tracked: false,
+        message: error.message
+      }, { status: 200 })
     }
 
-    return NextResponse.json({ event: data })
+    return NextResponse.json({ tracked: true, event: data })
   } catch (error: any) {
     console.error('Track event error:', error)
     return NextResponse.json(
-      { error: error.message || 'Failed to track event' },
-      { status: 500 }
+      { tracked: false, message: error.message || 'Failed to track event' },
+      { status: 200 }
     )
   }
 }

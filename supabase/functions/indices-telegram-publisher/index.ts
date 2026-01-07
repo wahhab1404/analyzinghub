@@ -7,7 +7,6 @@ import {
   formatTradeResultMessage,
 } from './message-formatter.ts';
 
-const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const BASE_URL = 'https://analyzinghub.com';
@@ -26,11 +25,12 @@ interface PublishRequest {
 }
 
 async function sendTelegramMessage(
+  botToken: string,
   chatId: string,
   text: string,
   imageUrl?: string
 ) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
   
   const body: any = {
     chat_id: chatId,
@@ -54,11 +54,12 @@ async function sendTelegramMessage(
 }
 
 async function sendTelegramPhoto(
+  botToken: string,
   chatId: string,
   photoUrl: string,
   caption: string
 ) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
   
   const body = {
     chat_id: chatId,
@@ -87,21 +88,38 @@ Deno.serve(async (req) => {
   }
 
   try {
+    console.log('[IndicesPublisher] Starting function execution');
+    console.log('[IndicesPublisher] Request method:', req.method);
+    console.log('[IndicesPublisher] Request URL:', req.url);
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    const { data: botTokenSetting } = await supabase
+      .from("admin_settings")
+      .select("setting_value")
+      .eq("setting_key", "telegram_bot_token")
+      .maybeSingle();
+
+    const botToken = botTokenSetting?.setting_value || Deno.env.get("TELEGRAM_BOT_TOKEN");
+
+    if (!botToken) {
+      throw new Error("Telegram bot token not configured");
+    }
+
+    console.log('[IndicesPublisher] Bot token loaded from:', botTokenSetting?.setting_value ? 'database' : 'environment');
+
     const payload: PublishRequest = await req.json();
 
-    console.log('Publishing to Telegram:', payload.type);
+    console.log('[IndicesPublisher] Payload received:', JSON.stringify(payload));
+    console.log('[IndicesPublisher] Publishing to Telegram:', payload.type);
 
     let message: { text?: string; caption?: string; snapshotImageUrl?: string };
     let channelIds: string[] = [];
 
-    // Determine which channels to publish to
     if (payload.channelId) {
-      // Check if channelId is a UUID (from telegram_channels table) or actual channel ID
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.channelId);
 
       if (isUuid) {
-        // Look up the actual channel_id from the UUID
         const { data: channelData } = await supabase
           .from('telegram_channels')
           .select('channel_id')
@@ -113,7 +131,6 @@ Deno.serve(async (req) => {
           channelIds = [channelData.channel_id];
         }
       } else {
-        // Already a channel ID (e.g., "-1002607859974")
         channelIds = [payload.channelId];
       }
     } else if (payload.data.author_id) {
@@ -128,16 +145,17 @@ Deno.serve(async (req) => {
     }
 
     if (channelIds.length === 0) {
-      console.error('No active channels found for publishing');
+      console.error('[IndicesPublisher] No active channels found for publishing');
+      console.error('[IndicesPublisher] Payload channelId:', payload.channelId);
+      console.error('[IndicesPublisher] Payload author_id:', payload.data.author_id);
       return new Response(
-        JSON.stringify({ error: 'No active channels found' }),
+        JSON.stringify({ error: 'No active channels found', details: { channelId: payload.channelId, authorId: payload.data.author_id } }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    console.log('Publishing to Telegram channels:', channelIds);
+    console.log('[IndicesPublisher] Publishing to Telegram channels:', channelIds);
 
-    // Format message based on type
     switch (payload.type) {
       case 'new_analysis':
         message = formatAnalysisMessage(payload.data, BASE_URL);
@@ -160,31 +178,37 @@ Deno.serve(async (req) => {
         throw new Error(`Unknown message type: ${payload.type}`);
     }
 
-    // Send to all channels
     const results = [];
     for (const channelId of channelIds) {
       try {
+        console.log(`[IndicesPublisher] Sending to channel: ${channelId}`);
         let result;
-        if (message.snapshotImageUrl && message.caption) {
-          result = await sendTelegramPhoto(channelId, message.snapshotImageUrl, message.caption);
+        if (message.snapshotImageUrl && message.text) {
+          console.log(`[IndicesPublisher] Sending photo with caption to ${channelId}`);
+          result = await sendTelegramPhoto(botToken, channelId, message.snapshotImageUrl, message.text);
         } else if (message.text) {
-          result = await sendTelegramMessage(channelId, message.text);
+          console.log(`[IndicesPublisher] Sending text message to ${channelId}`);
+          result = await sendTelegramMessage(botToken, channelId, message.text);
         }
+        console.log(`[IndicesPublisher] Successfully sent to ${channelId}`);
         results.push({ channelId, success: true, result });
       } catch (error: any) {
-        console.error(`Failed to send to ${channelId}:`, error);
+        console.error(`[IndicesPublisher] Failed to send to ${channelId}:`, error);
         results.push({ channelId, success: false, error: error.message });
       }
     }
+
+    console.log('[IndicesPublisher] All sends completed, results:', JSON.stringify(results));
 
     return new Response(
       JSON.stringify({ success: true, results }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('Error in indices-telegram-publisher:', error);
+    console.error('[IndicesPublisher] Top-level error:', error);
+    console.error('[IndicesPublisher] Error stack:', error?.stack);
     return new Response(
-      JSON.stringify({ error: error.message }),
+      JSON.stringify({ error: error.message, stack: error?.stack }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

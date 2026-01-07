@@ -32,6 +32,7 @@ interface IndexTrade {
   entry_contract_snapshot: any;
   current_contract?: number;
   contract_high_since?: number;
+  contract_url?: string;
   targets?: any[];
   stoploss?: any;
   win_condition_met?: string;
@@ -120,13 +121,12 @@ export function formatTradeMessage(
   trade: IndexTrade,
   baseUrl: string,
   isNewHigh: boolean = false
-): { caption: string; snapshotImageUrl?: string } {
+): { text: string; snapshotImageUrl?: string } {
   const analysisUrl = `${baseUrl}/dashboard/analysis/${trade.analysis.id}`;
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;
   const stopPrice = trade.stoploss?.level;
 
-  // Extract clean symbol from polygon ticker (e.g., "O:SPX251231C06090000" -> "SPX")
   let cleanSymbol = trade.analysis.index_symbol;
   if (trade.polygon_option_ticker) {
     const parts = trade.polygon_option_ticker.split(':');
@@ -192,7 +192,9 @@ export function formatTradeMessage(
   message += `\n<b>المحلل:</b> ${trade.author.full_name}\n\n`;
   message += `<a href="${analysisUrl}">📊 عرض التحليل</a>`;
 
-  return { caption: message };
+  const snapshotImageUrl = trade.contract_url || undefined;
+
+  return { text: message, snapshotImageUrl };
 }
 
 export function formatUpdateMessage(
@@ -248,7 +250,6 @@ export function formatTradeResultMessage(
   const highestPrice = trade.contract_high_since || 0;
   const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
 
-  // Extract clean symbol from polygon ticker
   let cleanSymbol = trade.analysis.index_symbol;
   if (trade.polygon_option_ticker) {
     const parts = trade.polygon_option_ticker.split(':');

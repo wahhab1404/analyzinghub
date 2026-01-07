@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
-import { Loader2, X, Plus } from 'lucide-react'
+import { Loader as Loader2, X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 const TIMEFRAMES = [
@@ -39,6 +39,8 @@ interface TelegramChannel {
   id: string
   channel_name: string
   channel_id: string
+  source: 'analyst' | 'plan'
+  plan_name?: string
 }
 
 export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void }) {
@@ -67,13 +69,51 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
   const fetchTelegramChannels = async () => {
     try {
       const supabase = createClient()
-      const { data, error } = await supabase
+
+      const { data: user } = await supabase.auth.getUser()
+      if (!user?.user?.id) {
+        setLoadingChannels(false)
+        return
+      }
+
+      const analystChannels: TelegramChannel[] = []
+      const planChannels: TelegramChannel[] = []
+
+      const { data: analystData, error: analystError } = await supabase
         .from('telegram_channels')
         .select('id, channel_name, channel_id')
+        .eq('user_id', user.user.id)
         .eq('enabled', true)
 
-      if (error) throw error
-      setChannels(data || [])
+      if (analystData) {
+        analystChannels.push(...analystData.map(ch => ({
+          ...ch,
+          source: 'analyst' as const
+        })))
+      }
+
+      const { data: planData, error: planError } = await supabase
+        .from('analyzer_plans')
+        .select('id, name, telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
+        .eq('analyst_id', user.user.id)
+        .eq('is_active', true)
+        .not('telegram_channel_id', 'is', null)
+
+      if (planData) {
+        for (const plan of planData) {
+          if (plan.telegram_channels) {
+            planChannels.push({
+              id: plan.telegram_channels.id,
+              channel_name: plan.telegram_channels.channel_name,
+              channel_id: plan.telegram_channels.channel_id,
+              source: 'plan' as const,
+              plan_name: plan.name
+            })
+          }
+        }
+      }
+
+      setChannels([...analystChannels, ...planChannels])
     } catch (error) {
       console.error('Error fetching channels:', error)
     } finally {
@@ -413,9 +453,24 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
-                  {channels.map(channel => (
+                  {channels.filter(ch => ch.source === 'analyst').length > 0 && (
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                      Analyst Channels
+                    </div>
+                  )}
+                  {channels.filter(ch => ch.source === 'analyst').map(channel => (
                     <SelectItem key={channel.id} value={channel.id}>
                       {channel.channel_name}
+                    </SelectItem>
+                  ))}
+                  {channels.filter(ch => ch.source === 'plan').length > 0 && (
+                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
+                      Plan Channels
+                    </div>
+                  )}
+                  {channels.filter(ch => ch.source === 'plan').map(channel => (
+                    <SelectItem key={channel.id} value={channel.id}>
+                      {channel.channel_name} ({channel.plan_name})
                     </SelectItem>
                   ))}
                 </SelectContent>

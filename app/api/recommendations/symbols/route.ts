@@ -30,12 +30,17 @@ export async function GET(request: NextRequest) {
 
     const recommendationService = new RecommendationService(supabase, adminClient)
     let recommendations: any[] = []
+
     try {
-      recommendations = await recommendationService.recommendSymbols(
-        user.id,
-        limit,
-        offset
-      )
+      // Add timeout to prevent long-running queries
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Recommendation timeout')), 3000)
+      })
+
+      recommendations = await Promise.race([
+        recommendationService.recommendSymbols(user.id, limit, offset),
+        timeoutPromise
+      ]) as any[]
     } catch (recError: any) {
       console.error('Recommendation service error:', recError)
       recommendations = []
