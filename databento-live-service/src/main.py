@@ -70,7 +70,8 @@ class DatabentoLiveService:
             # Parse expiry date (format: YYYY-MM-DD)
             expiry = datetime.strptime(expiry_date, '%Y-%m-%d')
             # Options expire at 4:00 PM ET (16:00) on expiration date
-            expiry_time = expiry.replace(hour=20, minute=0, second=0)  # 20:00 UTC = 4:00 PM ET (approx)
+            # Using 21:00 UTC for standard time (16:00 ET + 5 hours)
+            expiry_time = expiry.replace(hour=21, minute=0, second=0)
 
             # Current time in UTC
             now = datetime.utcnow()
@@ -78,6 +79,21 @@ class DatabentoLiveService:
             return now >= expiry_time
         except Exception as e:
             logger.warning(f"Error checking expiry for {expiry_date}: {e}")
+            return False
+
+    def _is_expiring_soon(self, expiry_date: str) -> bool:
+        """Check if contract expires within 2 hours"""
+        if not expiry_date:
+            return False
+
+        try:
+            expiry = datetime.strptime(expiry_date, '%Y-%m-%d')
+            expiry_time = expiry.replace(hour=21, minute=0, second=0)
+            now = datetime.utcnow()
+
+            # Check if expiring within 2 hours
+            return timedelta(0) <= (expiry_time - now) <= timedelta(hours=2)
+        except:
             return False
 
     def _fetch_active_trades(self):
@@ -91,7 +107,7 @@ class DatabentoLiveService:
             if not response.data:
                 return []
 
-            # Filter out expired contracts
+            # Filter out expired contracts and warn about expiring soon
             active_trades = []
             expired_trade_ids = []
 
@@ -100,6 +116,9 @@ class DatabentoLiveService:
                     expired_trade_ids.append(trade['id'])
                     logger.info(f"📅 Contract {trade.get('polygon_option_ticker', 'unknown')} expired on {trade['expiry']}")
                 else:
+                    # Warn about contracts expiring soon
+                    if trade.get('expiry') and self._is_expiring_soon(trade['expiry']):
+                        logger.warning(f"⏰ Contract {trade.get('polygon_option_ticker', 'unknown')} expires soon: {trade['expiry']} at 4:00 PM ET")
                     active_trades.append(trade)
 
             # Auto-close expired trades
@@ -286,8 +305,7 @@ class DatabentoLiveService:
                     dataset='OPRA.PILLAR',
                     schema='trades',
                     symbols=[symbol],
-                    stype_in='raw_symbol',
-                    start='live'
+                    stype_in='raw_symbol'
                 )
                 successful.append(symbol)
                 self.subscribed_symbols.add(symbol)
