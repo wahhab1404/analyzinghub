@@ -11,8 +11,8 @@ import sys
 import time
 import signal
 import logging
-from typing import Dict, Set, Optional
-from datetime import datetime
+from typing import Dict, Set, Optional, List
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 import databento as db
@@ -51,12 +51,7 @@ class DatabentoLiveService:
     def _handle_error(self, exception: Exception):
         """Handle callback errors"""
         self.error_count += 1
-        logger.error(f"⚠️  Callback error #{self.error_count}: {exception}", exc_info=True)
-
-    def _handle_reconnect(self, last_ts: any, new_ts: any):
-        """Handle reconnection events"""
-        logger.warning(f"🔄 Reconnected! Gap from {last_ts} to {new_ts}")
-        logger.info("Re-subscribing to all active symbols...")
+        logger.error(f"⚠️  Callback error #{self.error_count}: {exception}")
 
     def _handle_shutdown(self, signum, frame):
         logger.info(f"Received signal {signum}, shutting down gracefully...")
@@ -64,15 +59,67 @@ class DatabentoLiveService:
         if self.client:
             self.client.stop()
 
+    def _is_contract_expired(self, expiry_date: str) -> bool:
+        """Check if an options contract has expired
+        Options expire at 4:00 PM ET on expiration date
+        """
+        if not expiry_date:
+            return False
+
+        try:
+            # Parse expiry date (format: YYYY-MM-DD)
+            expiry = datetime.strptime(expiry_date, '%Y-%m-%d')
+            # Options expire at 4:00 PM ET (16:00) on expiration date
+            expiry_time = expiry.replace(hour=20, minute=0, second=0)  # 20:00 UTC = 4:00 PM ET (approx)
+
+            # Current time in UTC
+            now = datetime.utcnow()
+
+            return now >= expiry_time
+        except Exception as e:
+            logger.warning(f"Error checking expiry for {expiry_date}: {e}")
+            return False
+
     def _fetch_active_trades(self):
-        """Fetch all active trades from Supabase"""
+        """Fetch all active trades from Supabase, filtering out expired contracts"""
         try:
             response = self.supabase.table('index_trades') \
-                .select('id, polygon_option_ticker, polygon_underlying_index_ticker, current_contract, current_underlying') \
+                .select('id, polygon_option_ticker, polygon_underlying_index_ticker, current_contract, current_underlying, expiry') \
                 .eq('status', 'active') \
                 .execute()
 
-            return response.data if response.data else []
+            if not response.data:
+                return []
+
+            # Filter out expired contracts
+            active_trades = []
+            expired_trade_ids = []
+
+            for trade in response.data:
+                if trade.get('expiry') and self._is_contract_expired(trade['expiry']):
+                    expired_trade_ids.append(trade['id'])
+                    logger.info(f"📅 Contract {trade.get('polygon_option_ticker', 'unknown')} expired on {trade['expiry']}")
+                else:
+                    active_trades.append(trade)
+
+            # Auto-close expired trades
+            if expired_trade_ids:
+                logger.info(f"🔒 Auto-closing {len(expired_trade_ids)} expired contracts...")
+                try:
+                    self.supabase.table('index_trades') \
+                        .update({
+                            'status': 'closed',
+                            'outcome': 'expired',
+                            'closed_at': datetime.utcnow().isoformat()
+                        }) \
+                        .in_('id', expired_trade_ids) \
+                        .execute()
+                    logger.info(f"✅ Closed {len(expired_trade_ids)} expired contracts")
+                except Exception as e:
+                    logger.error(f"Error auto-closing expired trades: {e}")
+
+            return active_trades
+
         except Exception as e:
             logger.error(f"Error fetching active trades: {e}")
             return []
@@ -219,33 +266,44 @@ class DatabentoLiveService:
             logger.warning("No symbols to subscribe to")
             return
 
-        for symbol in symbols:
+        # Filter out index symbols - we focus on options only
+        option_symbols = [s for s in symbols if not s.startswith('I:')]
+
+        if not option_symbols:
+            logger.warning("No option symbols to subscribe to after filtering")
+            return
+
+        logger.info(f"📡 Subscribing to {len(option_symbols)} options on OPRA.PILLAR with trades schema")
+
+        # Subscribe to each symbol individually to identify which ones fail
+        successful = []
+        failed = []
+
+        for symbol in option_symbols:
             try:
-                # Skip index symbols - Databento can't mix datasets in one session
-                # We focus on options (OPRA.PILLAR) since that's our primary use case
-                if symbol.startswith('I:'):
-                    logger.info(f"⏭️  Skipping index {symbol} - focusing on options only")
-                    continue
-
-                # SPX options trade on OPRA.PILLAR (extended hours 24/5)
-                # Use 'trades' schema for actual trade executions
-                dataset = 'OPRA.PILLAR'
-                schema = 'trades'
-
-                logger.info(f"📡 Subscribing to {symbol} on {dataset} with {schema} schema")
-
+                logger.info(f"   Subscribing to {symbol}...")
                 self.client.subscribe(
-                    dataset=dataset,
-                    schema=schema,
+                    dataset='OPRA.PILLAR',
+                    schema='trades',
                     symbols=[symbol],
-                    stype_in='raw_symbol'
+                    stype_in='raw_symbol',
+                    start='live'
                 )
-
+                successful.append(symbol)
                 self.subscribed_symbols.add(symbol)
-                logger.info(f"✅ Subscribed to {symbol} - Ready for 24/5 trading")
 
             except Exception as e:
-                logger.error(f"❌ Failed to subscribe to {symbol}: {e}")
+                failed.append(symbol)
+                logger.warning(f"   ⚠️  Failed to subscribe to {symbol}: {e}")
+
+        if successful:
+            logger.info(f"✅ Successfully subscribed to {len(successful)} contracts")
+
+        if failed:
+            logger.warning(f"⚠️  Failed to subscribe to {len(failed)} contracts (may be expired or inactive)")
+
+        if not successful:
+            raise ValueError("No symbols could be subscribed - all failed")
 
     def start(self):
         """Start the live streaming service"""
@@ -270,25 +328,11 @@ class DatabentoLiveService:
                     time.sleep(30)
                     continue
 
-                logger.info("🔌 Creating Databento Live client with auto-reconnect...")
-                self.client = db.Live(
-                    key=self.databento_key,
-                    heartbeat_interval_s=30,
-                    reconnect_policy='reconnect',  # Auto-reconnect on disconnect
-                    ts_out=False  # Prevent timezone conversion issues
-                )
+                logger.info("🔌 Creating Databento Live client...")
+                self.client = db.Live(key=self.databento_key)
 
-                # Add callbacks with error handling
-                self.client.add_callback(
-                    record_callback=self._process_quote,
-                    exception_callback=self._handle_error
-                )
-
-                # Add reconnect callback to track gaps
-                self.client.add_reconnect_callback(
-                    reconnect_callback=self._handle_reconnect,
-                    exception_callback=self._handle_error
-                )
+                # Add callback for processing trades
+                self.client.add_callback(self._process_quote)
 
                 self._subscribe_to_symbols(symbols)
 
@@ -318,8 +362,16 @@ class DatabentoLiveService:
                 self.running = False
                 break
 
+            except ValueError as e:
+                # Handle case where no symbols could be subscribed
+                logger.error(f"Subscription error: {e}")
+                logger.info("Waiting 60 seconds before retrying with fresh symbol data...")
+                time.sleep(60)
+                retry_count = 0  # Reset retry count, try with fresh symbols
+                continue
+
             except Exception as e:
-                logger.error(f"Service error: {e}", exc_info=True)
+                logger.error(f"Service error: {e}")
                 retry_count += 1
                 if retry_count < max_retries:
                     wait_time = min(2 ** retry_count, 60)
