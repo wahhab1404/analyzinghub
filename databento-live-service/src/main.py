@@ -127,7 +127,7 @@ class DatabentoLiveService:
         return databento_symbol
 
     def _process_quote(self, record: DBNRecord):
-        """Process incoming quote from Databento"""
+        """Process incoming trade from Databento"""
         try:
             symbol = getattr(record, 'symbol', None)
             if not symbol:
@@ -138,33 +138,34 @@ class DatabentoLiveService:
             if not symbol:
                 return
 
-            bid = getattr(record, 'bid_px_00', 0)
-            ask = getattr(record, 'ask_px_00', 0)
+            # For trades schema, get the trade price
+            price = getattr(record, 'price', 0)
 
-            if bid == 0 and ask == 0:
+            if price == 0:
                 return
 
-            bid_price = bid / 1e9 if bid else 0
-            ask_price = ask / 1e9 if ask else 0
-            mid_price = (bid_price + ask_price) / 2 if (bid_price and ask_price) else (bid_price or ask_price)
+            # Convert price from fixed-point to decimal (price is in 1e-9 units)
+            trade_price = price / 1e9 if price else 0
 
-            if mid_price == 0:
+            if trade_price == 0:
                 return
 
             last_price = self.last_prices.get(symbol, 0)
-            price_change_pct = abs((mid_price - last_price) / last_price * 100) if last_price else 100
+            price_change_pct = abs((trade_price - last_price) / last_price * 100) if last_price else 100
 
+            # Update on significant price changes or first price
             if price_change_pct >= 0.1 or symbol not in self.last_prices:
-                self.last_prices[symbol] = mid_price
-                self._update_database(symbol, mid_price, bid_price, ask_price)
+                self.last_prices[symbol] = trade_price
+                # Use trade price for both bid/ask approximation
+                self._update_database(symbol, trade_price, trade_price, trade_price)
                 self.update_count += 1
 
-                if self.update_count % 5 == 0:  # Log every 5 updates for better visibility
+                if self.update_count % 5 == 0:
                     timestamp = datetime.utcnow().strftime('%H:%M:%S')
-                    logger.info(f"[{timestamp}] 📊 {self.update_count} updates | {symbol} = ${mid_price:.4f} | Δ {price_change_pct:.2f}%")
+                    logger.info(f"[{timestamp}] 📊 {self.update_count} updates | {symbol} = ${trade_price:.4f} | Δ {price_change_pct:.2f}%")
 
         except Exception as e:
-            logger.error(f"Error processing quote: {e}")
+            logger.error(f"Error processing trade: {e}")
 
     def _update_database(self, databento_symbol: str, mid_price: float, bid: float, ask: float):
         """Update Supabase with new price"""
@@ -227,9 +228,9 @@ class DatabentoLiveService:
                     continue
 
                 # SPX options trade on OPRA.PILLAR (extended hours 24/5)
-                # Use 'tbbo' schema (Top of Book Best Offer) for options
+                # Use 'trades' schema for actual trade executions
                 dataset = 'OPRA.PILLAR'
-                schema = 'tbbo'
+                schema = 'trades'
 
                 logger.info(f"📡 Subscribing to {symbol} on {dataset} with {schema} schema")
 
@@ -273,7 +274,8 @@ class DatabentoLiveService:
                 self.client = db.Live(
                     key=self.databento_key,
                     heartbeat_interval_s=30,
-                    reconnect_policy='reconnect'  # Auto-reconnect on disconnect
+                    reconnect_policy='reconnect',  # Auto-reconnect on disconnect
+                    ts_out=False  # Prevent timezone conversion issues
                 )
 
                 # Add callbacks with error handling
