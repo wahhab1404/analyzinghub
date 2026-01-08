@@ -10,6 +10,7 @@ const corsHeaders = {
 interface SnapshotRequest {
   tradeId: string;
   isNewHigh?: boolean;
+  newHighPrice?: number;
 }
 
 Deno.serve(async (req: Request) => {
@@ -65,8 +66,9 @@ Deno.serve(async (req: Request) => {
     const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
     const cacheBuster = Date.now();
     const isNewHighParam = payload.isNewHigh ? '&isNewHigh=true' : '';
-    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}${isNewHighParam}`;
-    console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl, "isNewHigh:", payload.isNewHigh);
+    const newHighPriceParam = payload.newHighPrice ? `&newHighPrice=${payload.newHighPrice}` : '';
+    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}${isNewHighParam}${newHighPriceParam}`;
+    console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl, "isNewHigh:", payload.isNewHigh, "newHighPrice:", payload.newHighPrice);
 
     console.log("[generate-trade-snapshot] Generating screenshot from hosted HTML...");
 

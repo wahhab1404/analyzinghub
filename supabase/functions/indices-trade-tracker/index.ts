@@ -321,6 +321,7 @@ Deno.serve(async (req: Request) => {
               body: JSON.stringify({
                 tradeId: trade.id,
                 isNewHigh: true,
+                newHighPrice: newContractHigh,
               }),
             });
 

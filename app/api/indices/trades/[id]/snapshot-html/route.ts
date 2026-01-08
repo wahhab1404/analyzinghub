@@ -30,7 +30,9 @@ export async function GET(
     const tradeId = params.id;
     const { searchParams } = new URL(request.url);
     const isNewHigh = searchParams.get('isNewHigh') === 'true';
-    console.log('[snapshot-html] Generating snapshot for trade:', tradeId, 'isNewHigh:', isNewHigh);
+    const newHighPriceParam = searchParams.get('newHighPrice');
+    const newHighPrice = newHighPriceParam ? parseFloat(newHighPriceParam) : null;
+    console.log('[snapshot-html] Generating snapshot for trade:', tradeId, 'isNewHigh:', isNewHigh, 'newHighPrice:', newHighPrice);
 
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
@@ -117,6 +119,10 @@ export async function GET(
 
     // If this is a new high alert, use a special template
     if (isNewHigh) {
+      const displayHighPrice = newHighPrice || highSinceEntry;
+      const displayGainPercent = ((displayHighPrice - entryPrice) / entryPrice * 100);
+      const displayPnl = (displayHighPrice - entryPrice) * multiplier * qty;
+
       const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -247,7 +253,7 @@ export async function GET(
       <span class="sparkle">🚀</span> NEW HIGH ALERT! <span class="sparkle">🚀</span>
     </div>
     <div class="price-label">New High Price</div>
-    <div class="new-high-price">$${highSinceEntry.toFixed(2)}</div>
+    <div class="new-high-price">$${displayHighPrice.toFixed(2)}</div>
 
     <div class="trade-info">
       <div class="info-item">
@@ -260,11 +266,11 @@ export async function GET(
       </div>
       <div class="info-item">
         <div class="info-label">Gain</div>
-        <div class="info-value gain">+${priceChangePercent.toFixed(2)}%</div>
+        <div class="info-value gain">+${displayGainPercent.toFixed(2)}%</div>
       </div>
       <div class="info-item">
         <div class="info-label">P/L</div>
-        <div class="info-value gain">+$${netPnl.toFixed(2)}</div>
+        <div class="info-value gain">+$${displayPnl.toFixed(2)}</div>
       </div>
     </div>
 
