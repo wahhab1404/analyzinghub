@@ -41,6 +41,7 @@ Deno.serve(async (req: Request) => {
         entry_underlying_snapshot,
         current_contract,
         current_underlying,
+        current_contract_snapshot,
         contract_high_since,
         contract_low_since,
         underlying_high_since,
@@ -89,8 +90,11 @@ Deno.serve(async (req: Request) => {
       try {
         if (trade.expiry_datetime) {
           const expiryDate = new Date(trade.expiry_datetime);
-          if (now >= expiryDate) {
-            console.log(`Trade ${trade.id} has expired`);
+          // SPX options expire at 4:15 PM ET - give 15 min buffer after expiry time
+          const expiryWithBuffer = new Date(expiryDate.getTime() + (15 * 60 * 1000));
+
+          if (now >= expiryWithBuffer) {
+            console.log(`Trade ${trade.id} has expired (expiry: ${expiryDate.toISOString()})`);
             await handleExpiredTrade(supabase, trade, supabaseUrl, supabaseKey);
             results.expiredDetected++;
             results.updated++;
@@ -123,6 +127,15 @@ Deno.serve(async (req: Request) => {
         const updates: any = {
           current_underlying: newUnderlying,
           current_contract: newContract,
+          current_contract_snapshot: contractQuote ? {
+            bid: contractQuote.bid,
+            ask: contractQuote.ask,
+            mid: contractQuote.price,
+            last: contractQuote.last,
+            volume: contractQuote.volume || 0,
+            open_interest: contractQuote.open_interest || 0,
+            updated: contractQuote.updated || new Date().toISOString(),
+          } : null,
           last_quote_at: new Date().toISOString(),
         };
 
@@ -345,6 +358,7 @@ async function queueTelegramMessage(
       .from("index_trades")
       .select(`
         *,
+        current_contract_snapshot,
         author:profiles!author_id(id, full_name, avatar_url),
         analysis:index_analyses!analysis_id(id, title, index_symbol)
       `)
@@ -412,12 +426,31 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
         const quote = data.results[0];
         const mid = (quote.bid_price + quote.ask_price) / 2;
 
+        // Fetch snapshot for volume and open interest
+        let volume = 0;
+        let open_interest = 0;
+        try {
+          const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${ticker.replace('O:', '')}?apiKey=${apiKey}`;
+          const snapshotResponse = await fetch(snapshotUrl);
+          if (snapshotResponse.ok) {
+            const snapshotData = await snapshotResponse.json();
+            if (snapshotData.status === "OK" && snapshotData.results) {
+              volume = snapshotData.results.day?.volume || 0;
+              open_interest = snapshotData.results.open_interest || 0;
+            }
+          }
+        } catch (e) {
+          console.warn(`Could not fetch snapshot data for ${ticker}`);
+        }
+
         return {
           ticker: ticker,
           price: mid || quote.bid_price || quote.ask_price,
           bid: quote.bid_price,
           ask: quote.ask_price,
           last: quote.bid_price,
+          volume: volume,
+          open_interest: open_interest,
           updated: quote.sip_timestamp,
         };
       }

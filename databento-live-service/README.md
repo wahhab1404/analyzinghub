@@ -91,16 +91,35 @@ curl -L https://fly.io/install.sh | sh
 fly auth login
 ```
 
-3. **Create App**:
+3. **Create App** (if not already created):
 ```bash
-fly apps create databento-live-service
+fly apps create databento-live-svc
 ```
 
-4. **Set Secrets**:
+4. **⚠️ CRITICAL: Set Secrets Before Deployment**
+
+The service will crash without these secrets. Use the automated script:
+
+**Linux/Mac:**
 ```bash
-fly secrets set DATABENTO_API_KEY=your_key
-fly secrets set SUPABASE_URL=your_url
-fly secrets set SUPABASE_SERVICE_ROLE_KEY=your_key
+./fix-secrets.sh
+```
+
+**Windows:**
+```powershell
+.\fix-secrets.ps1
+```
+
+**Or manually:**
+```bash
+fly secrets set DATABENTO_API_KEY="your_databento_key" -a databento-live-svc
+fly secrets set SUPABASE_URL="your_supabase_url" -a databento-live-svc
+fly secrets set SUPABASE_SERVICE_ROLE_KEY="your_service_role_key" -a databento-live-svc
+```
+
+**Verify secrets are set:**
+```bash
+fly secrets list -a databento-live-svc
 ```
 
 5. **Deploy**:
@@ -110,9 +129,11 @@ fly deploy
 
 6. **Monitor**:
 ```bash
-fly logs
-fly status
+fly logs -a databento-live-svc
+fly status -a databento-live-svc
 ```
+
+> **Troubleshooting**: If the service crashes with "Missing required environment variables", see [FIX_SECRETS_GUIDE.md](./FIX_SECRETS_GUIDE.md)
 
 ### Deploy to Railway
 

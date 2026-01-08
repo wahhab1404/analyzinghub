@@ -210,6 +210,12 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || entryPrice;
 
+  // Use current snapshot for bid/ask if available
+  const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
+  const bid = currentSnapshot?.bid || 0;
+  const ask = currentSnapshot?.ask || 0;
+  const volume = currentSnapshot?.volume || 0;
+
   let caption = isNewHigh
     ? "🚀 <b>NEW HIGH ALERT | تنبيه قمة جديدة!</b>\n\n"
     : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
@@ -223,6 +229,10 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
 
   caption += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
   caption += `<b>Current | الحالي:</b> $${currentPrice.toFixed(2)}\n`;
+
+  if (bid > 0 && ask > 0) {
+    caption += `<b>Bid/Ask | عرض/طلب:</b> $${bid.toFixed(2)} / $${ask.toFixed(2)}\n`;
+  }
 
   if (isNewHigh && trade.contract_high_since) {
     caption += `<b>New High | القمة الجديدة:</b> $${trade.contract_high_since.toFixed(2)} 🎉\n`;

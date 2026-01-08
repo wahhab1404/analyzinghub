@@ -1,8 +1,9 @@
-app = "databento-live-service"
+app = "databento-live-svc"
 primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
+  ignorefile = ".dockerignore"
 
 [env]
   LOG_LEVEL = "INFO"

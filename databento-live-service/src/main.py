@@ -182,13 +182,20 @@ class DatabentoLiveService:
 
     def _convert_databento_to_polygon(self, databento_symbol: str) -> str:
         """Convert Databento symbol back to Polygon ticker"""
+        # Index symbols (SPX, NDX, DJI - exactly 3 chars)
+        if databento_symbol in ['SPX', 'NDX', 'DJI']:
+            return f"I:{databento_symbol}"
+
+        # Option symbols (starts with index name but longer)
         if databento_symbol.startswith('SPX') or \
            databento_symbol.startswith('NDX') or \
            databento_symbol.startswith('DJI'):
             if len(databento_symbol) > 3:
                 return f"O:{databento_symbol}"
-            else:
-                return f"I:{databento_symbol}"
+
+        # Already prefixed symbols
+        if databento_symbol.startswith('I:') or databento_symbol.startswith('O:'):
+            return databento_symbol
 
         return databento_symbol
 
@@ -279,84 +286,89 @@ class DatabentoLiveService:
         except Exception as e:
             logger.error(f"Database update error for {databento_symbol}: {e}")
 
-    def _close_unresolvable_trades(self, symbols: List[str]):
-        """Close trades for symbols that Databento cannot resolve (expired/delisted)"""
-        for symbol in symbols:
-            try:
-                polygon_ticker = self._convert_databento_to_polygon(symbol)
-                logger.info(f"🔒 Auto-closing unresolvable contract: {polygon_ticker}")
-
-                self.supabase.table('index_trades') \
-                    .update({
-                        'status': 'closed',
-                        'outcome': 'expired',
-                        'closed_at': datetime.utcnow().isoformat(),
-                        'close_reason': 'Contract expired/delisted - symbol not found in data feed'
-                    }) \
-                    .eq('polygon_option_ticker', polygon_ticker) \
-                    .eq('status', 'active') \
-                    .execute()
-
-            except Exception as e:
-                logger.error(f"Failed to close trade for {symbol}: {e}")
-
     def _subscribe_to_symbols(self, symbols: Set[str]):
         """Subscribe to live data for given symbols"""
         if not symbols:
             logger.warning("No symbols to subscribe to")
             return
 
-        # Filter out index symbols - we focus on options only
+        # Separate index symbols from option symbols
+        index_symbols = [s for s in symbols if s.startswith('I:')]
         option_symbols = [s for s in symbols if not s.startswith('I:')]
 
-        if not option_symbols:
-            logger.warning("No option symbols to subscribe to after filtering")
-            return
-
-        logger.info(f"📡 Subscribing to {len(option_symbols)} options on OPRA.PILLAR with trades schema")
-
-        # Subscribe to each symbol individually to identify which ones fail
         successful = []
         failed = []
         unresolvable = []
 
-        for symbol in option_symbols:
+        # Subscribe to index symbols (try GLBX.MDP3 for indices)
+        # Note: SPX, NDX, DJI may not be available via Databento - will fallback to Polygon cron
+        for symbol in index_symbols:
             try:
-                logger.info(f"   Subscribing to {symbol}...")
-                self.client.subscribe(
-                    dataset='OPRA.PILLAR',
-                    schema='trades',
-                    symbols=[symbol],
-                    stype_in='raw_symbol'
-                )
-                successful.append(symbol)
-                self.subscribed_symbols.add(symbol)
+                # Remove I: prefix for Databento
+                clean_symbol = symbol[2:] if symbol.startswith('I:') else symbol
+                logger.info(f"   Attempting to subscribe to index {clean_symbol}...")
+
+                # Try GLBX.MDP3 first (CME futures indices)
+                try:
+                    self.client.subscribe(
+                        dataset='GLBX.MDP3',
+                        schema='trades',
+                        symbols=[clean_symbol],
+                        stype_in='raw_symbol'
+                    )
+                    successful.append(symbol)
+                    self.subscribed_symbols.add(symbol)
+                    logger.info(f"   ✅ Subscribed to {symbol} on GLBX.MDP3")
+                except Exception as glbx_error:
+                    # Indices may not be available - fallback to Polygon
+                    logger.info(f"   ℹ️  {symbol} not available in Databento live feed")
+                    logger.info(f"   → Will use Polygon API (updates every 1 min)")
+                    unresolvable.append(symbol)
 
             except Exception as e:
-                error_msg = str(e)
+                logger.warning(f"   ⚠️  Failed to subscribe to index {symbol}: {e}")
                 failed.append(symbol)
 
-                # Check if this is a symbol resolution failure (expired/delisted)
-                if "Failed to resolve symbol" in error_msg or "symbol not found" in error_msg.lower():
-                    unresolvable.append(symbol)
-                    logger.warning(f"   ⚠️  Symbol {symbol} not found in feed (likely expired/delisted)")
-                else:
-                    logger.warning(f"   ⚠️  Failed to subscribe to {symbol}: {e}")
+        # Subscribe to option symbols (OPRA.PILLAR)
+        if option_symbols:
+            logger.info(f"📡 Subscribing to {len(option_symbols)} options on OPRA.PILLAR")
 
-        # Auto-close trades for unresolvable symbols
+            for symbol in option_symbols:
+                try:
+                    logger.info(f"   Subscribing to option {symbol}...")
+                    self.client.subscribe(
+                        dataset='OPRA.PILLAR',
+                        schema='trades',
+                        symbols=[symbol],
+                        stype_in='raw_symbol'
+                    )
+                    successful.append(symbol)
+                    self.subscribed_symbols.add(symbol)
+
+                except Exception as e:
+                    error_msg = str(e)
+                    failed.append(symbol)
+
+                    # Check if this is a symbol resolution failure (expired/delisted)
+                    if "Failed to resolve symbol" in error_msg or "symbol not found" in error_msg.lower():
+                        unresolvable.append(symbol)
+                        logger.warning(f"   ⚠️  Symbol {symbol} not in Databento feed (expired/0DTE/delisted)")
+                    else:
+                        logger.warning(f"   ⚠️  Failed to subscribe to {symbol}: {e}")
+
         if unresolvable:
-            logger.info(f"🔒 Closing {len(unresolvable)} expired/delisted contracts...")
-            self._close_unresolvable_trades(unresolvable)
+            logger.info(f"📊 {len(unresolvable)} contracts not available in live feed")
+            logger.info(f"   → These will be tracked via Polygon API cron (every 1 min)")
 
         if successful:
-            logger.info(f"✅ Successfully subscribed to {len(successful)} contracts")
+            logger.info(f"✅ Successfully subscribed to {len(successful)} symbols total")
 
-        if failed:
-            logger.warning(f"⚠️  Failed to subscribe to {len(failed)} contracts")
+        if failed and not unresolvable:
+            logger.warning(f"⚠️  Failed to subscribe to {len(failed)} symbols")
 
-        # Only raise error if ALL symbols failed AND none were auto-closed
+        # Only raise error if ALL symbols failed with non-resolution errors
         if not successful and not unresolvable:
-            raise ValueError("No symbols could be subscribed - all failed")
+            raise ValueError("No symbols could be subscribed - all failed with errors")
 
     def start(self):
         """Start the live streaming service"""

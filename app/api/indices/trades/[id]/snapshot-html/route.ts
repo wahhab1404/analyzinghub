@@ -61,11 +61,13 @@ export async function GET(
     const underlyingChange = underlyingPrice - underlyingEntryPrice;
     const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
 
-    const mid = trade.entry_contract_snapshot?.mid || currentPrice;
-    const bid = trade.entry_contract_snapshot?.bid || 0;
-    const ask = trade.entry_contract_snapshot?.ask || 0;
-    const openInterest = trade.entry_contract_snapshot?.open_interest || 0;
-    const volume = trade.entry_contract_snapshot?.volume || 0;
+    // Use CURRENT snapshot data if available, fallback to entry
+    const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
+    const mid = currentSnapshot?.mid || currentPrice;
+    const bid = currentSnapshot?.bid || 0;
+    const ask = currentSnapshot?.ask || 0;
+    const openInterest = currentSnapshot?.open_interest || 0;
+    const volume = currentSnapshot?.volume || 0;
 
     const now = new Date();
     const timestamp = `Open, ${now.toLocaleTimeString('en-US', {
