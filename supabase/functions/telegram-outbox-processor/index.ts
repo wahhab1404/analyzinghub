@@ -36,7 +36,6 @@ Deno.serve(async (req) => {
 
     console.log('[telegram-outbox-processor] Bot token loaded from:', botTokenSetting?.setting_value ? 'database' : 'environment');
 
-    // Fetch pending messages ready for retry
     const { data: messages, error: fetchError } = await supabase
       .from('telegram_outbox')
       .select('*')
@@ -69,16 +68,13 @@ Deno.serve(async (req) => {
 
     for (const message of messages) {
       try {
-        // Mark as processing
         await supabase
           .from('telegram_outbox')
           .update({ status: 'processing' })
           .eq('id', message.id);
 
-        // Format message based on type
         const formattedMessage = formatMessage(message);
 
-        // Send to Telegram
         let telegramResult;
         if (formattedMessage.photo) {
           telegramResult = await sendTelegramPhoto(
@@ -95,7 +91,6 @@ Deno.serve(async (req) => {
           );
         }
 
-        // Mark as sent
         await supabase
           .from('telegram_outbox')
           .update({
@@ -115,7 +110,6 @@ Deno.serve(async (req) => {
         const maxRetries = message.max_retries || 3;
 
         if (retryCount >= maxRetries) {
-          // Mark as failed
           await supabase
             .from('telegram_outbox')
             .update({
@@ -129,8 +123,7 @@ Deno.serve(async (req) => {
           results.failed++;
           console.log(`❌ Message ${message.id} failed after ${retryCount} attempts`);
         } else {
-          // Schedule retry with exponential backoff
-          const backoffSeconds = Math.pow(2, retryCount) * 60; // 2, 4, 8 minutes
+          const backoffSeconds = Math.pow(2, retryCount) * 60;
           const nextRetry = new Date(Date.now() + backoffSeconds * 1000);
 
           await supabase
@@ -176,7 +169,8 @@ function formatMessage(message: any): { text?: string; photo?: string; caption?:
       return formatAnalysisMessage(payload);
     case 'new_trade':
     case 'new_high':
-      return formatTradeMessage(payload, messageType === 'new_high');
+    case 'winning_trade':
+      return formatTradeMessage(payload, messageType === 'new_high' || messageType === 'winning_trade', messageType === 'winning_trade');
     case 'trade_result':
       return formatTradeResultMessage(payload);
     case 'analysis_update':
@@ -204,7 +198,7 @@ function formatAnalysisMessage(payload: any): { text: string } {
   return { text: message };
 }
 
-function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; photo?: string; caption?: string } {
+function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean = false): { text?: string; photo?: string; caption?: string } {
   const trade = payload.trade || payload;
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
@@ -215,7 +209,9 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
   const ask = currentSnapshot?.ask || 0;
   const volume = currentSnapshot?.volume || 0;
 
-  let caption = isNewHigh
+  let caption = isWinning
+    ? "🎉 <b>WINNING TRADE | صفقة رابحة!</b>\n\n"
+    : isNewHigh
     ? "🚀 <b>NEW HIGH ALERT | تنبيه قمة جديدة!</b>\n\n"
     : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
 
@@ -233,7 +229,13 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
     caption += `<b>Bid/Ask | عرض/طلب:</b> $${bid.toFixed(2)} / $${ask.toFixed(2)}\n`;
   }
 
-  if (isNewHigh) {
+  if (isWinning) {
+    const pnl = payload.pnl || 0;
+    const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
+
+    caption += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)} (+${pnlPercent}%)\n`;
+    caption += `<b>🎊 Reached $100+ profit milestone! | تم الوصول لربح +$100!</b>\n`;
+  } else if (isNewHigh) {
     const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
     const gainPercent = payload.gainPercent || ((highPrice - entryPrice) / entryPrice * 100).toFixed(2);
 
@@ -284,7 +286,7 @@ function formatTradeResultMessage(payload: any): { text: string } {
     message += `<b>Highest | الأعلى:</b> $${highestPrice.toFixed(2)}\n`;
   }
 
-  message += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)}`;  
+  message += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)}`;
   if (pnl > 0) {
     message += " ✅";
   } else if (pnl < 0) {

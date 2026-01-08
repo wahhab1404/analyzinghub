@@ -7,8 +7,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const SUCCESS_THRESHOLD_USD = 100;
-
 function isMarketOpen(): boolean {
   const now = new Date();
   const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
@@ -218,13 +216,58 @@ Deno.serve(async (req: Request) => {
         let outcome = null;
         let condition = "";
 
-        if (netPnl >= SUCCESS_THRESHOLD_USD && !statusChanged) {
-          newStatus = "closed";
-          outcome = "succeed";
-          condition = `Success! Net profit reached $${netPnl.toFixed(2)} (Entry: $${entryContractPrice.toFixed(2)}, Current: $${newContract.toFixed(2)})`;
-          statusChanged = true;
-          results.successDetected++;
-          console.log(`✅ Trade ${trade.id} hit $100 success threshold with $${netPnl.toFixed(2)} profit`);
+        if (netPnl >= 100 && !statusChanged) {
+          const { data: existingWinNotification } = await supabase
+            .from("trade_updates")
+            .select("id")
+            .eq("trade_id", trade.id)
+            .contains("changes", { type: "winning_trade" })
+            .maybeSingle();
+
+          if (!existingWinNotification) {
+            console.log(`💰 Trade ${trade.id} reached $100 profit milestone! ($${netPnl.toFixed(2)})`);
+
+            await supabase.from("trade_updates").insert({
+              trade_id: trade.id,
+              author_id: trade.author_id,
+              body: `🎉 Winning Trade! Net profit reached $${netPnl.toFixed(2)} (Entry: $${entryContractPrice.toFixed(2)}, Current: $${newContract.toFixed(2)}) - صفقة رابحة`,
+              changes: { type: "winning_trade", pnl_usd: netPnl, entry: entryContractPrice, current: newContract },
+            });
+
+            try {
+              const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${supabaseKey}`,
+                },
+                body: JSON.stringify({
+                  tradeId: trade.id,
+                  isNewHigh: false,
+                }),
+              });
+
+              if (snapshotResponse.ok) {
+                const snapshotResult = await snapshotResponse.json();
+                console.log(`Snapshot generated for winning trade: ${snapshotResult.imageUrl}`);
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            } catch (snapshotError) {
+              console.error('Failed to generate snapshot for winning trade:', snapshotError);
+            }
+
+            const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+            if (channelId && trade.telegram_send_enabled !== false) {
+              await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
+                tradeId: trade.id,
+                pnl: netPnl,
+                entryPrice: entryContractPrice,
+                currentPrice: newContract,
+              });
+            }
+
+            results.successDetected++;
+          }
         }
 
         const target1Price = trade.targets && trade.targets.length > 0 ? trade.targets[0]?.level : null;
@@ -284,6 +327,7 @@ Deno.serve(async (req: Request) => {
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
               console.log(`Snapshot generated for new high: ${snapshotResult.imageUrl}`);
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (snapshotError) {
             console.error('Failed to generate snapshot for new high:', snapshotError);
@@ -313,6 +357,28 @@ Deno.serve(async (req: Request) => {
             body: condition,
             changes: { type: newStatus, outcome, pnl_usd: netPnl },
           });
+
+          try {
+            const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({
+                tradeId: trade.id,
+                isNewHigh: false,
+              }),
+            });
+
+            if (snapshotResponse.ok) {
+              const snapshotResult = await snapshotResponse.json();
+              console.log(`Snapshot generated for trade result: ${snapshotResult.imageUrl}`);
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          } catch (snapshotError) {
+            console.error('Failed to generate snapshot for trade result:', snapshotError);
+          }
 
           const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
           if (channelId && trade.telegram_send_enabled !== false) {
