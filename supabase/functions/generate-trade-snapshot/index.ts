@@ -64,8 +64,9 @@ Deno.serve(async (req: Request) => {
 
     const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
     const cacheBuster = Date.now();
-    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}`;
-    console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl);
+    const isNewHighParam = payload.isNewHigh ? '&isNewHigh=true' : '';
+    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}${isNewHighParam}`;
+    console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl, "isNewHigh:", payload.isNewHigh);
 
     console.log("[generate-trade-snapshot] Generating screenshot from hosted HTML...");
 

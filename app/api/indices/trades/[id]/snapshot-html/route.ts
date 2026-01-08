@@ -28,7 +28,9 @@ export async function GET(
 
     const params = await context.params;
     const tradeId = params.id;
-    console.log('[snapshot-html] Generating snapshot for trade:', tradeId);
+    const { searchParams } = new URL(request.url);
+    const isNewHigh = searchParams.get('isNewHigh') === 'true';
+    console.log('[snapshot-html] Generating snapshot for trade:', tradeId, 'isNewHigh:', isNewHigh);
 
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
@@ -112,6 +114,178 @@ export async function GET(
 
     const pnlColor = netPnl >= 0 ? '#10b981' : '#ef4444';
     const pnlSign = netPnl >= 0 ? '+' : '';
+
+    // If this is a new high alert, use a special template
+    if (isNewHigh) {
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', sans-serif;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      width: 1280px;
+      height: 720px;
+      padding: 40px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      background: white;
+      border-radius: 32px;
+      padding: 60px;
+      width: 100%;
+      max-width: 1100px;
+      box-shadow: 0 25px 80px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    .badge {
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: white;
+      padding: 16px 40px;
+      border-radius: 50px;
+      font-size: 32px;
+      font-weight: 800;
+      display: inline-block;
+      margin-bottom: 32px;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+    }
+    .new-high-price {
+      font-size: 180px;
+      font-weight: 900;
+      color: #10b981;
+      line-height: 1;
+      margin: 32px 0;
+      letter-spacing: -5px;
+      text-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+    }
+    .price-label {
+      font-size: 36px;
+      color: #6b7280;
+      font-weight: 600;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 3px;
+    }
+    .trade-info {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      margin: 40px 0;
+      padding: 32px;
+      background: #f9fafb;
+      border-radius: 20px;
+    }
+    .info-item {
+      text-align: center;
+    }
+    .info-label {
+      font-size: 18px;
+      color: #9ca3af;
+      font-weight: 600;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .info-value {
+      font-size: 32px;
+      color: #1f2937;
+      font-weight: 700;
+    }
+    .info-value.gain {
+      color: #10b981;
+      font-size: 36px;
+    }
+    .footer-info {
+      margin-top: 32px;
+      padding-top: 28px;
+      border-top: 3px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .contract-details {
+      font-size: 24px;
+      color: #4b5563;
+      font-weight: 600;
+    }
+    .analyst {
+      font-size: 22px;
+      color: #6b7280;
+      font-weight: 500;
+    }
+    .branding {
+      position: absolute;
+      top: 40px;
+      right: 60px;
+      font-size: 28px;
+      font-weight: 800;
+      color: white;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.3);
+    }
+    .sparkle {
+      display: inline-block;
+      animation: sparkle 1.5s infinite;
+    }
+    @keyframes sparkle {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(1.1); }
+    }
+  </style>
+</head>
+<body>
+  <div class="branding">AnalyzingHub</div>
+  <div class="card">
+    <div class="badge">
+      <span class="sparkle">🚀</span> NEW HIGH ALERT! <span class="sparkle">🚀</span>
+    </div>
+    <div class="price-label">New High Price</div>
+    <div class="new-high-price">$${highSinceEntry.toFixed(2)}</div>
+
+    <div class="trade-info">
+      <div class="info-item">
+        <div class="info-label">Entry</div>
+        <div class="info-value">$${entryPrice.toFixed(2)}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Current</div>
+        <div class="info-value">$${currentPrice.toFixed(2)}</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">Gain</div>
+        <div class="info-value gain">+${priceChangePercent.toFixed(2)}%</div>
+      </div>
+      <div class="info-item">
+        <div class="info-label">P/L</div>
+        <div class="info-value gain">+$${netPnl.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <div class="footer-info">
+      <div class="contract-details">
+        ${cleanSymbol} $${strike.toLocaleString()} ${optionType} • ${formatExpiry(expiry)}
+      </div>
+      <div class="analyst">${trade.author.full_name}</div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+      return new NextResponse(html, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+        },
+      });
+    }
 
     const html = `<!DOCTYPE html>
 <html>
