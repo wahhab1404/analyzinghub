@@ -210,7 +210,6 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || entryPrice;
 
-  // Use current snapshot for bid/ask if available
   const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
   const bid = currentSnapshot?.bid || 0;
   const ask = currentSnapshot?.ask || 0;
@@ -234,10 +233,12 @@ function formatTradeMessage(payload: any, isNewHigh: boolean): { text?: string; 
     caption += `<b>Bid/Ask | عرض/طلب:</b> $${bid.toFixed(2)} / $${ask.toFixed(2)}\n`;
   }
 
-  if (isNewHigh && trade.contract_high_since) {
-    caption += `<b>New High | القمة الجديدة:</b> $${trade.contract_high_since.toFixed(2)} 🎉\n`;
-    const gain = ((trade.contract_high_since - entryPrice) / entryPrice * 100).toFixed(2);
-    caption += `<b>Gain | المكسب:</b> +${gain}%\n`;
+  if (isNewHigh) {
+    const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
+    const gainPercent = payload.gainPercent || ((highPrice - entryPrice) / entryPrice * 100).toFixed(2);
+
+    caption += `<b>New High | القمة الجديدة:</b> $${parseFloat(highPrice).toFixed(2)} 🎉\n`;
+    caption += `<b>Gain | المكسب:</b> +${gainPercent}%\n`;
   }
 
   if (trade.qty) {

@@ -216,8 +216,13 @@ export async function POST(
 
     const entryUnderlying = underlyingSnapshot.price;
     let entryContract = contractSnapshot.mid;
+    let currentContractPrice = contractSnapshot.mid;
     let entrySource: 'polygon' | 'manual' = isManualPriceEntry ? 'manual' : 'polygon';
     let overrideReason: string | null = isManualPriceEntry ? 'Manual price entry (markets closed)' : null;
+
+    if (isManualPriceEntry && bodyWithManualPrices.current_price) {
+      currentContractPrice = bodyWithManualPrices.current_price;
+    }
 
     if (body.entry_override !== undefined && body.entry_override !== null) {
       entryContract = body.entry_override;
@@ -225,7 +230,6 @@ export async function POST(
       overrideReason = body.entry_override_reason || 'Manual entry override';
     }
 
-    // Validate entry price is not zero
     if (!entryContract || entryContract === 0) {
       return NextResponse.json(
         {
@@ -243,11 +247,11 @@ export async function POST(
       );
     }
 
-    // Use custom HTML template for screenshots (not external URLs)
+    const initialHigh = Math.max(entryContract, currentContractPrice);
+    const initialLow = Math.min(entryContract, currentContractPrice);
+
     const contractUrl: string | null = null;
 
-    // Determine telegram channel ID
-    // Priority: body.telegram_channel_id > analysis.telegram_channel_id
     let telegramChannelId = body.telegram_channel_id || null;
 
     const { data: trade, error: insertError } = await supabase
@@ -270,11 +274,11 @@ export async function POST(
         entry_underlying_snapshot: underlyingSnapshot,
         entry_contract_snapshot: contractSnapshot,
         current_underlying: entryUnderlying,
-        current_contract: entryContract,
+        current_contract: currentContractPrice,
         underlying_high_since: entryUnderlying,
         underlying_low_since: entryUnderlying,
-        contract_high_since: entryContract,
-        contract_low_since: entryContract,
+        contract_high_since: initialHigh,
+        contract_low_since: initialLow,
         manual_contract_price: isManualPriceEntry ? bodyWithManualPrices.current_price : null,
         is_using_manual_price: isManualPriceEntry,
         targets: body.targets || [],
