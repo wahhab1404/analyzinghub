@@ -171,7 +171,7 @@ export class SSEHandler {
     console.log(`SSE connection established: ${connectionId} (${trades.length} trades)`);
 
     // Handle disconnect
-    req.on('close', async () => {
+    res.on('close', async () => {
       clearInterval(heartbeatInterval);
       this.connections.delete(connectionId);
       await this.subscriptionManager.unsubscribe(analysisId, connectionId);

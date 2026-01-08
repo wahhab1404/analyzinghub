@@ -4,7 +4,6 @@ app = "indices-hub-realtime"
 primary_region = "iad"
 
 [build]
-  builder = "heroku/buildpacks:20"
 
 [env]
   PORT = "8080"

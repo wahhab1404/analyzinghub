@@ -12,7 +12,7 @@ export class PersistenceService {
   private subscriptionManager: SubscriptionManager;
 
   private persistInterval: NodeJS.Timeout | null = null;
-  private readonly PERSIST_INTERVAL_MS = 60000; // 60s
+  private readonly PERSIST_INTERVAL_MS = 10000; // 10s for real-time updates
 
   constructor(
     redis: Redis,

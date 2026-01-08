@@ -63,7 +63,8 @@ Deno.serve(async (req: Request) => {
     const screenshotUrl = `https://shot.screenshotapi.net/screenshot`;
 
     const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
-    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html`;
+    const cacheBuster = Date.now();
+    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}`;
     console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl);
 
     console.log("[generate-trade-snapshot] Generating screenshot from hosted HTML...");
@@ -78,6 +79,7 @@ Deno.serve(async (req: Request) => {
       wait_for_event: "load",
       delay: "2000",
       fresh: "true",
+      no_cache: "true",
     });
 
     const fullScreenshotUrl = `${screenshotUrl}?${screenshotParams.toString()}`;

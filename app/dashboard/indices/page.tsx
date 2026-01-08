@@ -43,8 +43,12 @@ export default function IndicesHubPage() {
   }
 
   const handleBackToTrades = () => {
-    setCurrentView('manage-trades')
-    setSelectedTradeId(null)
+    if (selectedAnalysisId) {
+      setCurrentView('manage-trades')
+      setSelectedTradeId(null)
+    } else {
+      handleBackToList()
+    }
   }
 
   const handleTradeAdded = () => {
