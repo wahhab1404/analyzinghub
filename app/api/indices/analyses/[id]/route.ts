@@ -202,7 +202,8 @@ export async function PATCH(
 
 /**
  * DELETE /api/indices/analyses/[id]
- * Delete an analysis
+ * Delete an analysis (Admin only)
+ * This will cascade delete all related trades
  */
 export async function DELETE(
   request: NextRequest,
@@ -223,22 +224,30 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user owns this analysis
+    // Check if user is admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id, roles(name)')
+      .eq('id', user.id)
+      .single();
+
+    const roleName = (profile as any)?.roles?.name;
+    if (!roleName || roleName !== 'SuperAdmin') {
+      return NextResponse.json(
+        { error: 'Only admins can delete analyses' },
+        { status: 403 }
+      );
+    }
+
+    // Check if analysis exists
     const { data: existing, error: fetchError } = await supabase
       .from('index_analyses')
-      .select('author_id')
+      .select('id, title')
       .eq('id', id)
       .single();
 
     if (fetchError || !existing) {
       return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
-    }
-
-    if (existing.author_id !== user.id) {
-      return NextResponse.json(
-        { error: 'You can only delete your own analyses' },
-        { status: 403 }
-      );
     }
 
     // Delete (cascade will handle trades, updates, etc.)
@@ -252,7 +261,10 @@ export async function DELETE(
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: `Analysis "${existing.title}" and all related trades deleted successfully`
+    });
   } catch (error: any) {
     console.error('Error in DELETE /api/indices/analyses/[id]:', error);
     return NextResponse.json(

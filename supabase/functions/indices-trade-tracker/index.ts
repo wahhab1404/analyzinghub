@@ -9,13 +9,32 @@ const corsHeaders = {
 
 const SUCCESS_THRESHOLD_USD = 100;
 
+function isMarketOpen(): boolean {
+  const now = new Date();
+  const etTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const dayOfWeek = etTime.getDay();
+  const hours = etTime.getHours();
+  const minutes = etTime.getMinutes();
+  const timeInMinutes = hours * 60 + minutes;
+
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return false;
+  }
+
+  const marketOpen = 9 * 60 + 30;
+  const marketClose = 16 * 60;
+
+  return timeInMinutes >= marketOpen && timeInMinutes < marketClose;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   const startTime = Date.now();
-  console.log("[indices-trade-tracker] Starting price update cycle");
+  const isRTH = isMarketOpen();
+  console.log(`[indices-trade-tracker] Starting price update cycle (RTH: ${isRTH})`);
 
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -46,6 +65,11 @@ Deno.serve(async (req: Request) => {
         contract_low_since,
         underlying_high_since,
         underlying_low_since,
+        manual_contract_price,
+        manual_contract_high,
+        manual_contract_low,
+        is_using_manual_price,
+        last_rth_tracking_at,
         targets,
         stoploss,
         qty,
@@ -90,7 +114,6 @@ Deno.serve(async (req: Request) => {
       try {
         if (trade.expiry_datetime) {
           const expiryDate = new Date(trade.expiry_datetime);
-          // SPX options expire at 4:15 PM ET - give 15 min buffer after expiry time
           const expiryWithBuffer = new Date(expiryDate.getTime() + (15 * 60 * 1000));
 
           if (now >= expiryWithBuffer) {
@@ -103,21 +126,39 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        const underlyingQuote = await fetchPolygonQuote(
-          trade.polygon_underlying_index_ticker,
-          polygonApiKey
-        );
-
+        let newUnderlying = trade.current_underlying;
+        let newContract = trade.current_contract;
         let contractQuote = null;
-        if (trade.polygon_option_ticker) {
-          contractQuote = await fetchPolygonQuote(
-            trade.polygon_option_ticker,
+
+        if (isRTH) {
+          const underlyingQuote = await fetchPolygonQuote(
+            trade.polygon_underlying_index_ticker,
             polygonApiKey
           );
-        }
 
-        const newUnderlying = underlyingQuote?.price || trade.current_underlying;
-        const newContract = contractQuote?.price || trade.current_contract;
+          if (trade.polygon_option_ticker) {
+            contractQuote = await fetchPolygonQuote(
+              trade.polygon_option_ticker,
+              polygonApiKey
+            );
+          }
+
+          newUnderlying = underlyingQuote?.price || trade.current_underlying;
+          newContract = contractQuote?.price || trade.current_contract;
+
+          if (!newContract || !newUnderlying) {
+            console.log(`No price data for trade ${trade.id}, skipping`);
+            continue;
+          }
+        } else {
+          if (trade.is_using_manual_price && trade.manual_contract_price) {
+            console.log(`Trade ${trade.id} using manual price outside RTH: $${trade.manual_contract_price}`);
+            newContract = trade.manual_contract_price;
+          }
+          if (trade.manual_contract_high) {
+            console.log(`Trade ${trade.id} using manual high: $${trade.manual_contract_high}`);
+          }
+        }
 
         if (!newContract || !newUnderlying) {
           console.log(`No price data for trade ${trade.id}, skipping`);
@@ -139,13 +180,25 @@ Deno.serve(async (req: Request) => {
           last_quote_at: new Date().toISOString(),
         };
 
+        if (isRTH) {
+          updates.last_rth_tracking_at = new Date().toISOString();
+          updates.is_using_manual_price = false;
+        }
+
         const entryUnderlyingPrice = trade.entry_underlying_snapshot?.price || newUnderlying;
         const entryContractPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || newContract;
 
-        const previousContractHigh = trade.contract_high_since || entryContractPrice;
-        const previousContractLow = trade.contract_low_since || entryContractPrice;
+        let previousContractHigh = trade.contract_high_since || entryContractPrice;
+        let previousContractLow = trade.contract_low_since || entryContractPrice;
         const previousUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
         const previousUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
+
+        if (trade.manual_contract_high && trade.manual_contract_high > previousContractHigh) {
+          previousContractHigh = trade.manual_contract_high;
+        }
+        if (trade.manual_contract_low && trade.manual_contract_low < previousContractLow) {
+          previousContractLow = trade.manual_contract_low;
+        }
 
         const newContractHigh = Math.max(previousContractHigh, newContract);
         const isNewHigh = newContractHigh > previousContractHigh;
@@ -215,7 +268,6 @@ Deno.serve(async (req: Request) => {
             changes: { type: "new_high", price: newContractHigh, gain_percent: percentGain },
           });
 
-          // Generate updated snapshot for new high
           try {
             const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
               method: 'POST',
@@ -426,7 +478,6 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
         const quote = data.results[0];
         const mid = (quote.bid_price + quote.ask_price) / 2;
 
-        // Fetch snapshot for volume and open interest
         let volume = 0;
         let open_interest = 0;
         try {

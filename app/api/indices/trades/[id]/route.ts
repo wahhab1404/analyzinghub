@@ -103,7 +103,7 @@ export async function PATCH(
     // Check if user owns this trade
     const { data: existing, error: fetchError } = await supabase
       .from('index_trades')
-      .select('author_id, status, targets, stoploss, notes')
+      .select('author_id, status, targets, stoploss, notes, contract_high_since, contract_low_since')
       .eq('id', id)
       .single();
 
@@ -155,6 +155,24 @@ export async function PATCH(
       changes.notes = { old: existing.notes, new: body.notes };
     }
 
+    if ((body as any).manualContractHigh !== undefined) {
+      const newHigh = (body as any).manualContractHigh;
+      if (typeof newHigh === 'number' && newHigh > 0) {
+        updates.manual_contract_high = newHigh;
+        updates.contract_high_since = newHigh;
+        changes.manual_contract_high = { old: existing.contract_high_since, new: newHigh };
+      }
+    }
+
+    if ((body as any).manualContractLow !== undefined) {
+      const newLow = (body as any).manualContractLow;
+      if (typeof newLow === 'number' && newLow > 0) {
+        updates.manual_contract_low = newLow;
+        updates.contract_low_since = newLow;
+        changes.manual_contract_low = { old: existing.contract_low_since, new: newLow };
+      }
+    }
+
     // Update the trade
     const { data: trade, error: updateError } = await supabase
       .from('index_trades')
@@ -199,7 +217,7 @@ export async function PATCH(
 
 /**
  * DELETE /api/indices/trades/[id]
- * Delete a trade
+ * Delete a trade (Admin only)
  */
 export async function DELETE(
   request: NextRequest,
@@ -220,22 +238,30 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user owns this trade
+    // Check if user is admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id, roles(name)')
+      .eq('id', user.id)
+      .single();
+
+    const roleName = (profile as any)?.roles?.name;
+    if (!roleName || roleName !== 'SuperAdmin') {
+      return NextResponse.json(
+        { error: 'Only admins can delete trades' },
+        { status: 403 }
+      );
+    }
+
+    // Check if trade exists
     const { data: existing, error: fetchError } = await supabase
       .from('index_trades')
-      .select('author_id')
+      .select('id, polygon_option_ticker, strike, direction')
       .eq('id', id)
       .single();
 
     if (fetchError || !existing) {
       return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
-    }
-
-    if (existing.author_id !== user.id) {
-      return NextResponse.json(
-        { error: 'You can only delete your own trades' },
-        { status: 403 }
-      );
     }
 
     // Delete
@@ -249,7 +275,10 @@ export async function DELETE(
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({
+      success: true,
+      message: `Trade ${existing.direction} ${existing.polygon_option_ticker} deleted successfully`
+    });
   } catch (error: any) {
     console.error('Error in DELETE /api/indices/trades/[id]:', error);
     return NextResponse.json(

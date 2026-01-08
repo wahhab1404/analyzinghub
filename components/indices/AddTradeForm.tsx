@@ -69,6 +69,12 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
   const [customDate, setCustomDate] = useState('')
   const [channels, setChannels] = useState<TelegramChannel[]>([])
   const [loadingChannels, setLoadingChannels] = useState(true)
+  const [marketStatus, setMarketStatus] = useState<{
+    isOpen: boolean
+    status: string
+    canSetManualPrice: boolean
+    message: string
+  } | null>(null)
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
@@ -77,6 +83,8 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
     strike: '',
     expiry: '',
     option_type: 'call' as 'call' | 'put',
+    current_price: '',
+    entry_price: '',
     entry_override: '',
     entry_override_reason: '',
     targets: [{ price: '', percentage: '' }] as Array<{ price: string, percentage: string }>,
@@ -88,6 +96,7 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
 
   useEffect(() => {
     fetchTelegramChannels()
+    fetchMarketStatus()
   }, [analysisId])
 
   const fetchTelegramChannels = async () => {
@@ -156,6 +165,18 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
       console.error('Error fetching channels:', error)
     } finally {
       setLoadingChannels(false)
+    }
+  }
+
+  const fetchMarketStatus = async () => {
+    try {
+      const response = await fetch('/api/indices/market-status')
+      if (response.ok) {
+        const data = await response.json()
+        setMarketStatus(data)
+      }
+    } catch (error) {
+      console.error('Error fetching market status:', error)
     }
   }
 
@@ -301,7 +322,13 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
         ? (formData.telegram_channel_id === 'analysis' ? null : formData.telegram_channel_id)
         : null
 
-      const payload = {
+      if (marketStatus && !marketStatus.isOpen && !formData.current_price) {
+        toast.error('Current price is required when markets are closed')
+        setLoading(false)
+        return
+      }
+
+      const payload: any = {
         instrument_type: formData.instrument_type,
         direction: formData.direction,
         underlying_index_symbol: formData.underlying_index_symbol,
@@ -309,13 +336,16 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
         strike: formData.strike ? parseFloat(formData.strike) : null,
         expiry: formData.expiry || null,
         option_type: formData.option_type || null,
-        entry_override: formData.entry_override ? parseFloat(formData.entry_override) : null,
-        entry_override_reason: formData.entry_override_reason || null,
         targets,
         stoploss,
         notes: formData.notes || null,
         telegram_channel_id: telegramChannelId,
         auto_publish_telegram: formData.auto_publish_telegram,
+      }
+
+      if (marketStatus && !marketStatus.isOpen) {
+        payload.current_price = parseFloat(formData.current_price)
+        payload.entry_price = formData.entry_price ? parseFloat(formData.entry_price) : parseFloat(formData.current_price)
       }
 
       const response = await fetch(`/api/indices/analyses/${analysisId}/trades`, {
@@ -601,38 +631,76 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
           </>
         )}
 
-        <div className="space-y-4 p-4 border rounded-lg">
-          <h4 className="font-medium">Entry Override (Optional)</h4>
-          <p className="text-sm text-muted-foreground">
-            By default, entry price is fetched from Polygon. Override if needed.
-          </p>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="entry_override">Entry Price Override</Label>
-              <Input
-                id="entry_override"
-                type="number"
-                step="0.0001"
-                value={formData.entry_override}
-                onChange={(e) => setFormData({ ...formData, entry_override: e.target.value })}
-                placeholder="Leave empty to use Polygon price"
-              />
+        {marketStatus && !marketStatus.isOpen ? (
+          <div className="space-y-4 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700">
+                Market Closed
+              </Badge>
+              <h4 className="font-medium">Manual Price Entry</h4>
             </div>
+            <p className="text-sm text-muted-foreground">
+              Markets are closed. Set current and entry prices manually. During RTH, live prices will be used automatically.
+            </p>
 
-            {formData.entry_override && (
+            <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="entry_override_reason">Override Reason</Label>
+                <Label htmlFor="current_price" className="flex items-center gap-2">
+                  Current Price
+                  <span className="text-red-500">*</span>
+                </Label>
                 <Input
-                  id="entry_override_reason"
-                  value={formData.entry_override_reason}
-                  onChange={(e) => setFormData({ ...formData, entry_override_reason: e.target.value })}
-                  placeholder="Reason for manual entry"
+                  id="current_price"
+                  type="number"
+                  step="0.0001"
+                  value={formData.current_price}
+                  onChange={(e) => setFormData({ ...formData, current_price: e.target.value })}
+                  placeholder="Current contract price"
+                  required
                 />
+                <p className="text-xs text-muted-foreground">
+                  Current market price for this contract
+                </p>
               </div>
-            )}
+
+              <div className="space-y-2">
+                <Label htmlFor="entry_price">
+                  Entry Price (Optional)
+                </Label>
+                <Input
+                  id="entry_price"
+                  type="number"
+                  step="0.0001"
+                  value={formData.entry_price}
+                  onChange={(e) => setFormData({ ...formData, entry_price: e.target.value })}
+                  placeholder="Leave empty for same as current"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If empty, will use current price as entry
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
+        ) : marketStatus?.isOpen ? (
+          <div className="space-y-4 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="bg-green-100 dark:bg-green-900 text-green-900 dark:text-green-100 border-green-300 dark:border-green-700">
+                Market Open
+              </Badge>
+              <h4 className="font-medium">Live Price Tracking</h4>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Markets are currently open. Entry prices will be automatically fetched from Polygon API when you create the trade.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4 p-4 border rounded-lg">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm text-muted-foreground">Checking market status...</span>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center justify-between">

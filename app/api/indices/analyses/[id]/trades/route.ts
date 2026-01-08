@@ -134,70 +134,113 @@ export async function POST(
 
     const polygonIndexTicker = indexRef.polygon_index_ticker;
 
-    // CRITICAL: Fetch real-time snapshots from Polygon
-    console.log('Fetching Polygon snapshots for trade publish...');
-
     let underlyingSnapshot;
     let contractSnapshot;
+    let isManualPriceEntry = false;
 
-    try {
-      // Fetch underlying index snapshot
-      const indexSnap = await polygonService.getIndexSnapshot(polygonIndexTicker);
+    const bodyWithManualPrices = body as CreateTradeRequest & {
+      current_price?: number;
+      entry_price?: number;
+    };
+
+    if (bodyWithManualPrices.current_price) {
+      console.log('Using manual price entry (markets closed)...');
+      isManualPriceEntry = true;
+
       underlyingSnapshot = {
-        price: indexSnap.value,
-        timestamp: indexSnap.timestamp,
-        session_high: indexSnap.session.high,
-        session_low: indexSnap.session.low,
-        session_open: indexSnap.session.open,
-        previous_close: indexSnap.session.previousClose,
+        price: 0,
+        timestamp: new Date().toISOString(),
+        session_high: 0,
+        session_low: 0,
+        session_open: 0,
+        previous_close: 0,
       };
 
-      // Fetch contract snapshot
-      if (body.instrument_type === 'options' && body.polygon_option_ticker) {
-        const optionSnap = await polygonService.getOptionSnapshot(
-          body.underlying_index_symbol,
-          body.polygon_option_ticker
-        );
-        contractSnapshot = {
-          bid: optionSnap.quote?.bid,
-          ask: optionSnap.quote?.ask,
-          mid: optionSnap.quote?.mid || 0,
-          last: optionSnap.quote?.last,
-          timestamp: new Date().toISOString(),
-          volume: optionSnap.quote?.volume,
-          open_interest: optionSnap.quote?.openInterest,
-          implied_volatility: optionSnap.quote?.impliedVolatility,
-          delta: optionSnap.quote?.delta,
-          gamma: optionSnap.quote?.gamma,
-          theta: optionSnap.quote?.theta,
-          vega: optionSnap.quote?.vega,
-        };
-      } else {
-        // Futures: use underlying as contract price for now
-        contractSnapshot = {
-          mid: indexSnap.value,
+      const entryPrice = bodyWithManualPrices.entry_price || bodyWithManualPrices.current_price;
+      contractSnapshot = {
+        bid: bodyWithManualPrices.current_price,
+        ask: bodyWithManualPrices.current_price,
+        mid: entryPrice,
+        last: bodyWithManualPrices.current_price,
+        timestamp: new Date().toISOString(),
+        volume: 0,
+        open_interest: 0,
+      };
+    } else {
+      console.log('Fetching Polygon snapshots for trade publish...');
+
+      try {
+        const indexSnap = await polygonService.getIndexSnapshot(polygonIndexTicker);
+        underlyingSnapshot = {
+          price: indexSnap.value,
           timestamp: indexSnap.timestamp,
+          session_high: indexSnap.session.high,
+          session_low: indexSnap.session.low,
+          session_open: indexSnap.session.open,
+          previous_close: indexSnap.session.previousClose,
         };
+
+        if (body.instrument_type === 'options' && body.polygon_option_ticker) {
+          const optionSnap = await polygonService.getOptionSnapshot(
+            body.underlying_index_symbol,
+            body.polygon_option_ticker
+          );
+          contractSnapshot = {
+            bid: optionSnap.quote?.bid,
+            ask: optionSnap.quote?.ask,
+            mid: optionSnap.quote?.mid || 0,
+            last: optionSnap.quote?.last,
+            timestamp: new Date().toISOString(),
+            volume: optionSnap.quote?.volume,
+            open_interest: optionSnap.quote?.openInterest,
+            implied_volatility: optionSnap.quote?.impliedVolatility,
+            delta: optionSnap.quote?.delta,
+            gamma: optionSnap.quote?.gamma,
+            theta: optionSnap.quote?.theta,
+            vega: optionSnap.quote?.vega,
+          };
+        } else {
+          contractSnapshot = {
+            mid: indexSnap.value,
+            timestamp: indexSnap.timestamp,
+          };
+        }
+      } catch (polygonError: any) {
+        console.error('Polygon API error:', polygonError);
+        return NextResponse.json(
+          { error: `Failed to fetch market data: ${polygonError.message}` },
+          { status: 503 }
+        );
       }
-    } catch (polygonError: any) {
-      console.error('Polygon API error:', polygonError);
-      return NextResponse.json(
-        { error: `Failed to fetch market data: ${polygonError.message}` },
-        { status: 503 }
-      );
     }
 
-    // Initialize current and high/low values with entry values
     const entryUnderlying = underlyingSnapshot.price;
     let entryContract = contractSnapshot.mid;
-    let entrySource: 'polygon' | 'manual' = 'polygon';
-    let overrideReason: string | null = null;
+    let entrySource: 'polygon' | 'manual' = isManualPriceEntry ? 'manual' : 'polygon';
+    let overrideReason: string | null = isManualPriceEntry ? 'Manual price entry (markets closed)' : null;
 
-    // Handle manual entry override if provided
     if (body.entry_override !== undefined && body.entry_override !== null) {
       entryContract = body.entry_override;
       entrySource = 'manual';
       overrideReason = body.entry_override_reason || 'Manual entry override';
+    }
+
+    // Validate entry price is not zero
+    if (!entryContract || entryContract === 0) {
+      return NextResponse.json(
+        {
+          error: 'No valid entry price available. This usually means:\n' +
+                 '1. Market is closed (Options trade 9:30 AM - 4:15 PM ET)\n' +
+                 '2. Contract has no liquidity/quotes\n' +
+                 '3. Wrong contract ticker\n\n' +
+                 'Please try again during market hours or use manual entry override.',
+          details: {
+            contractSnapshot,
+            marketStatus: 'Options markets are open Monday-Friday 9:30 AM - 4:15 PM ET',
+          }
+        },
+        { status: 400 }
+      );
     }
 
     // Use custom HTML template for screenshots (not external URLs)
@@ -207,13 +250,12 @@ export async function POST(
     // Priority: body.telegram_channel_id > analysis.telegram_channel_id
     let telegramChannelId = body.telegram_channel_id || null;
 
-    // Create the trade
     const { data: trade, error: insertError } = await supabase
       .from('index_trades')
       .insert({
         analysis_id: analysisId,
         author_id: user.id,
-        status: 'active', // Trade is active immediately upon publish
+        status: 'active',
         instrument_type: body.instrument_type,
         direction: body.direction,
         underlying_index_symbol: body.underlying_index_symbol,
@@ -233,6 +275,8 @@ export async function POST(
         underlying_low_since: entryUnderlying,
         contract_high_since: entryContract,
         contract_low_since: entryContract,
+        manual_contract_price: isManualPriceEntry ? bodyWithManualPrices.current_price : null,
+        is_using_manual_price: isManualPriceEntry,
         targets: body.targets || [],
         stoploss: body.stoploss || null,
         notes: body.notes || null,
