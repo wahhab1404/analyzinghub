@@ -300,7 +300,7 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        if (isNewHigh && !statusChanged) {
+        if (isNewHigh && !statusChanged && newContractHigh > entryContractPrice) {
           const percentGain = ((newContractHigh - entryContractPrice) / entryContractPrice * 100).toFixed(2);
           console.log(`📈 New high for trade ${trade.id}: $${newContractHigh} (+${percentGain}%)`);
 
