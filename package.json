@@ -15,6 +15,7 @@
     "check:channels": "tsx scripts/check-my-channels.ts",
     "verify:cron": "tsx scripts/verify-cron-status.ts",
     "test:indices:telegram": "tsx scripts/test-indices-telegram.ts",
+    "update:prices": "tsx scripts/manual-price-update.ts",
     "sync:test": "npm install && npm run build",
     "sync:push": "git add . && git commit -m 'Sync from Bolt' && git push origin main",
     "sync:deploy": "npm run sync:test && npm run sync:push"
