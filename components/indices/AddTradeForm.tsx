@@ -295,7 +295,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const loadMoreStrikes = (expirationDate: string) => {
     setVisibleStrikesPerExpiration(prev => ({
       ...prev,
-      [expirationDate]: (prev[expirationDate] || 5) + 5
+      [expirationDate]: (prev[expirationDate] || 15) + 15
     }))
   }
 
@@ -584,7 +584,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       ))}
                     </TabsList>
                     {expirationGroups.map((group) => {
-                      const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 5
+                      const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 15
                       const visibleStrikes = group.strikes.slice(0, visibleCount)
                       const hasMore = visibleCount < group.strikes.length
 
@@ -655,7 +655,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               }}
                               className="w-full"
                             >
-                              Load 5 More Contracts ({group.strikes.length - visibleCount} remaining)
+                              Load 15 More Contracts ({group.strikes.length - visibleCount} remaining)
                             </Button>
                           )}
                         </div>
