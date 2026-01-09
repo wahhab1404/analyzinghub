@@ -227,8 +227,44 @@ Deno.serve(async (req) => {
         const quote = await fetchPolygonQuote(trade.polygon_option_ticker, Deno.env.get("POLYGON_API_KEY")!);
 
         if (!quote) {
-          console.log(`❌ No quote data for ${trade.polygon_option_ticker}`);
-          results.errors++;
+          console.log(`⚠️  No quote data for ${trade.polygon_option_ticker}, updating underlying only`);
+
+          // Still update the underlying price even if contract quote is unavailable
+          if (underlyingPrice) {
+            const updates: any = {
+              current_underlying: underlyingPrice,
+              last_quote_at: new Date().toISOString(),
+            };
+
+            const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
+            const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
+
+            let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
+            let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
+
+            if (underlyingPrice > newUnderlyingHigh) {
+              newUnderlyingHigh = underlyingPrice;
+              updates.underlying_high_since = newUnderlyingHigh;
+            }
+
+            if (underlyingPrice < newUnderlyingLow) {
+              newUnderlyingLow = underlyingPrice;
+              updates.underlying_low_since = newUnderlyingLow;
+            }
+
+            const { error: updateError } = await supabase
+              .from("index_trades")
+              .update(updates)
+              .eq("id", trade.id);
+
+            if (updateError) {
+              console.error(`❌ Failed to update underlying for trade ${trade.id}:`, updateError);
+              results.errors++;
+            } else {
+              console.log(`✅ Updated underlying price only for trade ${trade.id}`);
+              results.updated++;
+            }
+          }
           continue;
         }
 
