@@ -15,10 +15,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
 
 interface AddTradeFormProps {
-  analysisId: string
-  indexSymbol: string
+  analysisId?: string | null
+  indexSymbol?: string
   onComplete: () => void
   onCancel: () => void
+  standalone?: boolean
 }
 
 interface OptionContract {
@@ -60,7 +61,7 @@ interface TelegramChannel {
   plan_name?: string
 }
 
-export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: AddTradeFormProps) {
+export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onComplete, onCancel, standalone = false }: AddTradeFormProps) {
   const [loading, setLoading] = useState(false)
   const [searchingContracts, setSearchingContracts] = useState(false)
   const [expirationGroups, setExpirationGroups] = useState<ExpirationGroup[]>([])
@@ -78,7 +79,7 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
-    underlying_index_symbol: indexSymbol,
+    underlying_index_symbol: initialIndexSymbol || 'SPX',
     polygon_option_ticker: '',
     strike: '',
     expiry: '',
@@ -348,7 +349,11 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
         payload.entry_price = formData.entry_price ? parseFloat(formData.entry_price) : parseFloat(formData.current_price)
       }
 
-      const response = await fetch(`/api/indices/analyses/${analysisId}/trades`, {
+      const apiUrl = standalone || !analysisId
+        ? '/api/indices/trades'
+        : `/api/indices/analyses/${analysisId}/trades`
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -378,6 +383,26 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
         <h3 className="font-semibold text-lg">Trade Details</h3>
 
         <div className="grid md:grid-cols-2 gap-4">
+          {standalone && (
+            <div className="space-y-2">
+              <Label htmlFor="underlying_index_symbol">Index Symbol *</Label>
+              <Select
+                value={formData.underlying_index_symbol}
+                onValueChange={(value) => setFormData({ ...formData, underlying_index_symbol: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SPX">SPX (S&P 500)</SelectItem>
+                  <SelectItem value="NDX">NDX (Nasdaq 100)</SelectItem>
+                  <SelectItem value="DJI">DJI (Dow Jones)</SelectItem>
+                  <SelectItem value="RUT">RUT (Russell 2000)</SelectItem>
+                  <SelectItem value="VIX">VIX (Volatility Index)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="instrument_type">Instrument Type *</Label>
             <Select
@@ -558,7 +583,7 @@ export function AddTradeForm({ analysisId, indexSymbol, onComplete, onCancel }: 
                               <CardContent className="p-3">
                                 <div className="flex items-center justify-between">
                                   <div className="flex-1">
-                                    <div className="font-medium text-sm">{indexSymbol} ${contract.strike}</div>
+                                    <div className="font-medium text-sm">{formData.underlying_index_symbol} ${contract.strike}</div>
                                     <div className="text-xs text-muted-foreground font-mono mt-0.5">
                                       {contract.ticker}
                                     </div>

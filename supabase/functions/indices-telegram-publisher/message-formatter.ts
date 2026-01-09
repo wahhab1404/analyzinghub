@@ -124,6 +124,13 @@ export function formatTradeMessage(
   baseUrl: string,
   isNewHigh: boolean = false
 ): { text: string; snapshotImageUrl?: string } {
+  console.log('[MessageFormatter] formatTradeMessage called with:', {
+    tradeId: trade.id,
+    hasContractUrl: !!trade.contract_url,
+    contractUrl: trade.contract_url,
+    isNewHigh,
+  });
+
   const analysisUrl = trade.analysis ? `${baseUrl}/dashboard/analysis/${trade.analysis.id}` : '#';
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;

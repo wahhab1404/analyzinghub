@@ -200,6 +200,15 @@ function formatAnalysisMessage(payload: any): { text: string } {
 
 function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean = false): { text?: string; photo?: string; caption?: string } {
   const trade = payload.trade || payload;
+
+  console.log('[OutboxProcessor] formatTradeMessage called:', {
+    tradeId: trade.id,
+    hasContractUrl: !!trade.contract_url,
+    contractUrl: trade.contract_url,
+    isNewHigh,
+    isWinning,
+  });
+
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || entryPrice;

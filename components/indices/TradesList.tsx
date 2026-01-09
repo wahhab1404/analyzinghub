@@ -36,11 +36,13 @@ interface Trade {
 }
 
 interface TradesListProps {
-  analysisId: string
+  analysisId?: string
   onSelectTrade: (tradeId: string) => void
+  standalone?: boolean
+  refreshKey?: number
 }
 
-export function TradesList({ analysisId, onSelectTrade }: TradesListProps) {
+export function TradesList({ analysisId, onSelectTrade, standalone = false, refreshKey }: TradesListProps) {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
   const [marketStatus, setMarketStatus] = useState(getMarketStatus())
@@ -49,7 +51,7 @@ export function TradesList({ analysisId, onSelectTrade }: TradesListProps) {
     fetchTrades()
     const interval = setInterval(fetchTrades, 30000)
     return () => clearInterval(interval)
-  }, [analysisId])
+  }, [analysisId, standalone, refreshKey])
 
   useEffect(() => {
     const updateMarketStatus = () => {
@@ -62,7 +64,11 @@ export function TradesList({ analysisId, onSelectTrade }: TradesListProps) {
 
   const fetchTrades = async () => {
     try {
-      const response = await fetch(`/api/indices/analyses/${analysisId}/trades`)
+      const apiUrl = standalone
+        ? '/api/indices/trades'
+        : `/api/indices/analyses/${analysisId}/trades`
+
+      const response = await fetch(apiUrl)
       if (response.ok) {
         const data = await response.json()
         setTrades(data.trades || [])

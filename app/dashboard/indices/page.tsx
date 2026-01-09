@@ -10,6 +10,7 @@ import { IndexAnalysesList } from '@/components/indices/IndexAnalysesList'
 import { AddTradeForm } from '@/components/indices/AddTradeForm'
 import { TradesList } from '@/components/indices/TradesList'
 import { TradeMonitor } from '@/components/indices/TradeMonitor'
+import { NewTradeDialog } from '@/components/indices/NewTradeDialog'
 import { useLanguage } from '@/lib/i18n/language-context'
 
 type View = 'list' | 'manage-trades' | 'monitor-trade'
@@ -19,9 +20,11 @@ export default function IndicesHubPage() {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [currentView, setCurrentView] = useState<View>('list')
   const [showAddTradeForm, setShowAddTradeForm] = useState(false)
+  const [showStandaloneTradeDialog, setShowStandaloneTradeDialog] = useState(false)
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<string | null>(null)
   const [selectedIndexSymbol, setSelectedIndexSymbol] = useState<string>('SPX')
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
+  const [refreshStandaloneTrades, setRefreshStandaloneTrades] = useState(0)
 
   const handleManageTrades = (analysisId: string, indexSymbol: string) => {
     setSelectedAnalysisId(analysisId)
@@ -53,6 +56,12 @@ export default function IndicesHubPage() {
 
   const handleTradeAdded = () => {
     setShowAddTradeForm(false)
+    setRefreshStandaloneTrades(prev => prev + 1)
+  }
+
+  const handleStandaloneTradeAdded = () => {
+    setShowStandaloneTradeDialog(false)
+    setRefreshStandaloneTrades(prev => prev + 1)
   }
 
   return (
@@ -87,10 +96,14 @@ export default function IndicesHubPage() {
           )}
 
           <Tabs defaultValue="analyses" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="analyses">
                 <Activity className="h-4 w-4 mr-2" />
                 {t.indicesHub.myAnalyses}
+              </TabsTrigger>
+              <TabsTrigger value="standalone">
+                <TrendingUp className="h-4 w-4 mr-2" />
+                Standalone Trades
               </TabsTrigger>
               <TabsTrigger value="archive">
                 <TrendingDown className="h-4 w-4 mr-2" />
@@ -106,6 +119,26 @@ export default function IndicesHubPage() {
               />
             </TabsContent>
 
+            <TabsContent value="standalone" className="space-y-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold">Standalone Trades</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Trades not linked to any analysis
+                  </p>
+                </div>
+                <Button onClick={() => setShowStandaloneTradeDialog(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Standalone Trade
+                </Button>
+              </div>
+              <TradesList
+                standalone={true}
+                onSelectTrade={handleSelectTradeForMonitoring}
+                refreshKey={refreshStandaloneTrades}
+              />
+            </TabsContent>
+
             <TabsContent value="archive" className="space-y-4">
               <IndexAnalysesList
                 status="closed"
@@ -114,6 +147,13 @@ export default function IndicesHubPage() {
               />
             </TabsContent>
           </Tabs>
+
+          <NewTradeDialog
+            open={showStandaloneTradeDialog}
+            onOpenChange={setShowStandaloneTradeDialog}
+            onComplete={handleStandaloneTradeAdded}
+            standalone={true}
+          />
 
         </>
       )}

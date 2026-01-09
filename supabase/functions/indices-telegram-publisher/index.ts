@@ -178,16 +178,23 @@ Deno.serve(async (req) => {
         throw new Error(`Unknown message type: ${payload.type}`);
     }
 
+    console.log('[IndicesPublisher] Formatted message:', {
+      hasText: !!message.text,
+      hasSnapshot: !!message.snapshotImageUrl,
+      snapshotUrl: message.snapshotImageUrl,
+      textLength: message.text?.length || 0,
+    });
+
     const results = [];
     for (const channelId of channelIds) {
       try {
         console.log(`[IndicesPublisher] Sending to channel: ${channelId}`);
         let result;
         if (message.snapshotImageUrl && message.text) {
-          console.log(`[IndicesPublisher] Sending photo with caption to ${channelId}`);
+          console.log(`[IndicesPublisher] Sending photo with caption to ${channelId}, URL: ${message.snapshotImageUrl}`);
           result = await sendTelegramPhoto(botToken, channelId, message.snapshotImageUrl, message.text);
         } else if (message.text) {
-          console.log(`[IndicesPublisher] Sending text message to ${channelId}`);
+          console.log(`[IndicesPublisher] Sending text message to ${channelId} (no photo available)`);
           result = await sendTelegramMessage(botToken, channelId, message.text);
         }
         console.log(`[IndicesPublisher] Successfully sent to ${channelId}`);
