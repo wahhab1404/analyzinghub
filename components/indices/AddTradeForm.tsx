@@ -226,7 +226,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         minDTE: minDTE.toString(),
         maxDTE: maxDTE.toString(),
         maxExpirations: '5',
-        strikesPerExpiration: '10',
+        strikesPerExpiration: '50',
+        percentBand: '0.10',
       })
 
       const response = await fetch(`/api/indices/contracts?${params}`)

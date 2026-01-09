@@ -226,41 +226,29 @@ class OptionsChainService {
     const strikesCount = config.strikesPerExpiration || DEFAULT_CONFIG.strikesPerExpiration;
     const includeITM = config.includeOneITM ?? DEFAULT_CONFIG.includeOneITM;
 
-    // Sort contracts by strike (numeric)
-    const sorted = [...contracts].sort((a, b) => a.details.strike_price - b.details.strike_price);
+    // Sort contracts by distance from ATM
+    const sorted = [...contracts].sort((a, b) => {
+      const distA = Math.abs(a.details.strike_price - underlyingPrice);
+      const distB = Math.abs(b.details.strike_price - underlyingPrice);
+      return distA - distB;
+    });
 
     let selected: any[] = [];
 
     if (contractType === 'call') {
-      // For CALLS: prefer ATM and OTM (strikes >= underlying)
+      // For CALLS: prioritize ATM and OTM, but include all available strikes
       const atmAndOtm = sorted.filter(c => c.details.strike_price >= underlyingPrice);
-      selected = atmAndOtm.slice(0, strikesCount);
+      const itm = sorted.filter(c => c.details.strike_price < underlyingPrice);
 
-      // Add 1 ITM if configured and space available
-      if (includeITM && selected.length < strikesCount) {
-        const itm = sorted
-          .filter(c => c.details.strike_price < underlyingPrice)
-          .reverse(); // Get nearest ITM
-        if (itm.length > 0) {
-          selected.unshift(itm[0]); // Add to front
-          selected = selected.slice(0, strikesCount); // Trim to limit
-        }
-      }
+      // Take ATM/OTM first, then ITM if needed to fill quota
+      selected = [...atmAndOtm, ...itm].slice(0, strikesCount);
     } else {
-      // For PUTS: prefer ATM and OTM (strikes <= underlying)
-      const atmAndOtm = sorted
-        .filter(c => c.details.strike_price <= underlyingPrice)
-        .reverse(); // Reverse to get nearest to ATM first
-      selected = atmAndOtm.slice(0, strikesCount);
+      // For PUTS: prioritize ATM and OTM, but include all available strikes
+      const atmAndOtm = sorted.filter(c => c.details.strike_price <= underlyingPrice);
+      const itm = sorted.filter(c => c.details.strike_price > underlyingPrice);
 
-      // Add 1 ITM if configured and space available
-      if (includeITM && selected.length < strikesCount) {
-        const itm = sorted.filter(c => c.details.strike_price > underlyingPrice);
-        if (itm.length > 0) {
-          selected.push(itm[0]); // Add to end
-          selected = selected.slice(0, strikesCount); // Trim to limit
-        }
-      }
+      // Take ATM/OTM first, then ITM if needed to fill quota
+      selected = [...atmAndOtm, ...itm].slice(0, strikesCount);
     }
 
     // Sort final selection by strike (ascending)
@@ -339,7 +327,7 @@ class OptionsChainService {
       'strike_price.lte': maxStrike.toFixed(2),
       'expiration_date.gte': minDate.toISOString().split('T')[0],
       'expiration_date.lte': maxDate.toISOString().split('T')[0],
-      limit: '250', // Get enough contracts
+      limit: '1000', // Get enough contracts
     });
 
     const url = `${POLYGON_BASE_URL}/v3/snapshot/options/${underlying}?${params.toString()}`;

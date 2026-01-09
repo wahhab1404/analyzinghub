@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (searchParams.get('strikesPerExpiration')) {
-      config.strikesPerExpiration = Math.min(20, parseInt(searchParams.get('strikesPerExpiration')!));
+      config.strikesPerExpiration = Math.min(100, parseInt(searchParams.get('strikesPerExpiration')!));
     }
 
     if (searchParams.get('includeOneITM') !== null) {

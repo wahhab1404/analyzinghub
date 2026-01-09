@@ -165,13 +165,59 @@ Deno.serve(async (req) => {
           }
         }
 
+        // Always fetch underlying index price (available 24/7)
+        const underlyingPrice = await fetchUnderlyingPrice(trade.underlying_index_symbol, Deno.env.get("POLYGON_API_KEY")!);
+        if (!underlyingPrice) {
+          console.log(`⚠️  No underlying price for ${trade.underlying_index_symbol}, using previous value`);
+        } else {
+          console.log(`📊 Underlying ${trade.underlying_index_symbol}: $${underlyingPrice.toFixed(2)}`);
+        }
+
         const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
         const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 55000);
 
+        // If market closed, just update underlying price and continue
         if (!shouldCheckPrice) {
           if (!marketIsOpen) {
-            console.log(`⏭️  Skipping price check (market closed)`);
+            console.log(`⏭️  Market closed - updating underlying price only`);
+
+            // Update underlying price even when market is closed
+            if (underlyingPrice) {
+              const updates: any = {
+                current_underlying: underlyingPrice,
+                last_quote_at: new Date().toISOString(),
+              };
+
+              const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
+              const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
+
+              let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
+              let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
+
+              if (underlyingPrice > newUnderlyingHigh) {
+                newUnderlyingHigh = underlyingPrice;
+                updates.underlying_high_since = newUnderlyingHigh;
+              }
+
+              if (underlyingPrice < newUnderlyingLow) {
+                newUnderlyingLow = underlyingPrice;
+                updates.underlying_low_since = newUnderlyingLow;
+              }
+
+              const { error: updateError } = await supabase
+                .from("index_trades")
+                .update(updates)
+                .eq("id", trade.id);
+
+              if (updateError) {
+                console.error(`❌ Failed to update underlying for trade ${trade.id}:`, updateError);
+                results.errors++;
+              } else {
+                console.log(`✅ Updated underlying price for trade ${trade.id}`);
+                results.updated++;
+              }
+            }
           } else {
             console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
           }
@@ -207,6 +253,27 @@ Deno.serve(async (req) => {
           current_contract_snapshot: quote,
           last_quote_at: new Date().toISOString(),
         };
+
+        // Update underlying price if we got it
+        if (underlyingPrice) {
+          updates.current_underlying = underlyingPrice;
+
+          const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
+          const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
+
+          let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
+          let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
+
+          if (underlyingPrice > newUnderlyingHigh) {
+            newUnderlyingHigh = underlyingPrice;
+            updates.underlying_high_since = newUnderlyingHigh;
+          }
+
+          if (underlyingPrice < newUnderlyingLow) {
+            newUnderlyingLow = underlyingPrice;
+            updates.underlying_low_since = newUnderlyingLow;
+          }
+        }
 
         let newContractHigh = trade.contract_high_since || entryContractPrice;
         let newContractLow = trade.contract_low_since || entryContractPrice;
@@ -571,6 +638,39 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
     return null;
   } catch (error) {
     console.error('Error fetching Polygon quote:', error);
+    return null;
+  }
+}
+
+async function fetchUnderlyingPrice(symbol: string, apiKey: string): Promise<number | null> {
+  try {
+    const indexTicker = symbol.startsWith('I:') ? symbol : `I:${symbol}`;
+    const url = `https://api.polygon.io/v3/snapshot/indices?ticker.any_of=${indexTicker}&apiKey=${apiKey}`;
+
+    console.log(`📡 Fetching LIVE underlying price from Polygon: ${url}`);
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Polygon API error for underlying (${response.status}):`, errorText);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (data.status === 'OK' && data.results && data.results.length > 0) {
+      const result = data.results[0];
+      // Use the real-time value or session close price
+      const price = result.value || result.session?.close || null;
+      console.log(`📊 LIVE ${symbol}: $${price} (timeframe: ${result.timeframe}, market: ${result.market_status})`);
+      return price;
+    }
+
+    console.log(`No underlying price data for ${symbol}`);
+    return null;
+  } catch (error) {
+    console.error(`Error fetching underlying price for ${symbol}:`, error);
     return null;
   }
 }
