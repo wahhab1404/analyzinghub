@@ -113,19 +113,21 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       const channels: TelegramChannel[] = []
 
-      const { data: analysisData } = await supabase
-        .from('index_analyses')
-        .select('telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
-        .eq('id', analysisId)
-        .maybeSingle()
+      if (analysisId) {
+        const { data: analysisData } = await supabase
+          .from('index_analyses')
+          .select('telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
+          .eq('id', analysisId)
+          .maybeSingle()
 
-      if (analysisData?.telegram_channel_id && analysisData.telegram_channels) {
-        channels.push({
-          id: 'analysis',
-          channel_name: `Analysis Default: ${analysisData.telegram_channels.channel_name}`,
-          channel_id: analysisData.telegram_channels.channel_id,
-          source: 'analysis' as const
-        })
+        if (analysisData?.telegram_channel_id && analysisData.telegram_channels) {
+          channels.push({
+            id: 'analysis',
+            channel_name: `Analysis Default: ${analysisData.telegram_channels.channel_name}`,
+            channel_id: analysisData.telegram_channels.channel_id,
+            source: 'analysis' as const
+          })
+        }
       }
 
       const { data: analystData } = await supabase
@@ -592,7 +594,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                           {group.strikes.length} contract{group.strikes.length !== 1 ? 's' : ''} • Expires in {group.dte} day{group.dte !== 1 ? 's' : ''}
                           {hasMore && <span className="ml-2">(Showing {visibleCount} of {group.strikes.length})</span>}
                         </div>
-                        <div className="grid gap-2 max-h-80 overflow-y-auto">
+                        <div className="space-y-2">
+                          <div className="grid gap-2 max-h-80 overflow-y-auto pb-2">
                           {visibleStrikes.map((contract) => (
                             <Card
                               key={contract.ticker}
@@ -638,13 +641,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               </CardContent>
                             </Card>
                           ))}
+                          </div>
 
                           {hasMore && (
                             <Button
                               type="button"
                               variant="outline"
                               size="sm"
-                              onClick={() => loadMoreStrikes(group.expirationDate)}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                loadMoreStrikes(group.expirationDate)
+                              }}
                               className="w-full"
                             >
                               Load 5 More Contracts ({group.strikes.length - visibleCount} remaining)
