@@ -267,7 +267,7 @@ Deno.serve(async (req) => {
             outcome = "succeed";
             condition = "Target reached";
           } else if (newStatus === "sl_hit") {
-            outcome = "failed";
+            outcome = "loss";
             condition = "Stop loss hit";
           }
 
@@ -355,11 +355,10 @@ async function handleTradeExpiration(supabase: any, trade: any, supabaseUrl: str
   const entryContractPrice = entryContractSnapshot.mid || entryContractSnapshot.last || 0;
   const currentPrice = trade.current_contract || entryContractPrice;
   const netPnl = (currentPrice - entryContractPrice) * (trade.qty || 1);
-  const outcome = netPnl >= 0 ? "succeed" : "failed";
 
   const updates: any = {
     status: "expired",
-    outcome: outcome,
+    outcome: "expired",
     pnl_usd: netPnl,
   };
 
@@ -375,8 +374,8 @@ async function handleTradeExpiration(supabase: any, trade: any, supabaseUrl: str
       trade_id: trade.id,
       update_type: "expired",
       title: "Trade Expired",
-      body: `Trade expired at contract price $${currentPrice.toFixed(2)} with P/L: $${pnl.toFixed(2)}`,
-      changes: { type: "expired", pnl_usd: pnl },
+      body: `Trade expired at contract price $${currentPrice.toFixed(2)} with P/L: $${netPnl.toFixed(2)}`,
+      changes: { type: "expired", pnl_usd: netPnl },
     });
 
     const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
@@ -384,13 +383,13 @@ async function handleTradeExpiration(supabase: any, trade: any, supabaseUrl: str
       await queueTelegramMessage(supabase, "trade_result", trade.id, channelId, {
         tradeId: trade.id,
         outcome: updates.outcome,
-        pnl: pnl,
+        pnl: netPnl,
         condition: "Expired",
       });
     }
   }
 
-  console.log(`⏰ Trade ${trade.id} marked as expired with P/L: $${pnl.toFixed(2)}`);
+  console.log(`⏰ Trade ${trade.id} marked as expired with P/L: $${netPnl.toFixed(2)}`);
 }
 
 async function queueTelegramMessage(
@@ -454,26 +453,33 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
     const isOption = ticker.startsWith('O:');
     const cleanTicker = isOption ? ticker : `O:${ticker}`;
     const url = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}?apiKey=${apiKey}`;
-    
+
     console.log(`📡 Fetching quote from Polygon: ${url}`);
-    
+
     const response = await fetch(url);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       console.error(`Polygon API error (${response.status}):`, errorText);
       return null;
     }
-    
+
     const data = await response.json();
-    
+
     if (data.status === 'OK' && data.results) {
       const result = data.results;
+
+      // Check if results is an array (empty results for expired contracts)
+      if (Array.isArray(result) && result.length === 0) {
+        console.log(`⚠️ Empty results array for ${ticker} - likely expired or no data available`);
+        return null;
+      }
+
       const lastQuote = result.last_quote || {};
       const details = result.details || {};
-      
+
       return {
-        last: details.contract_type ? lastQuote.last_price || 0 : 0,
+        last: lastQuote.last_price || 0,
         bid: lastQuote.bid || 0,
         ask: lastQuote.ask || 0,
         mid: lastQuote.bid && lastQuote.ask ? (lastQuote.bid + lastQuote.ask) / 2 : lastQuote.last_price || 0,
@@ -481,7 +487,7 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
         timestamp: lastQuote.timeframe,
       };
     }
-    
+
     console.log('No results from Polygon API');
     return null;
   } catch (error) {
