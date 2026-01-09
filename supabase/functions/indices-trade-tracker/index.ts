@@ -94,7 +94,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        // After market close, check if trade gain > $99 and hasn't been announced as winning
         if (!marketIsOpen) {
           const contractHigh = trade.contract_high_since || 0;
           const entryContractSnapshot = trade.entry_contract_snapshot || {};
@@ -165,7 +164,6 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Always fetch underlying index price (available 24/7)
         const underlyingPrice = await fetchUnderlyingPrice(trade.underlying_index_symbol, Deno.env.get("POLYGON_API_KEY")!);
         if (!underlyingPrice) {
           console.log(`⚠️  No underlying price for ${trade.underlying_index_symbol}, using previous value`);
@@ -177,12 +175,10 @@ Deno.serve(async (req) => {
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
         const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 55000);
 
-        // If market closed, just update underlying price and continue
         if (!shouldCheckPrice) {
           if (!marketIsOpen) {
             console.log(`⏭️  Market closed - updating underlying price only`);
 
-            // Update underlying price even when market is closed
             if (underlyingPrice) {
               const updates: any = {
                 current_underlying: underlyingPrice,
@@ -229,7 +225,6 @@ Deno.serve(async (req) => {
         if (!quote) {
           console.log(`⚠️  No quote data for ${trade.polygon_option_ticker}, updating underlying only`);
 
-          // Still update the underlying price even if contract quote is unavailable
           if (underlyingPrice) {
             const updates: any = {
               current_underlying: underlyingPrice,
@@ -290,7 +285,6 @@ Deno.serve(async (req) => {
           last_quote_at: new Date().toISOString(),
         };
 
-        // Update underlying price if we got it
         if (underlyingPrice) {
           updates.current_underlying = underlyingPrice;
 
@@ -600,6 +594,9 @@ async function queueTelegramMessage(
 
     if (payload.snapshotUrl) {
       fullTrade.contract_url = payload.snapshotUrl;
+      console.log(`✅ Updated fullTrade.contract_url to: ${payload.snapshotUrl}`);
+    } else {
+      console.log(`⚠️  No snapshotUrl in payload, contract_url is: ${fullTrade.contract_url || 'none'}`);
     }
 
     let actualChannelId = channelId;
@@ -651,7 +648,6 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
     if (data.status === 'OK' && data.results) {
       const result = data.results;
 
-      // Check if results is an array (empty results for expired contracts)
       if (Array.isArray(result) && result.length === 0) {
         console.log(`⚠️ Empty results array for ${ticker} - likely expired or no data available`);
         return null;
@@ -697,7 +693,6 @@ async function fetchUnderlyingPrice(symbol: string, apiKey: string): Promise<num
 
     if (data.status === 'OK' && data.results && data.results.length > 0) {
       const result = data.results[0];
-      // Use the real-time value or session close price
       const price = result.value || result.session?.close || null;
       console.log(`📊 LIVE ${symbol}: $${price} (timeframe: ${result.timeframe}, market: ${result.market_status})`);
       return price;

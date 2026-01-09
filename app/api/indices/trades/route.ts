@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { polygonService } from '@/services/indices/polygon.service';
 import { CreateTradeRequest } from '@/services/indices/types';
 
@@ -327,12 +328,15 @@ export async function POST(request: NextRequest) {
       try {
         console.log(`Publishing standalone trade ${trade.id} to Telegram channel ${body.telegram_channel_id}`);
 
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+        const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-        if (supabaseUrl && serviceRoleKey) {
-          const tradeWithMockAnalysis = {
+        if (supabaseUrlEnv && serviceRoleKey) {
+          const supabaseClient = createClient(supabaseUrlEnv, serviceRoleKey);
+
+          const tradeWithSnapshot = {
             ...trade,
+            contract_url: snapshotUrl,
             analysis: {
               id: trade.id,
               title: 'Standalone Trade',
@@ -340,27 +344,29 @@ export async function POST(request: NextRequest) {
             },
           };
 
-          const response = await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${serviceRoleKey}`,
-            },
-            body: JSON.stringify({
-              type: 'new_trade',
-              data: tradeWithMockAnalysis,
-              channelId: body.telegram_channel_id,
-              isNewHigh: false,
-            }),
+          let actualChannelId = body.telegram_channel_id;
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.telegram_channel_id)) {
+            const { data: channel } = await supabaseClient
+              .from("telegram_channels")
+              .select("channel_id")
+              .eq("id", body.telegram_channel_id)
+              .single();
+
+            if (channel?.channel_id) {
+              actualChannelId = channel.channel_id;
+            }
+          }
+
+          await supabaseClient.from("telegram_outbox").insert({
+            message_type: "new_trade",
+            payload: { trade: tradeWithSnapshot },
+            channel_id: actualChannelId,
+            status: "pending",
+            priority: 5,
+            next_retry_at: new Date().toISOString(),
           });
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error('Telegram trade publish failed:', errorText);
-          } else {
-            const result = await response.json();
-            console.log('Successfully published standalone trade to Telegram:', result);
-          }
+          console.log(`✅ Queued new_trade message for channel ${actualChannelId} with snapshot: ${snapshotUrl || 'none'}`);
         }
       } catch (telegramError) {
         console.error('Failed to publish standalone trade to Telegram:', telegramError);
