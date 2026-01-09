@@ -59,6 +59,9 @@ Deno.serve(async (req) => {
 
     console.log(`📊 Tracking ${activeTrades.length} active trades`);
 
+    const marketIsOpen = isMarketOpen();
+    console.log(`📊 Market status: ${marketIsOpen ? 'OPEN' : 'CLOSED'}`);
+
     const results = {
       tracked: activeTrades.length,
       updated: 0,
@@ -68,6 +71,7 @@ Deno.serve(async (req) => {
       stoploss: 0,
       expired: 0,
       successDetected: 0,
+      afterCloseWins: 0,
     };
 
     for (const trade of activeTrades) {
@@ -90,12 +94,87 @@ Deno.serve(async (req) => {
           }
         }
 
+        // After market close, check if trade gain > $99 and hasn't been announced as winning
+        if (!marketIsOpen) {
+          const contractHigh = trade.contract_high_since || 0;
+          const entryContractSnapshot = trade.entry_contract_snapshot || {};
+          const entryContractPrice = entryContractSnapshot.mid || entryContractSnapshot.last || 0;
+
+          if (entryContractPrice > 0) {
+            const gainFromEntry = contractHigh - entryContractPrice;
+
+            if (gainFromEntry > 99 && !trade.win_100_announced) {
+              console.log(`🎉 After-market winning trade detected! Trade ${trade.id} - Gain: $${gainFromEntry.toFixed(2)} (High: $${contractHigh.toFixed(2)}, Entry: $${entryContractPrice.toFixed(2)})`);
+
+              const currentPrice = trade.current_contract || contractHigh;
+              const netPnl = (contractHigh - entryContractPrice) * (trade.qty || 1);
+
+            await supabase
+              .from("index_trades")
+              .update({ win_100_announced: true })
+              .eq("id", trade.id);
+
+              await supabase.from("index_trade_updates").insert({
+                trade_id: trade.id,
+                update_type: "milestone",
+                title: "$99+ Profit Reached (After Hours)",
+                body: `🎉 Winning Trade! Profit: $${gainFromEntry.toFixed(2)} (High: $${contractHigh.toFixed(2)}, Entry: $${entryContractPrice.toFixed(2)}) - صفقة رابحة`,
+                changes: { type: "winning_trade_after_close", gain: gainFromEntry, high: contractHigh, entry: entryContractPrice },
+              });
+
+              let winningSnapshotUrl = null;
+              try {
+                const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    tradeId: trade.id,
+                    isNewHigh: false,
+                  }),
+                });
+
+                if (snapshotResponse.ok) {
+                  const snapshotResult = await snapshotResponse.json();
+                  winningSnapshotUrl = snapshotResult.imageUrl;
+                  console.log(`Snapshot generated for after-close winning trade: ${winningSnapshotUrl}`);
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                }
+              } catch (snapshotError) {
+                console.error('Failed to generate snapshot for after-close winning trade:', snapshotError);
+              }
+
+              const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+              if (channelId && trade.telegram_send_enabled !== false) {
+                await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
+                  tradeId: trade.id,
+                  pnl: netPnl,
+                  entryPrice: entryContractPrice,
+                  currentPrice: contractHigh,
+                  highPrice: contractHigh,
+                  gain: gainFromEntry,
+                  snapshotUrl: winningSnapshotUrl,
+                  afterClose: true,
+                });
+              }
+
+              results.afterCloseWins++;
+            }
+          }
+        }
+
         const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
-        const shouldCheckPrice = !lastQuoteAt || timeSinceLastQuote > 55000;
+        const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 55000);
 
         if (!shouldCheckPrice) {
-          console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
+          if (!marketIsOpen) {
+            console.log(`⏭️  Skipping price check (market closed)`);
+          } else {
+            console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
+          }
           continue;
         }
 

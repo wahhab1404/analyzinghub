@@ -70,6 +70,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const [customDate, setCustomDate] = useState('')
   const [channels, setChannels] = useState<TelegramChannel[]>([])
   const [loadingChannels, setLoadingChannels] = useState(true)
+  const [visibleStrikesPerExpiration, setVisibleStrikesPerExpiration] = useState<Record<string, number>>({})
   const [marketStatus, setMarketStatus] = useState<{
     isOpen: boolean
     status: string
@@ -241,6 +242,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
             })),
           }))
           setExpirationGroups(transformedGroups)
+
+          // Initialize visible strikes to 5 for each expiration
+          const initialVisible: Record<string, number> = {}
+          transformedGroups.forEach((group: ExpirationGroup) => {
+            initialVisible[group.expirationDate] = 5
+          })
+          setVisibleStrikesPerExpiration(initialVisible)
+
           const totalContracts = transformedGroups.reduce(
             (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
             0
@@ -278,6 +287,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     setDatePreset(preset)
     setExpirationGroups([])
     setSelectedContract(null)
+    setVisibleStrikesPerExpiration({})
+  }
+
+  const loadMoreStrikes = (expirationDate: string) => {
+    setVisibleStrikesPerExpiration(prev => ({
+      ...prev,
+      [expirationDate]: (prev[expirationDate] || 5) + 5
+    }))
   }
 
   const addTarget = () => {
@@ -564,13 +581,19 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                         </TabsTrigger>
                       ))}
                     </TabsList>
-                    {expirationGroups.map((group) => (
+                    {expirationGroups.map((group) => {
+                      const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 5
+                      const visibleStrikes = group.strikes.slice(0, visibleCount)
+                      const hasMore = visibleCount < group.strikes.length
+
+                      return (
                       <TabsContent key={group.expirationDate} value={group.expirationDate} className="space-y-2">
                         <div className="text-xs text-muted-foreground mb-2">
                           {group.strikes.length} contract{group.strikes.length !== 1 ? 's' : ''} • Expires in {group.dte} day{group.dte !== 1 ? 's' : ''}
+                          {hasMore && <span className="ml-2">(Showing {visibleCount} of {group.strikes.length})</span>}
                         </div>
                         <div className="grid gap-2 max-h-80 overflow-y-auto">
-                          {group.strikes.map((contract) => (
+                          {visibleStrikes.map((contract) => (
                             <Card
                               key={contract.ticker}
                               className={`cursor-pointer transition-colors ${
@@ -615,9 +638,22 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               </CardContent>
                             </Card>
                           ))}
+
+                          {hasMore && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => loadMoreStrikes(group.expirationDate)}
+                              className="w-full"
+                            >
+                              Load 5 More Contracts ({group.strikes.length - visibleCount} remaining)
+                            </Button>
+                          )}
                         </div>
                       </TabsContent>
-                    ))}
+                    )})}
+
                   </Tabs>
                 </div>
               )}
