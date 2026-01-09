@@ -38,7 +38,7 @@ interface IndexTrade {
   win_condition_met?: string;
   loss_condition_met?: string;
   author: Author;
-  analysis: {
+  analysis?: {
     id: string;
     title: string;
     index_symbol: string;
@@ -74,7 +74,7 @@ interface Update {
 export function formatAnalysisMessage(
   analysis: IndexAnalysis,
   baseUrl: string
-): { text: string } {
+): { text: string; snapshotImageUrl?: string } {
   const analysisUrl = `${baseUrl}/dashboard/analysis/${analysis.id}`;
   const timeframe = analysis.timeframe || "N/A";
   const schools = analysis.schools_used?.join(", ") || "N/A";
@@ -83,22 +83,22 @@ export function formatAnalysisMessage(
   message += `<b>Index:</b> ${analysis.index_symbol}\n`;
   message += `<b>Timeframe:</b> ${timeframe}\n`;
   message += `<b>Analyst:</b> ${analysis.author.full_name}\n`;
-  
+
   if (schools) {
     message += `<b>Methods:</b> ${schools}\n`;
   }
-  
+
   message += `\n<b>Title:</b> ${analysis.title}\n\n`;
-  
-  const bodyPreview = analysis.body.length > 200 
-    ? analysis.body.substring(0, 200) + "..." 
+
+  const bodyPreview = analysis.body.length > 200
+    ? analysis.body.substring(0, 200) + "..."
     : analysis.body;
   message += `${bodyPreview}\n\n`;
-  
+
   if (analysis.invalidation_price) {
     message += `<b>⚠️ Invalidation:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
-  
+
   message += `<a href="${analysisUrl}">📈 View Full Analysis</a>`;
 
   message += "\n\n━━━━━━━━━━\n\n";
@@ -107,14 +107,16 @@ export function formatAnalysisMessage(
   message += `<b>الإطار الزمني:</b> ${timeframe}\n`;
   message += `<b>المحلل:</b> ${analysis.author.full_name}\n\n`;
   message += `<b>العنوان:</b> ${analysis.title}\n\n`;
-  
+
   if (analysis.invalidation_price) {
     message += `<b>⚠️ الإبطال:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
-  
+
   message += `<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;
 
-  return { text: message };
+  const snapshotImageUrl = analysis.chart_image_url || undefined;
+
+  return { text: message, snapshotImageUrl };
 }
 
 export function formatTradeMessage(
@@ -122,12 +124,12 @@ export function formatTradeMessage(
   baseUrl: string,
   isNewHigh: boolean = false
 ): { text: string; snapshotImageUrl?: string } {
-  const analysisUrl = `${baseUrl}/dashboard/analysis/${trade.analysis.id}`;
+  const analysisUrl = trade.analysis ? `${baseUrl}/dashboard/analysis/${trade.analysis.id}` : '#';
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;
   const stopPrice = trade.stoploss?.level;
 
-  let cleanSymbol = trade.analysis.index_symbol;
+  let cleanSymbol = trade.analysis?.index_symbol || (trade as any).underlying_index_symbol || 'Index';
   if (trade.polygon_option_ticker) {
     const parts = trade.polygon_option_ticker.split(':');
     if (parts.length > 1) {
@@ -137,8 +139,10 @@ export function formatTradeMessage(
   }
 
   let message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE</b>\n\n";
-  message += `<b>Index:</b> ${trade.analysis.index_symbol}\n`;
-  message += `<b>Analysis:</b> ${trade.analysis.title}\n`;
+  message += `<b>Index:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
+  if (trade.analysis) {
+    message += `<b>Analysis:</b> ${trade.analysis.title}\n`;
+  }
   message += `<b>Direction:</b> ${trade.direction.toUpperCase()}\n`;
 
   if (trade.polygon_option_ticker) {
@@ -162,12 +166,16 @@ export function formatTradeMessage(
   }
 
   message += `\n<b>Analyst:</b> ${trade.author.full_name}\n\n`;
-  message += `<a href="${analysisUrl}">📊 View Analysis</a>`;
+  if (trade.analysis) {
+    message += `<a href="${analysisUrl}">📊 View Analysis</a>`;
+  }
 
   message += "\n\n━━━━━━━━━━\n\n";
   message += isNewHigh ? "🚀 <b>تنبيه قمة جديدة!</b>\n\n" : "🎯 <b>صفقة جديدة</b>\n\n";
-  message += `<b>المؤشر:</b> ${trade.analysis.index_symbol}\n`;
-  message += `<b>التحليل:</b> ${trade.analysis.title}\n`;
+  message += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
+  if (trade.analysis) {
+    message += `<b>التحليل:</b> ${trade.analysis.title}\n`;
+  }
   message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
 
   if (trade.polygon_option_ticker) {
@@ -190,7 +198,9 @@ export function formatTradeMessage(
   }
 
   message += `\n<b>المحلل:</b> ${trade.author.full_name}\n\n`;
-  message += `<a href="${analysisUrl}">📊 عرض التحليل</a>`;
+  if (trade.analysis) {
+    message += `<a href="${analysisUrl}">📊 عرض التحليل</a>`;
+  }
 
   const snapshotImageUrl = trade.contract_url || undefined;
 

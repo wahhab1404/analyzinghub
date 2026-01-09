@@ -52,6 +52,7 @@ Deno.serve(async (req: Request) => {
         author_id,
         polygon_option_ticker,
         polygon_underlying_index_ticker,
+        underlying_index_symbol,
         trade_price_basis,
         direction,
         entry_contract_snapshot,
@@ -76,6 +77,7 @@ Deno.serve(async (req: Request) => {
         last_quote_at,
         telegram_channel_id,
         telegram_send_enabled,
+        author:profiles!author_id(id, full_name),
         analysis:index_analyses!analysis_id(id, title, index_symbol, telegram_channel_id)
       `)
       .eq("status", "active")
@@ -234,6 +236,7 @@ Deno.serve(async (req: Request) => {
               changes: { type: "winning_trade", pnl_usd: netPnl, entry: entryContractPrice, current: newContract },
             });
 
+            let winningSnapshotGenerated = false;
             try {
               const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
                 method: 'POST',
@@ -250,10 +253,15 @@ Deno.serve(async (req: Request) => {
               if (snapshotResponse.ok) {
                 const snapshotResult = await snapshotResponse.json();
                 console.log(`Snapshot generated for winning trade: ${snapshotResult.imageUrl}`);
-                await new Promise(resolve => setTimeout(resolve, 500));
+                winningSnapshotGenerated = true;
+                await new Promise(resolve => setTimeout(resolve, 1000));
               }
             } catch (snapshotError) {
               console.error('Failed to generate snapshot for winning trade:', snapshotError);
+            }
+
+            if (winningSnapshotGenerated) {
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
 
             const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
@@ -311,6 +319,7 @@ Deno.serve(async (req: Request) => {
             changes: { type: "new_high", price: newContractHigh, gain_percent: percentGain },
           });
 
+          let snapshotGenerated = false;
           try {
             const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
               method: 'POST',
@@ -328,10 +337,15 @@ Deno.serve(async (req: Request) => {
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
               console.log(`Snapshot generated for new high: ${snapshotResult.imageUrl}`);
-              await new Promise(resolve => setTimeout(resolve, 500));
+              snapshotGenerated = true;
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
           } catch (snapshotError) {
             console.error('Failed to generate snapshot for new high:', snapshotError);
+          }
+
+          if (snapshotGenerated) {
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
 
           const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
@@ -359,6 +373,7 @@ Deno.serve(async (req: Request) => {
             changes: { type: newStatus, outcome, pnl_usd: netPnl },
           });
 
+          let resultSnapshotGenerated = false;
           try {
             const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
               method: 'POST',
@@ -375,10 +390,15 @@ Deno.serve(async (req: Request) => {
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
               console.log(`Snapshot generated for trade result: ${snapshotResult.imageUrl}`);
-              await new Promise(resolve => setTimeout(resolve, 500));
+              resultSnapshotGenerated = true;
+              await new Promise(resolve => setTimeout(resolve, 1000));
             }
           } catch (snapshotError) {
             console.error('Failed to generate snapshot for trade result:', snapshotError);
+          }
+
+          if (resultSnapshotGenerated) {
+            await new Promise(resolve => setTimeout(resolve, 500));
           }
 
           const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;

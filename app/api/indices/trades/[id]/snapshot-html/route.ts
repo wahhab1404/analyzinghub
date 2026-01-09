@@ -38,14 +38,23 @@ export async function GET(
       .from('index_trades')
       .select(`
         *,
-        author:profiles!author_id(id, full_name),
-        analysis:index_analyses!analysis_id(id, title, index_symbol)
+        author:profiles!author_id(id, full_name)
       `)
       .eq('id', tradeId)
       .single();
 
     if (tradeError || !trade) {
       return new NextResponse('Trade not found', { status: 404 });
+    }
+
+    let analysis = null;
+    if (trade.analysis_id) {
+      const { data: analysisData } = await supabase
+        .from('index_analyses')
+        .select('id, title, index_symbol')
+        .eq('id', trade.analysis_id)
+        .maybeSingle();
+      analysis = analysisData;
     }
 
     const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
@@ -101,7 +110,7 @@ export async function GET(
     const strike = trade.strike || 0;
     const expiry = trade.expiry || new Date().toISOString();
     const optionType = trade.option_type === 'call' ? 'Call' : 'Put';
-    const underlyingSymbol = trade.analysis?.index_symbol || 'SPX';
+    const underlyingSymbol = analysis?.index_symbol || trade.underlying_index_symbol || 'SPX';
 
     // Extract clean symbol from polygon ticker (e.g., "O:SPX251231C06090000" -> "SPX")
     let cleanSymbol = underlyingSymbol;
