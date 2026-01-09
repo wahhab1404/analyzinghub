@@ -218,7 +218,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       const { minDTE, maxDTE } = getDTERange(datePreset)
 
       const params = new URLSearchParams({
-        underlying: indexSymbol,
+        underlying: formData.underlying_index_symbol,
         direction: formData.option_type,
         minDTE: minDTE.toString(),
         maxDTE: maxDTE.toString(),
