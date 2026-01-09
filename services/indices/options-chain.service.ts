@@ -327,7 +327,7 @@ class OptionsChainService {
       'strike_price.lte': maxStrike.toFixed(2),
       'expiration_date.gte': minDate.toISOString().split('T')[0],
       'expiration_date.lte': maxDate.toISOString().split('T')[0],
-      limit: '1000', // Get enough contracts
+      limit: '250', // Polygon max limit is 250
     });
 
     const url = `${POLYGON_BASE_URL}/v3/snapshot/options/${underlying}?${params.toString()}`;

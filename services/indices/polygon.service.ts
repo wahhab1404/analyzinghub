@@ -310,7 +310,7 @@ class PolygonService {
       throw new Error('Polygon API key not configured');
     }
 
-    const url = `${POLYGON_BASE_URL}/v3/reference/options/contracts?underlying_ticker=${underlying}&limit=1000&apiKey=${POLYGON_API_KEY}`;
+    const url = `${POLYGON_BASE_URL}/v3/reference/options/contracts?underlying_ticker=${underlying}&limit=250&apiKey=${POLYGON_API_KEY}`;
 
     const data = await this.fetchWithRetry(url);
 
