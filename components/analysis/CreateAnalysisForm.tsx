@@ -57,8 +57,9 @@ interface TelegramChannel {
   audienceType: 'public' | 'followers' | 'subscribers'
   verified: boolean
   enabled: boolean
-  plan_id?: string | null
-  plan_name?: string | null
+  linkedPlanId?: string | null
+  linkedPlanName?: string | null
+  isPlatformDefault?: boolean
 }
 
 function formatDateToDDMMYYYY(dateString: string): string {
@@ -1354,7 +1355,7 @@ export function CreateAnalysisForm() {
                   <>
                     <div className="space-y-2 p-4 border rounded-lg">
                       {analyzerPlans.map((plan) => {
-                        const planChannel = telegramChannels.find(ch => ch.plan_id === plan.id && ch.audienceType === 'subscribers')
+                        const planChannel = telegramChannels.find(ch => ch.linkedPlanId === plan.id && ch.audienceType === 'subscribers')
                         return (
                           <div key={plan.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
                             <Checkbox
@@ -1406,7 +1407,7 @@ export function CreateAnalysisForm() {
                         ? 'Select at least one plan to post to'
                         : (() => {
                             const selectedChannelsCount = selectedPlanIds.filter(planId =>
-                              telegramChannels.some(ch => ch.plan_id === planId && ch.audienceType === 'subscribers' && ch.verified)
+                              telegramChannels.some(ch => ch.linkedPlanId === planId && ch.audienceType === 'subscribers' && ch.verified)
                             ).length
                             return `Will be posted to ${selectedPlanIds.length} plan${selectedPlanIds.length > 1 ? 's' : ''}${selectedChannelsCount > 0 ? ` and broadcast to ${selectedChannelsCount} verified Telegram channel${selectedChannelsCount > 1 ? 's' : ''}` : ''}`
                           })()
@@ -1416,6 +1417,44 @@ export function CreateAnalysisForm() {
                 )}
               </div>
             )}
+
+            {visibility === 'subscribers' && (() => {
+              const platformDefaultChannel = telegramChannels.find(ch =>
+                ch.audienceType === 'subscribers' && ch.isPlatformDefault
+              )
+              if (platformDefaultChannel) {
+                return (
+                  <div className="space-y-3">
+                    <Label className="text-base font-semibold flex items-center gap-2">
+                      <Send className="h-5 w-5" />
+                      Platform Default Subscribers Channel
+                    </Label>
+                    {platformDefaultChannel.verified ? (
+                      <div className="p-4 border rounded-lg bg-green-50/50 dark:bg-green-950/20">
+                        <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                          <Send className="h-4 w-4" />
+                          <span className="font-medium">Will broadcast to: {platformDefaultChannel.channelName}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          All selected subscribers will see this analysis on Telegram
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-4 border rounded-lg bg-orange-50/50 dark:bg-orange-950/20">
+                        <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+                          <AlertTriangle className="h-4 w-4" />
+                          <span className="font-medium">Channel not verified: {platformDefaultChannel.channelName}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Please verify the channel in Settings → Telegram to enable broadcasting
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              }
+              return null
+            })()}
 
             {(visibility === 'public' || visibility === 'followers') && (
               <div className="space-y-3">
