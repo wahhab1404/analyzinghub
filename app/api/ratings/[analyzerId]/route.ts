@@ -16,23 +16,20 @@ export async function GET(
 
     const [ratingsResult, statsResult] = await Promise.all([
       supabase
-        .from('analysis_ratings')
+        .from('analyzer_ratings')
         .select(`
           id,
           rating,
           review_text,
           created_at,
           updated_at,
-          analyses!inner (
-            analyzer_id
-          ),
-          profiles!analysis_ratings_user_id_fkey (
+          profiles!analyzer_ratings_user_id_fkey (
             id,
             full_name,
             avatar_url
           )
         `)
-        .eq('analyses.analyzer_id', analyzerId)
+        .eq('analyzer_id', analyzerId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1),
 
