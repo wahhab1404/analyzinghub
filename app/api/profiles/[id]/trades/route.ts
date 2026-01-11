@@ -59,6 +59,7 @@ export async function GET(
         closed_at,
         profit_from_entry,
         max_profit,
+        final_profit,
         is_winning_trade,
         trade_outcome,
         entry_contract_snapshot,
@@ -95,7 +96,7 @@ export async function GET(
     // Calculate statistics
     const { data: statsData } = await supabase
       .from('index_trades')
-      .select('status, is_winning_trade, profit_from_entry, max_profit')
+      .select('status, is_winning_trade, profit_from_entry, max_profit, final_profit')
       .eq('author_id', profileId)
 
     const stats = {
@@ -112,13 +113,14 @@ export async function GET(
     const closedTrades = statsData?.filter(t => t.status === 'closed') || []
     if (closedTrades.length > 0) {
       stats.win_rate = Math.round((stats.winning_trades / closedTrades.length) * 100)
-      stats.total_pnl = closedTrades.reduce((sum, t) => sum + (t.max_profit || 0), 0)
+      // Use final_profit for closed trades, fall back to max_profit if not available
+      stats.total_pnl = closedTrades.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0)
 
       const wins = closedTrades.filter(t => t.is_winning_trade)
       const losses = closedTrades.filter(t => !t.is_winning_trade)
 
-      stats.avg_win = wins.length > 0 ? wins.reduce((sum, t) => sum + (t.max_profit || 0), 0) / wins.length : 0
-      stats.avg_loss = losses.length > 0 ? losses.reduce((sum, t) => sum + (t.max_profit || 0), 0) / losses.length : 0
+      stats.avg_win = wins.length > 0 ? wins.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / wins.length : 0
+      stats.avg_loss = losses.length > 0 ? losses.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / losses.length : 0
     }
 
     return NextResponse.json({

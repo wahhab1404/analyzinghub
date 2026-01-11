@@ -31,6 +31,7 @@ interface Trade {
   closed_at: string | null
   profit_from_entry: number
   max_profit: number
+  final_profit: number | null
   is_winning_trade: boolean
   trade_outcome: string
   entry_contract_snapshot: any
@@ -115,7 +116,13 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     if (!trade.entry_contract_snapshot?.mid && !trade.entry_contract_snapshot?.last) return null
     const entryPrice = trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last
     if (entryPrice === 0) return null
-    const percentReturn = ((trade.max_profit || 0) / (entryPrice * 100)) * 100
+
+    // Use final_profit for closed trades, profit_from_entry for active trades
+    const profitValue = trade.status === 'closed'
+      ? (trade.final_profit ?? trade.profit_from_entry ?? 0)
+      : (trade.profit_from_entry || 0)
+
+    const percentReturn = (profitValue / (entryPrice * 100)) * 100
     return percentReturn
   }
 
@@ -276,8 +283,18 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                   </div>
 
                   <div className="text-right">
-                    <div className={`text-2xl font-bold ${isWin ? 'text-green-600' : isActive ? 'text-blue-600' : 'text-gray-600'}`}>
-                      {formatCurrency(isActive ? (trade.profit_from_entry || 0) : (trade.max_profit || 0))}
+                    <div className={`text-2xl font-bold ${
+                      isActive
+                        ? (trade.profit_from_entry >= 0 ? 'text-blue-600' : 'text-orange-600')
+                        : (trade.final_profit ?? trade.profit_from_entry ?? 0) >= 0
+                          ? 'text-green-600'
+                          : 'text-red-600'
+                    }`}>
+                      {formatCurrency(
+                        isActive
+                          ? (trade.profit_from_entry || 0)
+                          : (trade.final_profit ?? trade.profit_from_entry ?? 0)
+                      )}
                     </div>
                     {percentReturn !== null && (
                       <p className={`text-sm ${percentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
