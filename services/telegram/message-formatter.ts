@@ -11,6 +11,11 @@ interface Analysis {
   source_url?: string
   description?: string
   chart_image_url?: string
+  activation_enabled?: boolean
+  activation_type?: string
+  activation_price?: number
+  activation_timeframe?: string
+  activation_status?: string
   profiles: {
     full_name: string
   }
@@ -56,6 +61,16 @@ const translations = {
     other: 'Other',
     poweredBy: 'Powered by AnalyzingHub',
     platform: '💹 Professional Financial Analysis Platform',
+    activationCondition: 'Activation Condition',
+    activationPrice: 'Activation Price',
+    activationTimeframe: 'Timeframe',
+    activationPending: '⏳ Pending Activation',
+    activationActive: '✅ Active',
+    price_above: 'Price Above',
+    price_below: 'Price Below',
+    time_based: 'Time Based',
+    passing_price: 'Passing Price',
+    daily_close: 'Daily Close',
   },
   ar: {
     newAnalysis: '📊 تحليل فني جديد',
@@ -83,6 +98,16 @@ const translations = {
     other: 'أخرى',
     poweredBy: 'مدعوم من AnalyzingHub',
     platform: '💹 منصة تحليل مالي احترافية',
+    activationCondition: 'شرط التفعيل',
+    activationPrice: 'سعر التفعيل',
+    activationTimeframe: 'الإطار الزمني',
+    activationPending: '⏳ في انتظار التفعيل',
+    activationActive: '✅ مفعل',
+    price_above: 'السعر أعلى من',
+    price_below: 'السعر أقل من',
+    time_based: 'مبني على الوقت',
+    passing_price: 'تجاوز السعر',
+    daily_close: 'إغلاق يومي',
   },
 }
 
@@ -119,6 +144,19 @@ function formatPrice(price: number): string {
 function escapeMarkdown(text: string): string {
   return text
     .replace(/[_*[\]()~`>#+=|{}.!-]/g, '\\$&')
+}
+
+function formatActivationType(type: string | undefined, language: 'en' | 'ar'): string {
+  if (!type) return ''
+  const t = translations[language]
+  const typeMap: Record<string, string> = {
+    price_above: t.price_above,
+    price_below: t.price_below,
+    time_based: t.time_based,
+    passing_price: t.passing_price,
+    daily_close: t.daily_close,
+  }
+  return typeMap[type] || type
 }
 
 export function formatAnalysisMessage(analysis: Analysis, options: FormatOptions): string {
@@ -162,6 +200,17 @@ export function formatAnalysisMessage(analysis: Analysis, options: FormatOptions
     if (analysis.direction) {
       const directionEmoji = formatDirectionEmoji(analysis.direction)
       message += `${directionEmoji} *${t.direction}:* ${formatDirection(analysis.direction, options.language)}\n\n`
+    }
+
+    if (analysis.activation_enabled && analysis.activation_type && analysis.activation_price) {
+      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⏳'
+      const statusText = analysis.activation_status === 'active' ? t.activationActive : t.activationPending
+      message += `${statusEmoji} *${t.activationCondition}:* ${statusText}\n`
+      message += `   ${formatActivationType(analysis.activation_type, options.language)}: ${formatPrice(analysis.activation_price)}\n`
+      if (analysis.activation_timeframe) {
+        message += `   ${t.activationTimeframe}: ${escapeMarkdown(analysis.activation_timeframe)}\n`
+      }
+      message += `\n`
     }
 
     if (analysis.stop_loss !== undefined) {

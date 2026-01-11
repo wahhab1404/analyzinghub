@@ -1046,6 +1046,7 @@ export const ar: TranslationKeys = {
     targets: 'الأهداف',
     liveMarketData: 'بيانات السوق المباشرة',
     unableToFetchPrice: 'غير قادر على جلب بيانات السعر',
+    priceAtPost: 'السعر عند النشر',
   },
   subscriptions: {
     failedToLoadPlans: 'فشل في تحميل الخطط',

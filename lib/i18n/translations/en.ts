@@ -1044,6 +1044,7 @@ export const en = {
     targets: 'Targets',
     liveMarketData: 'Live market data',
     unableToFetchPrice: 'Unable to fetch price data',
+    priceAtPost: 'Price at Post',
   },
   subscriptions: {
     failedToLoadPlans: 'Failed to load plans',

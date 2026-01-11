@@ -55,6 +55,16 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
     neutral: '➡️ محايد',
     poweredBy: 'مدعوم من AnalyzingHub',
     platform: '💹 منصة تحليل مالي احترافية',
+    activationCondition: 'شرط التفعيل',
+    activationPrice: 'سعر التفعيل',
+    activationTimeframe: 'الإطار الزمني',
+    activationPending: '⏳ في انتظار التفعيل',
+    activationActive: '✅ مفعل',
+    price_above: 'السعر أعلى من',
+    price_below: 'السعر أقل من',
+    time_based: 'مبني على الوقت',
+    passing_price: 'تجاوز السعر',
+    daily_close: 'إغلاق يومي',
   } : {
     newAnalysis: '📊 New Technical Analysis',
     newNews: '📰 Market News',
@@ -72,6 +82,16 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
     neutral: '➡️ Neutral',
     poweredBy: 'Powered by AnalyzingHub',
     platform: '💹 Professional Financial Analysis Platform',
+    activationCondition: 'Activation Condition',
+    activationPrice: 'Activation Price',
+    activationTimeframe: 'Timeframe',
+    activationPending: '⏳ Pending Activation',
+    activationActive: '✅ Active',
+    price_above: 'Price Above',
+    price_below: 'Price Below',
+    time_based: 'Time Based',
+    passing_price: 'Passing Price',
+    daily_close: 'Daily Close',
   };
 
   const postType = analysis.post_type || 'analysis';
@@ -100,6 +120,22 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
       const directionText = analysis.direction === 'Long' ? t.long :
                            analysis.direction === 'Short' ? t.short : t.neutral;
       message += `*${t.direction}:* ${directionText}\n\n`;
+    }
+
+    if (analysis.activation_enabled && analysis.activation_type && analysis.activation_price) {
+      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⏳';
+      const statusText = analysis.activation_status === 'active' ? t.activationActive : t.activationPending;
+      const activationType = analysis.activation_type === 'price_above' ? t.price_above :
+                            analysis.activation_type === 'price_below' ? t.price_below :
+                            analysis.activation_type === 'time_based' ? t.time_based :
+                            analysis.activation_type === 'passing_price' ? t.passing_price :
+                            analysis.activation_type === 'daily_close' ? t.daily_close : analysis.activation_type;
+      message += `${statusEmoji} *${t.activationCondition}:* ${statusText}\n`;
+      message += `   ${activationType}: $${analysis.activation_price.toFixed(2)}\n`;
+      if (analysis.activation_timeframe) {
+        message += `   ${t.activationTimeframe}: ${escapeMarkdown(analysis.activation_timeframe)}\n`;
+      }
+      message += `\n`;
     }
 
     if (analysis.stop_loss !== undefined) {

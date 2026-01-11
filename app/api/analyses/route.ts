@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@/lib/api-helpers'
+import { PriceService } from '@/services/price/price.service'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -344,6 +345,24 @@ export async function POST(req: NextRequest) {
       symbolId = newSymbol.id
     }
 
+    // Fetch current price for the symbol
+    let currentPrice: number | null = null
+    try {
+      const priceService = new PriceService()
+      const priceData = await priceService.getCurrentPrice(body.symbol.toUpperCase().trim())
+      currentPrice = priceData.price
+      console.log('FETCHED_CURRENT_PRICE:', {
+        symbol: body.symbol,
+        price: currentPrice
+      })
+    } catch (priceError: any) {
+      console.warn('Could not fetch current price:', {
+        symbol: body.symbol,
+        error: priceError.message
+      })
+      // Continue without price - it's not critical for posting
+    }
+
     const insertData: any = {
       analyzer_id: user.id,
       symbol_id: symbolId,
@@ -351,6 +370,7 @@ export async function POST(req: NextRequest) {
       chart_image_url: body.chartImageUrl || null,
       description: body.description || null,
       visibility: body.visibility || 'public',
+      price_at_post: currentPrice,
     }
 
     console.log('BEFORE_INSERT:', {
@@ -358,7 +378,8 @@ export async function POST(req: NextRequest) {
       symbolId,
       postType,
       insertDataKeys: Object.keys(insertData),
-      analyzerId: insertData.analyzer_id
+      analyzerId: insertData.analyzer_id,
+      priceAtPost: currentPrice
     })
 
     if (postType === 'analysis') {

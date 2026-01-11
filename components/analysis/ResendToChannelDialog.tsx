@@ -11,9 +11,9 @@ import { Send, Loader2, Users, Lock, Globe } from 'lucide-react'
 
 interface TelegramChannel {
   id: string
-  channel_name: string
-  channel_id: string
-  audience_type: 'public' | 'followers' | 'subscribers'
+  channelName: string
+  channelId: string
+  audienceType: 'public' | 'followers' | 'subscribers'
   enabled: boolean
 }
 
@@ -170,17 +170,17 @@ export function ResendToChannelDialog({
                       className="flex-1 cursor-pointer flex items-center justify-between"
                     >
                       <div className="flex flex-col">
-                        <span className="font-medium">{channel.channel_name}</span>
+                        <span className="font-medium">{channel.channelName}</span>
                         <span className="text-xs text-muted-foreground">
-                          {channel.channel_id}
+                          {channel.channelId}
                         </span>
                       </div>
                       <Badge
                         variant="outline"
-                        className={getAudienceBadgeClass(channel.audience_type)}
+                        className={getAudienceBadgeClass(channel.audienceType)}
                       >
-                        <span className="mr-1">{getAudienceIcon(channel.audience_type)}</span>
-                        {channel.audience_type}
+                        <span className="mr-1">{getAudienceIcon(channel.audienceType)}</span>
+                        {channel.audienceType}
                       </Badge>
                     </Label>
                   </div>

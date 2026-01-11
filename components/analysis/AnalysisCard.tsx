@@ -27,6 +27,7 @@ interface AnalysisCardProps {
     post_type?: 'analysis' | 'news' | 'article'
     direction?: 'Long' | 'Short' | 'Neutral'
     stop_loss?: number
+    price_at_post?: number
     title?: string
     summary?: string
     description?: string
@@ -614,6 +615,13 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {postType === 'analysis' && analysis.price_at_post !== undefined && analysis.price_at_post !== null && (
+            <div className="bg-muted/30 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground mb-1">{t.analysisCard.priceAtPost || 'Price at Post'}</p>
+              <p className="text-base font-semibold text-primary">${analysis.price_at_post.toFixed(2)}</p>
             </div>
           )}
 

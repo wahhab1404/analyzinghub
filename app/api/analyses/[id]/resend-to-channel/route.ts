@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createRouteHandlerClient } from '@/lib/api-helpers'
 import { createServiceRoleClient } from '@/lib/supabase/server'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await context.params
+    const analysisId = params.id
+
     const supabase = createRouteHandlerClient(request)
 
     const { data: { user }, error: userError } = await supabase.auth.getUser()
@@ -23,17 +29,32 @@ export async function POST(
       )
     }
 
-    const analysisId = params.id
+    console.log('Resend request:', {
+      analysisId,
+      channelId,
+      userId: user.id
+    })
+
+    // Use service role to check analysis ownership (bypass RLS)
+    const serviceSupabase = createServiceRoleClient()
 
     // Verify the analysis belongs to the user
-    const { data: analysis, error: analysisError } = await supabase
+    const { data: analysis, error: analysisError } = await serviceSupabase
       .from('analyses')
-      .select('id, analyzer_id, symbols:symbol_id (symbol), direction, entry_price')
+      .select('id, analyzer_id, symbols(symbol), direction, stop_loss, activation_price')
       .eq('id', analysisId)
       .eq('analyzer_id', user.id)
       .maybeSingle()
 
-    if (analysisError || !analysis) {
+    if (analysisError) {
+      console.error('Error fetching analysis:', analysisError)
+      return NextResponse.json(
+        { error: 'Database error' },
+        { status: 500 }
+      )
+    }
+
+    if (!analysis) {
       return NextResponse.json(
         { error: 'Analysis not found or access denied' },
         { status: 404 }
@@ -41,14 +62,22 @@ export async function POST(
     }
 
     // Verify the channel belongs to the user
-    const { data: channel, error: channelError } = await supabase
+    const { data: channel, error: channelError } = await serviceSupabase
       .from('telegram_channels')
       .select('id, channel_id, channel_name, enabled')
       .eq('id', channelId)
       .eq('user_id', user.id)
       .maybeSingle()
 
-    if (channelError || !channel) {
+    if (channelError) {
+      console.error('Error fetching channel:', channelError)
+      return NextResponse.json(
+        { error: 'Database error' },
+        { status: 500 }
+      )
+    }
+
+    if (!channel) {
       return NextResponse.json(
         { error: 'Channel not found or access denied' },
         { status: 404 }
@@ -95,7 +124,8 @@ export async function POST(
         eventType: 'new_analysis',
         symbol: (analysis as any).symbols?.symbol,
         direction: analysis.direction,
-        entryPrice: analysis.entry_price,
+        stopLoss: analysis.stop_loss,
+        activationPrice: analysis.activation_price,
       }),
     })
 
