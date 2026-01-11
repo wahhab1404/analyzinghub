@@ -15,7 +15,9 @@ import { StarRating } from '@/components/ratings/StarRating'
 import { SubscriptionPlans } from '@/components/subscriptions/SubscriptionPlans'
 import { SubscriptionStatusBadge } from '@/components/subscriptions/SubscriptionStatusBadge'
 import { PlanManagement } from '@/components/settings/PlanManagement'
-import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package, Settings2 } from 'lucide-react'
+import { ProfileTradesList } from '@/components/profile/ProfileTradesList'
+import { ProfileStats } from '@/components/rankings/ProfileStats'
+import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package, Settings2, BarChart3 } from 'lucide-react'
 
 interface ProfilePageProps {
   params: {
@@ -33,6 +35,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   const [replies, setReplies] = useState<any[]>([])
   const [loadingTabs, setLoadingTabs] = useState(false)
   const [hasSubscriptionPlans, setHasSubscriptionPlans] = useState(false)
+  const [hasSubscription, setHasSubscription] = useState(false)
 
   const fetchProfile = () => {
     fetch(`/api/profiles/${params.id}`)
@@ -92,6 +95,18 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     }
   }
 
+  const checkSubscriptionStatus = async () => {
+    try {
+      const response = await fetch(`/api/subscriptions/check?analystId=${params.id}`)
+      if (response.ok) {
+        const data = await response.json()
+        setHasSubscription(data.isSubscribed || false)
+      }
+    } catch (error) {
+      console.error('Failed to check subscription status:', error)
+    }
+  }
+
   const fetchReposts = async () => {
     setLoadingTabs(true)
     try {
@@ -127,6 +142,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     fetchUserRating()
     fetchRatingStats()
     checkSubscriptionPlans()
+    checkSubscriptionStatus()
   }, [params.id, router])
 
   if (loading) {
@@ -314,6 +330,12 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <Badge variant="secondary" className="ml-1">{analyses.length}</Badge>
                 )}
               </TabsTrigger>
+              {profile.roles?.name === 'Analyzer' && (
+                <TabsTrigger value="trades" className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4" />
+                  Trades
+                </TabsTrigger>
+              )}
               <TabsTrigger
                 value="reposts"
                 className="flex items-center gap-2"
@@ -364,6 +386,16 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 </Card>
               )}
             </TabsContent>
+
+            {profile.roles?.name === 'Analyzer' && (
+              <TabsContent value="trades" className="space-y-4">
+                <ProfileTradesList
+                  profileId={params.id}
+                  isOwnProfile={isOwnProfile}
+                  hasSubscription={hasSubscription}
+                />
+              </TabsContent>
+            )}
 
             <TabsContent value="reposts" className="space-y-4">
               {loadingTabs ? (
@@ -466,6 +498,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
         </div>
 
         <div className="lg:col-span-1 space-y-6">
+          <ProfileStats userId={params.id} />
           {profile.roles?.name === 'Analyzer' && (
             <AnalyzerRatings analyzerId={params.id} />
           )}
