@@ -18,6 +18,7 @@
     "update:prices": "tsx scripts/manual-price-update.ts",
     "test:daily-report": "tsx scripts/test-daily-report.ts",
     "test:resend-channel": "tsx scripts/test-resend-channel.ts",
+    "test:expired-closer": "tsx scripts/test-expired-trades-closer.ts",
     "sync:test": "npm install && npm run build",
     "sync:push": "git add . && git commit -m 'Sync from Bolt' && git push origin main",
     "sync:deploy": "npm run sync:test && npm run sync:push"

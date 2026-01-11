@@ -306,6 +306,7 @@ async function processBroadcast(req: Request, supabase: any, supabaseUrl: string
     let channelData;
 
     if (payload.channelId) {
+      // Try to find the channel by channel_id first
       const { data } = await supabase
         .from('telegram_channels')
         .select('*')
@@ -316,6 +317,7 @@ async function processBroadcast(req: Request, supabase: any, supabaseUrl: string
 
       channelData = data;
 
+      // If not found, check analyzer_plans table
       if (!channelData) {
         const { data: planData } = await supabase
           .from('analyzer_plans')
@@ -338,14 +340,43 @@ async function processBroadcast(req: Request, supabase: any, supabaseUrl: string
         }
       }
     } else {
-      const { data } = await supabase
+      // No specific channel provided - get the analysis to determine visibility
+      console.log('[Broadcast] No channelId provided, fetching analysis to determine visibility');
+      const { data: analysis } = await supabase
+        .from('analyses')
+        .select('visibility')
+        .eq('id', payload.analysisId)
+        .maybeSingle();
+
+      const visibility = analysis?.visibility || 'public';
+      console.log('[Broadcast] Analysis visibility:', visibility);
+
+      // Try to get platform default channel for this visibility type
+      const { data: platformChannel } = await supabase
         .from('telegram_channels')
         .select('*')
         .eq('user_id', payload.userId)
+        .eq('audience_type', visibility)
+        .eq('is_platform_default', true)
         .eq('enabled', true)
         .maybeSingle();
 
-      channelData = data;
+      if (platformChannel) {
+        console.log('[Broadcast] Using platform default channel:', platformChannel.channel_name);
+        channelData = platformChannel;
+      } else {
+        // Fallback to any enabled channel for this audience type
+        console.log('[Broadcast] No platform default, trying any enabled channel for', visibility);
+        const { data } = await supabase
+          .from('telegram_channels')
+          .select('*')
+          .eq('user_id', payload.userId)
+          .eq('audience_type', visibility)
+          .eq('enabled', true)
+          .maybeSingle();
+
+        channelData = data;
+      }
     }
 
     if (!channelData) {

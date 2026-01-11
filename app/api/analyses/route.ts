@@ -501,66 +501,110 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Broadcast to Telegram channels for each selected plan
+    // Broadcast to Telegram channels
+    const broadcastChannels = [];
+
+    // 1. Get plan-specific channels if plans are selected
     if (body.planIds && Array.isArray(body.planIds) && body.planIds.length > 0) {
-      // Get channels for all selected plans
-      const { data: channels } = await supabaseAdmin
+      const { data: planChannels } = await supabaseAdmin
         .from('analyzer_telegram_channels')
         .select('id, telegram_channel_id, plan_id')
         .eq('analyst_id', user.id)
         .in('plan_id', body.planIds)
         .eq('is_active', true)
 
-      if (channels && channels.length > 0) {
-        // Broadcast to each channel
-        for (const channel of channels) {
-          try {
-            console.log('TELEGRAM_BROADCAST_START:', {
+      if (planChannels && planChannels.length > 0) {
+        broadcastChannels.push(...planChannels.map(ch => ({
+          id: ch.id,
+          telegram_channel_id: ch.telegram_channel_id,
+          plan_id: ch.plan_id,
+          type: 'plan-specific'
+        })))
+      }
+    }
+
+    // 2. Always get the platform default channel for the analysis visibility
+    const { data: defaultChannel } = await supabaseAdmin
+      .from('telegram_channels')
+      .select('id, channel_id, channel_name, audience_type, is_platform_default')
+      .eq('user_id', user.id)
+      .eq('audience_type', analysis.visibility)
+      .eq('is_platform_default', true)
+      .eq('enabled', true)
+      .eq('verified', true)
+      .maybeSingle()
+
+    if (defaultChannel) {
+      // Check if we haven't already added this channel (avoid duplicates)
+      const alreadyAdded = broadcastChannels.some(ch => ch.id === defaultChannel.id)
+      if (!alreadyAdded) {
+        broadcastChannels.push({
+          id: defaultChannel.channel_id,
+          telegram_channel_id: defaultChannel.channel_id,
+          plan_id: null,
+          type: 'platform-default'
+        })
+      }
+    }
+
+    // 3. Broadcast to all collected channels
+    if (broadcastChannels.length > 0) {
+      for (const channel of broadcastChannels) {
+        try {
+          console.log('TELEGRAM_BROADCAST_START:', {
+            analysisId: analysis.id,
+            userId: user.id,
+            channelId: channel.id,
+            planId: channel.plan_id,
+            type: channel.type
+          })
+
+          const broadcastResponse = await fetch(`${req.nextUrl.origin}/api/telegram/channel/broadcast-new-analysis`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
               analysisId: analysis.id,
               userId: user.id,
-              channelId: channel.id,
-              planId: channel.plan_id
-            })
+              channelId: channel.telegram_channel_id || channel.id,
+            }),
+          });
 
-            const broadcastResponse = await fetch(`${req.nextUrl.origin}/api/telegram/channel/broadcast-new-analysis`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                analysisId: analysis.id,
-                userId: user.id,
-                channelId: channel.id,
-              }),
-            });
+          const broadcastResult = await broadcastResponse.json()
+          console.log('TELEGRAM_BROADCAST_RESULT:', {
+            channelId: channel.id,
+            planId: channel.plan_id,
+            type: channel.type,
+            status: broadcastResponse.status,
+            ok: broadcastResponse.ok,
+            result: broadcastResult
+          })
 
-            const broadcastResult = await broadcastResponse.json()
-            console.log('TELEGRAM_BROADCAST_RESULT:', {
+          if (!broadcastResponse.ok) {
+            console.error('Failed to broadcast new post to channel:', {
               channelId: channel.id,
               planId: channel.plan_id,
+              type: channel.type,
               status: broadcastResponse.status,
-              ok: broadcastResponse.ok,
-              result: broadcastResult
-            })
-
-            if (!broadcastResponse.ok) {
-              console.error('Failed to broadcast new post to channel:', {
-                channelId: channel.id,
-                planId: channel.plan_id,
-                status: broadcastResponse.status,
-                error: broadcastResult.error,
-                details: broadcastResult.details
-              });
-            }
-          } catch (broadcastError: any) {
-            console.error('Failed to broadcast new post to channel (exception):', {
-              channelId: channel.id,
-              message: broadcastError.message,
-              stack: broadcastError.stack
+              error: broadcastResult.error,
+              details: broadcastResult.details
             });
           }
+        } catch (broadcastError: any) {
+          console.error('Failed to broadcast new post to channel (exception):', {
+            channelId: channel.id,
+            message: broadcastError.message,
+            stack: broadcastError.stack
+          });
         }
       }
+    } else {
+      console.log('No Telegram channels to broadcast to:', {
+        visibility: analysis.visibility,
+        userId: user.id,
+        analysisId: analysis.id
+      })
     }
 
     return NextResponse.json({ analysis }, { status: 201 })
