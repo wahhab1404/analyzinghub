@@ -127,31 +127,31 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
       {tradingStats && tradingStats.total_closed_trades > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
-              Trading Performance
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <DollarSign className="h-5 w-5 text-muted-foreground" />
+              <span>Trading Performance</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               <div>
-                <div className="text-sm text-muted-foreground">Win Rate</div>
+                <div className="text-sm text-muted-foreground mb-1">Win Rate</div>
                 <div className={`text-2xl font-bold ${tradingStats.win_rate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
                   {tradingStats.win_rate}%
                 </div>
               </div>
               <div>
-                <div className="text-sm text-muted-foreground">Total Profit</div>
+                <div className="text-sm text-muted-foreground mb-1">Total Profit</div>
                 <div className={`text-2xl font-bold ${tradingStats.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  ${Math.abs(tradingStats.total_profit).toLocaleString()}
+                  ${tradingStats.total_profit >= 0 ? '' : '-'}${Math.abs(tradingStats.total_profit).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
               </div>
               <div>
-                <div className="text-sm text-muted-foreground">Closed Trades</div>
-                <div className="text-2xl font-bold">{tradingStats.total_closed_trades}</div>
+                <div className="text-sm text-muted-foreground mb-1">Closed Trades</div>
+                <div className="text-2xl font-bold">{tradingStats.total_closed_trades.toLocaleString()}</div>
               </div>
               <div>
-                <div className="text-sm text-muted-foreground">W/L Ratio</div>
+                <div className="text-sm text-muted-foreground mb-1">W/L Ratio</div>
                 <div className="text-2xl font-bold">
                   {tradingStats.winning_trades}/{tradingStats.losing_trades}
                 </div>
@@ -171,39 +171,39 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-                <div>
-                  <div className="text-sm font-medium text-green-600">
-                    ${tradingStats.avg_win.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            <div className="grid grid-cols-2 gap-6">
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <TrendingUp className="h-5 w-5 text-green-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-lg font-semibold text-green-600">
+                    ${tradingStats.avg_win.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-muted-foreground">Avg Win</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <TrendingDown className="h-4 w-4 text-red-600" />
-                <div>
-                  <div className="text-sm font-medium text-red-600">
-                    ${Math.abs(tradingStats.avg_loss).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
+                <TrendingDown className="h-5 w-5 text-red-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-lg font-semibold text-red-600">
+                    ${Math.abs(tradingStats.avg_loss).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-muted-foreground">Avg Loss</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-green-600" />
-                <div>
-                  <div className="text-sm font-medium text-green-600">
-                    ${tradingStats.max_profit.toLocaleString()}
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <Trophy className="h-5 w-5 text-green-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-lg font-semibold text-green-600">
+                    ${tradingStats.max_profit.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-muted-foreground">Best Trade</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <TrendingDown className="h-4 w-4 text-red-600" />
-                <div>
-                  <div className="text-sm font-medium text-red-600">
-                    ${Math.abs(tradingStats.max_loss).toLocaleString()}
+              <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
+                <TrendingDown className="h-5 w-5 text-red-600 mt-0.5" />
+                <div className="flex-1">
+                  <div className="text-lg font-semibold text-red-600">
+                    ${Math.abs(tradingStats.max_loss).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
                   <div className="text-xs text-muted-foreground">Worst Trade</div>
                 </div>

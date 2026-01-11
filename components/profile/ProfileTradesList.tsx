@@ -239,8 +239,8 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <p className="text-muted-foreground mb-1">Direction</p>
-                        <Badge variant={trade.direction === 'bullish' ? 'default' : 'destructive'}>
-                          {trade.direction === 'bullish' ? '📈 Bullish' : '📉 Bearish'}
+                        <Badge variant={trade.option_type?.toUpperCase() === 'C' ? 'default' : 'destructive'}>
+                          {trade.option_type?.toUpperCase() === 'C' ? '📈 CALL' : '📉 PUT'}
                         </Badge>
                       </div>
 
