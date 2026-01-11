@@ -61,13 +61,14 @@ const translations = {
     other: 'Other',
     poweredBy: 'Powered by AnalyzingHub',
     platform: '💹 Professional Financial Analysis Platform',
-    activationCondition: 'Activation Condition',
+    activationCondition: 'Activation Required',
     activationPrice: 'Activation Price',
     activationTimeframe: 'Timeframe',
     activationPending: '⏳ Pending Activation',
     activationActive: '✅ Active',
-    price_above: 'Price Above',
-    price_below: 'Price Below',
+    activationMustBe: 'Price must be',
+    price_above: 'above',
+    price_below: 'below',
     time_based: 'Time Based',
     passing_price: 'Passing Price',
     daily_close: 'Daily Close',
@@ -98,15 +99,16 @@ const translations = {
     other: 'أخرى',
     poweredBy: 'مدعوم من AnalyzingHub',
     platform: '💹 منصة تحليل مالي احترافية',
-    activationCondition: 'شرط التفعيل',
+    activationCondition: 'يتطلب التفعيل',
     activationPrice: 'سعر التفعيل',
     activationTimeframe: 'الإطار الزمني',
     activationPending: '⏳ في انتظار التفعيل',
     activationActive: '✅ مفعل',
-    price_above: 'السعر أعلى من',
-    price_below: 'السعر أقل من',
+    activationMustBe: 'يجب أن يكون السعر',
+    price_above: 'فوق',
+    price_below: 'تحت',
     time_based: 'مبني على الوقت',
-    passing_price: 'تجاوز السعر',
+    passing_price: 'عبور السعر',
     daily_close: 'إغلاق يومي',
   },
 }
@@ -149,14 +151,19 @@ function escapeMarkdown(text: string): string {
 function formatActivationType(type: string | undefined, language: 'en' | 'ar'): string {
   if (!type) return ''
   const t = translations[language]
+
+  const normalizedType = type.toLowerCase().replace(/_/g, '_')
+
   const typeMap: Record<string, string> = {
-    price_above: t.price_above,
-    price_below: t.price_below,
-    time_based: t.time_based,
-    passing_price: t.passing_price,
-    daily_close: t.daily_close,
+    'above_price': t.price_above,
+    'under_price': t.price_below,
+    'passing_price': t.passing_price,
+    'price_above': t.price_above,
+    'price_below': t.price_below,
+    'time_based': t.time_based,
+    'daily_close': t.daily_close,
   }
-  return typeMap[type] || type
+  return typeMap[normalizedType] || type
 }
 
 export function formatAnalysisMessage(analysis: Analysis, options: FormatOptions): string {
@@ -203,14 +210,26 @@ export function formatAnalysisMessage(analysis: Analysis, options: FormatOptions
     }
 
     if (analysis.activation_enabled && analysis.activation_type && analysis.activation_price) {
-      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⏳'
-      const statusText = analysis.activation_status === 'active' ? t.activationActive : t.activationPending
-      message += `${statusEmoji} *${t.activationCondition}:* ${statusText}\n`
-      message += `   ${formatActivationType(analysis.activation_type, options.language)}: ${formatPrice(analysis.activation_price)}\n`
-      if (analysis.activation_timeframe) {
-        message += `   ${t.activationTimeframe}: ${escapeMarkdown(analysis.activation_timeframe)}\n`
+      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⚡'
+      let activationText = ''
+
+      if (options.language === 'ar') {
+        activationText = `${statusEmoji} *${t.activationCondition}:* ${t.activationMustBe} ${formatActivationType(analysis.activation_type, options.language)} ${formatPrice(analysis.activation_price)}`
+      } else {
+        activationText = `${statusEmoji} *${t.activationCondition}:* ${t.activationMustBe} ${formatActivationType(analysis.activation_type, options.language)} ${formatPrice(analysis.activation_price)}`
       }
-      message += `\n`
+
+      if (analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR') {
+        const timeframeMap: Record<string, { en: string; ar: string }> = {
+          '1H_CLOSE': { en: '1H Close', ar: 'إغلاق ساعة' },
+          '4H_CLOSE': { en: '4H Close', ar: 'إغلاق 4 ساعات' },
+          'DAILY_CLOSE': { en: 'Daily Close', ar: 'إغلاق يومي' },
+        }
+        const timeframeText = timeframeMap[analysis.activation_timeframe]?.[options.language] || analysis.activation_timeframe
+        activationText += ` (${timeframeText})`
+      }
+
+      message += `${activationText}\n\n`
     }
 
     if (analysis.stop_loss !== undefined) {

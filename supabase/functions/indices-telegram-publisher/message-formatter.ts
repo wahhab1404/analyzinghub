@@ -13,9 +13,9 @@ function getActivationTypeLabel(type?: string, lang: 'en' | 'ar' = 'en'): string
   if (!type) return lang === 'en' ? 'Unknown' : 'غير معروف';
 
   const labels = {
-    PASSING_PRICE: { en: 'Passing', ar: 'عبور' },
-    ABOVE_PRICE: { en: 'Above', ar: 'فوق' },
-    UNDER_PRICE: { en: 'Under', ar: 'تحت' }
+    PASSING_PRICE: { en: 'passing', ar: 'عبور' },
+    ABOVE_PRICE: { en: 'above', ar: 'فوق' },
+    UNDER_PRICE: { en: 'below', ar: 'تحت' }
   };
 
   return labels[type as keyof typeof labels]?.[lang] || type;
@@ -31,6 +31,22 @@ function getActivationTimeframeLabel(timeframe?: string, lang: 'en' | 'ar' = 'en
   };
 
   return labels[timeframe as keyof typeof labels]?.[lang] || timeframe;
+}
+
+function getT(lang: 'en' | 'ar') {
+  return lang === 'ar' ? {
+    activationConditionMet: 'تم استيفاء شرط التفعيل',
+    activatedAt: 'تم التفعيل في',
+    activationRequired: 'يتطلب التفعيل',
+    priceMustBe: 'يجب أن يكون السعر',
+    stopTouchedBeforeActivation: 'تم لمس نقطة الوقف قبل التفعيل',
+  } : {
+    activationConditionMet: 'Activation Condition Met',
+    activatedAt: 'Activated at',
+    activationRequired: 'Activation Required',
+    priceMustBe: 'Price must be',
+    stopTouchedBeforeActivation: 'Stop touched before activation',
+  };
 }
 
 interface IndexAnalysis {
@@ -134,18 +150,19 @@ export function formatAnalysisMessage(
 
   // Activation Condition Info
   if (analysis.activation_enabled && analysis.activation_price) {
+    const t = getT('en');
     const isActive = analysis.activation_status === 'active' ||
       analysis.activation_status === 'completed_success' ||
       analysis.activation_status === 'completed_fail';
 
     if (isActive) {
-      message += `<b>✅ Activation Condition Met</b>\n`;
+      message += `<b>✅ ${t.activationConditionMet}</b>\n`;
       if (analysis.activated_at) {
-        message += `<i>Activated at ${new Date(analysis.activated_at).toLocaleString()}</i>\n\n`;
+        message += `<i>${t.activatedAt} ${new Date(analysis.activated_at).toLocaleString()}</i>\n\n`;
       }
     } else {
-      message += `<b>⚡ Activation Required:</b>\n`;
-      message += `Price must be ${getActivationTypeLabel(analysis.activation_type, 'en').toLowerCase()} $${analysis.activation_price.toFixed(2)}`;
+      message += `<b>⚡ ${t.activationRequired}:</b>\n`;
+      message += `${t.priceMustBe} ${getActivationTypeLabel(analysis.activation_type, 'en')} $${analysis.activation_price.toFixed(2)}`;
 
       const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'en');
       if (tfLabel) {
@@ -154,7 +171,7 @@ export function formatAnalysisMessage(
       message += `\n`;
 
       if (analysis.preactivation_stop_touched) {
-        message += `<i>⚠️ Stop touched before activation</i>\n`;
+        message += `<i>⚠️ ${t.stopTouchedBeforeActivation}</i>\n`;
       }
       message += `\n`;
     }
@@ -175,18 +192,19 @@ export function formatAnalysisMessage(
 
   // Activation Condition Info (Arabic)
   if (analysis.activation_enabled && analysis.activation_price) {
+    const t = getT('ar');
     const isActive = analysis.activation_status === 'active' ||
       analysis.activation_status === 'completed_success' ||
       analysis.activation_status === 'completed_fail';
 
     if (isActive) {
-      message += `<b>✅ تم استيفاء شرط التفعيل</b>\n`;
+      message += `<b>✅ ${t.activationConditionMet}</b>\n`;
       if (analysis.activated_at) {
-        message += `<i>تم التفعيل في ${new Date(analysis.activated_at).toLocaleString('ar')}</i>\n\n`;
+        message += `<i>${t.activatedAt} ${new Date(analysis.activated_at).toLocaleString('ar')}</i>\n\n`;
       }
     } else {
-      message += `<b>⚡ يتطلب التفعيل:</b>\n`;
-      message += `يجب أن يكون السعر ${getActivationTypeLabel(analysis.activation_type, 'ar')} $${analysis.activation_price.toFixed(2)}`;
+      message += `<b>⚡ ${t.activationRequired}:</b>\n`;
+      message += `${t.priceMustBe} ${getActivationTypeLabel(analysis.activation_type, 'ar')} $${analysis.activation_price.toFixed(2)}`;
 
       const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'ar');
       if (tfLabel) {
@@ -195,7 +213,7 @@ export function formatAnalysisMessage(
       message += `\n`;
 
       if (analysis.preactivation_stop_touched) {
-        message += `<i>⚠️ تم لمس نقطة الوقف قبل التفعيل</i>\n`;
+        message += `<i>⚠️ ${t.stopTouchedBeforeActivation}</i>\n`;
       }
       message += `\n`;
     }

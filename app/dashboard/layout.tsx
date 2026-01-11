@@ -75,19 +75,19 @@ export default function DashboardLayout({
   if (loading || !user) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-6">
           <Image
             src={logoSrc}
             alt="AnalyzingHub Logo"
-            width={80}
-            height={80}
+            width={200}
+            height={200}
             className="animate-pulse"
           />
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-50">AnalyzingHub</h1>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">AnalyzingHub</h1>
           <div className="flex gap-2">
-            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
           </div>
         </div>
       </div>

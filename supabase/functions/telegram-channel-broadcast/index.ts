@@ -55,16 +55,19 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
     neutral: '➡️ محايد',
     poweredBy: 'مدعوم من AnalyzingHub',
     platform: '💹 منصة تحليل مالي احترافية',
-    activationCondition: 'شرط التفعيل',
+    activationCondition: 'يتطلب التفعيل',
     activationPrice: 'سعر التفعيل',
     activationTimeframe: 'الإطار الزمني',
     activationPending: '⏳ في انتظار التفعيل',
-    activationActive: '✅ مفعل',
-    price_above: 'السعر أعلى من',
-    price_below: 'السعر أقل من',
-    time_based: 'مبني على الوقت',
-    passing_price: 'تجاوز السعر',
-    daily_close: 'إغلاق يومي',
+    activationActive: '✅ مفعّل',
+    priceMustBe: 'يجب أن يكون السعر',
+    ABOVE_PRICE: 'فوق',
+    UNDER_PRICE: 'تحت',
+    PASSING_PRICE: 'عبور',
+    INTRABAR: 'داخل الشمعة',
+    '1H_CLOSE': 'إغلاق ساعة',
+    '4H_CLOSE': 'إغلاق 4 ساعات',
+    DAILY_CLOSE: 'إغلاق يومي',
   } : {
     newAnalysis: '📊 New Technical Analysis',
     newNews: '📰 Market News',
@@ -82,16 +85,19 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
     neutral: '➡️ Neutral',
     poweredBy: 'Powered by AnalyzingHub',
     platform: '💹 Professional Financial Analysis Platform',
-    activationCondition: 'Activation Condition',
+    activationCondition: 'Activation Required',
     activationPrice: 'Activation Price',
     activationTimeframe: 'Timeframe',
     activationPending: '⏳ Pending Activation',
     activationActive: '✅ Active',
-    price_above: 'Price Above',
-    price_below: 'Price Below',
-    time_based: 'Time Based',
-    passing_price: 'Passing Price',
-    daily_close: 'Daily Close',
+    priceMustBe: 'Price must be',
+    ABOVE_PRICE: 'above',
+    UNDER_PRICE: 'below',
+    PASSING_PRICE: 'passing',
+    INTRABAR: 'intrabar',
+    '1H_CLOSE': '1H Close',
+    '4H_CLOSE': '4H Close',
+    DAILY_CLOSE: 'Daily Close',
   };
 
   const postType = analysis.post_type || 'analysis';
@@ -123,19 +129,17 @@ function formatAnalysisMessage(analysis: any, language: 'en' | 'ar', baseUrl: st
     }
 
     if (analysis.activation_enabled && analysis.activation_type && analysis.activation_price) {
-      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⏳';
-      const statusText = analysis.activation_status === 'active' ? t.activationActive : t.activationPending;
-      const activationType = analysis.activation_type === 'price_above' ? t.price_above :
-                            analysis.activation_type === 'price_below' ? t.price_below :
-                            analysis.activation_type === 'time_based' ? t.time_based :
-                            analysis.activation_type === 'passing_price' ? t.passing_price :
-                            analysis.activation_type === 'daily_close' ? t.daily_close : analysis.activation_type;
-      message += `${statusEmoji} *${t.activationCondition}:* ${statusText}\n`;
-      message += `   ${activationType}: $${analysis.activation_price.toFixed(2)}\n`;
-      if (analysis.activation_timeframe) {
-        message += `   ${t.activationTimeframe}: ${escapeMarkdown(analysis.activation_timeframe)}\n`;
+      const statusEmoji = analysis.activation_status === 'active' ? '✅' : '⚡';
+      const activationType = t[analysis.activation_type as keyof typeof t] || analysis.activation_type;
+      const activationTimeframe = analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR'
+        ? (t[analysis.activation_timeframe as keyof typeof t] || analysis.activation_timeframe)
+        : '';
+
+      message += `${statusEmoji} *${t.activationCondition}:* ${t.priceMustBe} ${activationType} $${analysis.activation_price.toFixed(2)}`;
+      if (activationTimeframe) {
+        message += ` (${activationTimeframe})`;
       }
-      message += `\n`;
+      message += `\n\n`;
     }
 
     if (analysis.stop_loss !== undefined) {
