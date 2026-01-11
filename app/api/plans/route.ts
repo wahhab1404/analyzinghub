@@ -7,14 +7,21 @@ export const runtime = 'nodejs'
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const analystId = searchParams.get('analystId')
+    let analystId = searchParams.get('analystId')
     const showAll = searchParams.get('showAll')
 
+    const supabase = createSupabaseSSRClient()
+
     if (!analystId) {
-      return NextResponse.json({ plans: [] })
+      const { data: { user } } = await supabase.auth.getUser()
+
+      if (!user) {
+        return NextResponse.json({ plans: [] })
+      }
+
+      analystId = user.id
     }
 
-    const supabase = createSupabaseSSRClient()
     let query = supabase
       .from('analyzer_plans')
       .select('*')

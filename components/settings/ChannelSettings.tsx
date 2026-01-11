@@ -22,6 +22,9 @@ interface Channel {
   notifyTargetHit: boolean;
   notifyStopHit: boolean;
   broadcastLanguage: 'en' | 'ar' | 'both';
+  isPlatformDefault: boolean;
+  linkedPlanId?: string;
+  linkedPlanName?: string;
   createdAt: string;
 }
 
@@ -37,6 +40,7 @@ export function ChannelSettings() {
   const [savingSettings, setSavingSettings] = useState(false);
   const [channelInput, setChannelInput] = useState('');
   const [selectedAudienceType, setSelectedAudienceType] = useState<'public' | 'followers' | 'subscribers'>('public');
+  const [isPlatformDefault, setIsPlatformDefault] = useState(true);
   const [editingChannel, setEditingChannel] = useState<string | null>(null);
   const [settings, setSettings] = useState({
     notifyNewAnalysis: true,
@@ -49,18 +53,8 @@ export function ChannelSettings() {
     fetchStatus();
   }, []);
 
-  // Auto-select first available channel type when status loads
-  useEffect(() => {
-    if (status?.channels) {
-      const connectedTypes = status.channels.map(c => c.audienceType);
-      const availableTypes = (['public', 'followers', 'subscribers'] as const).filter(
-        type => !connectedTypes.includes(type)
-      );
-      if (availableTypes.length > 0 && connectedTypes.includes(selectedAudienceType)) {
-        setSelectedAudienceType(availableTypes[0]);
-      }
-    }
-  }, [status]);
+  // Note: Users can now add multiple channels of the same type (especially for subscribers)
+  // Each channel can be either a platform default or linked to a specific plan
 
   useEffect(() => {
     if (editingChannel && status?.channels) {
@@ -125,9 +119,9 @@ export function ChannelSettings() {
       return;
     }
 
-    // Check if this channel type is already connected
-    if (status?.channels?.some(c => c.audienceType === selectedAudienceType)) {
-      toast.error(`You already have a ${selectedAudienceType} channel connected. Please disconnect it first or select a different channel type.`);
+    // For platform defaults, check if one already exists for this type
+    if (isPlatformDefault && status?.channels?.some(c => c.audienceType === selectedAudienceType && c.isPlatformDefault)) {
+      toast.error(`You already have a platform default ${selectedAudienceType} channel. Uncheck "Platform Default" to add another channel for plans.`);
       return;
     }
 
@@ -135,6 +129,7 @@ export function ChannelSettings() {
     try {
       const body: any = {
         audienceType: selectedAudienceType,
+        isPlatformDefault: isPlatformDefault,
       };
 
       if (channelInput.startsWith('-100') || channelInput.startsWith('-')) {
@@ -175,6 +170,7 @@ export function ChannelSettings() {
 
       toast.success('Channel connected successfully!');
       setChannelInput('');
+      setIsPlatformDefault(true);
       await fetchStatus();
     } catch (error) {
       console.error('Error connecting channel:', error);
@@ -308,7 +304,21 @@ export function ChannelSettings() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="rounded-lg border p-3 bg-muted/30">
-                    <p className="font-medium">{channel.channelName}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium">{channel.channelName}</p>
+                      <div className="flex gap-2">
+                        {channel.isPlatformDefault && (
+                          <Badge variant="default" className="text-xs">
+                            Platform Default
+                          </Badge>
+                        )}
+                        {channel.linkedPlanName && (
+                          <Badge variant="secondary" className="text-xs">
+                            {channel.linkedPlanName}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
                     <p className="text-sm text-muted-foreground">
                       Channel ID: {channel.channelId}
                     </p>
@@ -431,53 +441,49 @@ export function ChannelSettings() {
               </Card>
             ))}
 
-            {status.channels.length < 3 && (
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-4">Add Another Channel</h3>
-                <div className="space-y-4">
-                  <Alert className="border-blue-500/50 bg-blue-500/10">
-                    <AlertCircle className="h-4 w-4 text-blue-500" />
-                    <AlertDescription className="text-blue-700 dark:text-blue-400">
-                      You can have one channel per audience type. Select an available type below.
-                    </AlertDescription>
-                  </Alert>
+            <div className="border-t pt-4">
+              <h3 className="font-semibold mb-4">Add Another Channel</h3>
+              <div className="space-y-4">
+                <Alert className="border-blue-500/50 bg-blue-500/10">
+                  <AlertCircle className="h-4 w-4 text-blue-500" />
+                  <AlertDescription className="text-blue-700 dark:text-blue-400">
+                    You can add multiple subscriber channels - one as platform default and others for specific plans.
+                  </AlertDescription>
+                </Alert>
 
-                  <div className="space-y-3 rounded-lg border p-4">
-                    <Label htmlFor="audience-type">Channel Type</Label>
-                    <Select
-                      value={selectedAudienceType}
-                      onValueChange={(value: 'public' | 'followers' | 'subscribers') =>
-                        setSelectedAudienceType(value)
-                      }
-                    >
-                      <SelectTrigger id="audience-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem
-                          value="public"
-                          disabled={status.channels.some(c => c.audienceType === 'public')}
-                        >
-                          Public Channel {status.channels.some(c => c.audienceType === 'public') ? '(Already Connected)' : ''}
-                        </SelectItem>
-                        <SelectItem
-                          value="followers"
-                          disabled={status.channels.some(c => c.audienceType === 'followers')}
-                        >
-                          Followers-Only Channel {status.channels.some(c => c.audienceType === 'followers') ? '(Already Connected)' : ''}
-                        </SelectItem>
-                        <SelectItem
-                          value="subscribers"
-                          disabled={status.channels.some(c => c.audienceType === 'subscribers')}
-                        >
-                          Subscribers-Only Channel {status.channels.some(c => c.audienceType === 'subscribers') ? '(Already Connected)' : ''}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      {getAudienceTypeDescription(selectedAudienceType)}
-                    </p>
-                  </div>
+                <div className="space-y-3 rounded-lg border p-4">
+                  <Label htmlFor="audience-type">Channel Type</Label>
+                  <Select
+                    value={selectedAudienceType}
+                    onValueChange={(value: 'public' | 'followers' | 'subscribers') =>
+                      setSelectedAudienceType(value)
+                    }
+                  >
+                    <SelectTrigger id="audience-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem
+                        value="public"
+                        disabled={status.channels.some(c => c.audienceType === 'public' && c.isPlatformDefault)}
+                      >
+                        Public Channel {status.channels.some(c => c.audienceType === 'public' && c.isPlatformDefault) ? '(Already Connected)' : ''}
+                      </SelectItem>
+                      <SelectItem
+                        value="followers"
+                        disabled={status.channels.some(c => c.audienceType === 'followers' && c.isPlatformDefault)}
+                      >
+                        Followers-Only Channel {status.channels.some(c => c.audienceType === 'followers' && c.isPlatformDefault) ? '(Already Connected)' : ''}
+                      </SelectItem>
+                      <SelectItem value="subscribers">
+                        Subscribers-Only Channel
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    {getAudienceTypeDescription(selectedAudienceType)}
+                  </p>
+                </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="channel-input">Channel Username or ID</Label>
@@ -500,6 +506,22 @@ export function ChannelSettings() {
                         {connecting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Connect
                       </Button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 rounded-lg border p-3">
+                    <Switch
+                      id="platform-default"
+                      checked={isPlatformDefault}
+                      onCheckedChange={setIsPlatformDefault}
+                    />
+                    <div className="space-y-0.5">
+                      <Label htmlFor="platform-default" className="text-sm font-medium cursor-pointer">
+                        Set as Platform Default
+                      </Label>
+                      <p className="text-xs text-muted-foreground">
+                        Platform default channels receive posts for all {selectedAudienceType === 'subscribers' ? 'subscribers' : selectedAudienceType}. Uncheck to create a channel for a specific plan.
+                      </p>
                     </div>
                   </div>
                 </div>

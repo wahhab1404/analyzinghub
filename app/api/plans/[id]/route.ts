@@ -60,6 +60,7 @@ export async function PUT(
       name,
       description,
       price_cents,
+      billing_interval,
       features,
       telegram_channel_id,
       max_subscribers,
@@ -70,6 +71,7 @@ export async function PUT(
     if (name !== undefined) updateData.name = name
     if (description !== undefined) updateData.description = description
     if (price_cents !== undefined) updateData.price_cents = price_cents
+    if (billing_interval !== undefined) updateData.billing_interval = billing_interval
     if (features !== undefined) updateData.features = features
     if (telegram_channel_id !== undefined) updateData.telegram_channel_id = telegram_channel_id
     if (max_subscribers !== undefined) updateData.max_subscribers = max_subscribers
@@ -85,7 +87,7 @@ export async function PUT(
     if (updateError) {
       console.error('Error updating plan:', updateError)
       return NextResponse.json(
-        { error: 'Failed to update plan' },
+        { error: `Failed to update plan: ${updateError.message || updateError.code || 'Unknown error'}` },
         { status: 500 }
       )
     }

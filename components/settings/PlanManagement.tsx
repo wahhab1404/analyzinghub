@@ -69,7 +69,7 @@ export function PlanManagement() {
       if (response.ok) {
         const data = await response.json()
         const channels = Array.isArray(data.channels) ? data.channels : []
-        setTelegramChannels(channels.filter((ch: TelegramChannel) => ch.audienceType === 'subscription'))
+        setTelegramChannels(channels.filter((ch: TelegramChannel) => ch.audienceType === 'subscribers'))
       }
     } catch (error) {
       console.error('Failed to load telegram channels:', error)
@@ -134,6 +134,22 @@ export function PlanManagement() {
         })
       }
 
+      let telegramChannelUuid: string | null = null
+      if (formData.telegram_channel_id && formData.telegram_channel_id !== 'none') {
+        if (channelEntryMode === 'manual') {
+          const channel = telegramChannels.find(
+            ch => ch.channelId === formData.telegram_channel_id
+          )
+          if (!channel) {
+            toast.error('Channel not found. Please connect it in Telegram Settings first.')
+            return
+          }
+          telegramChannelUuid = channel.id
+        } else {
+          telegramChannelUuid = formData.telegram_channel_id
+        }
+      }
+
       const response = await fetch('/api/plans', {
         method: 'POST',
         headers: {
@@ -146,7 +162,7 @@ export function PlanManagement() {
           price_cents: parseInt(formData.price_cents) || 0,
           billing_interval: formData.billing_interval,
           features,
-          telegram_channel_id: formData.telegram_channel_id || null,
+          telegram_channel_id: telegramChannelUuid,
           max_subscribers: formData.max_subscribers
             ? parseInt(formData.max_subscribers)
             : null,
@@ -256,7 +272,7 @@ export function PlanManagement() {
 
     // Determine if the channel ID exists in the connected channels list
     const channelExists = plan.telegram_channel_id &&
-      telegramChannels.some(ch => ch.channelId === plan.telegram_channel_id)
+      telegramChannels.some(ch => ch.id === plan.telegram_channel_id)
 
     setChannelEntryMode(channelExists ? 'select' : 'manual')
 
@@ -301,6 +317,22 @@ export function PlanManagement() {
         })
       }
 
+      let telegramChannelUuid: string | null = null
+      if (formData.telegram_channel_id && formData.telegram_channel_id !== 'none') {
+        if (channelEntryMode === 'manual') {
+          const channel = telegramChannels.find(
+            ch => ch.channelId === formData.telegram_channel_id
+          )
+          if (!channel) {
+            toast.error('Channel not found. Please connect it in Telegram Settings first.')
+            return
+          }
+          telegramChannelUuid = channel.id
+        } else {
+          telegramChannelUuid = formData.telegram_channel_id
+        }
+      }
+
       const response = await fetch(`/api/plans/${editingPlan.id}`, {
         method: 'PUT',
         headers: {
@@ -313,7 +345,7 @@ export function PlanManagement() {
           price_cents: parseInt(formData.price_cents) || 0,
           billing_interval: formData.billing_interval,
           features,
-          telegram_channel_id: formData.telegram_channel_id || null,
+          telegram_channel_id: telegramChannelUuid,
           max_subscribers: formData.max_subscribers
             ? parseInt(formData.max_subscribers)
             : null,
@@ -509,7 +541,7 @@ export function PlanManagement() {
                     <SelectContent>
                       <SelectItem value="none">No Channel</SelectItem>
                       {telegramChannels.map((channel) => (
-                        <SelectItem key={channel.id} value={channel.channelId}>
+                        <SelectItem key={channel.id} value={channel.id}>
                           {channel.channelName} {channel.verified ? '✓' : '⚠️'}
                         </SelectItem>
                       ))}
@@ -697,7 +729,7 @@ export function PlanManagement() {
                   <SelectContent>
                     <SelectItem value="none">No Channel</SelectItem>
                     {telegramChannels.map((channel) => (
-                      <SelectItem key={channel.id} value={channel.channelId}>
+                      <SelectItem key={channel.id} value={channel.id}>
                         {channel.channelName} {channel.verified ? '✓' : '⚠️'}
                       </SelectItem>
                     ))}
@@ -793,7 +825,7 @@ export function PlanManagement() {
                     <div className="flex-1">
                       <p className="text-sm font-medium">Telegram Channel Connected</p>
                       <p className="text-xs text-muted-foreground">
-                        {telegramChannels.find(ch => ch.channelId === plan.telegram_channel_id)?.channelName || plan.telegram_channel_id}
+                        {telegramChannels.find(ch => ch.id === plan.telegram_channel_id)?.channelName || plan.telegram_channel_id}
                       </p>
                     </div>
                   </div>

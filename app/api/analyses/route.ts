@@ -366,6 +366,26 @@ export async function POST(req: NextRequest) {
       insertData.stop_loss = parseFloat(body.stopLoss)
       insertData.analysis_type = body.analysisType || 'classic'
       insertData.chart_frame = body.chartFrame || null
+
+      // Handle activation conditions
+      if (body.activationEnabled) {
+        if (!body.activationType || !body.activationPrice || !body.activationTimeframe) {
+          return NextResponse.json(
+            { error: 'When activation is enabled, activationType, activationPrice, and activationTimeframe are required' },
+            { status: 400 }
+          )
+        }
+
+        insertData.activation_enabled = true
+        insertData.activation_type = body.activationType
+        insertData.activation_price = parseFloat(body.activationPrice)
+        insertData.activation_timeframe = body.activationTimeframe
+        insertData.activation_status = 'published_inactive'
+        insertData.activation_notes = body.activationNotes || null
+      } else {
+        insertData.activation_enabled = false
+        insertData.activation_status = 'active'
+      }
     } else if (postType === 'news') {
       insertData.title = body.title
       insertData.summary = body.summary

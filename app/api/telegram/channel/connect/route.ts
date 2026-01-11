@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createRouteHandlerClient } from '@/lib/api-helpers';
+import { createServiceRoleClient } from '@/lib/supabase/server';
 
 async function getBotToken(supabase: any): Promise<string | null> {
   const { data } = await supabase
@@ -74,33 +75,55 @@ async function verifyChannelAccess(channelId: string, botToken: string): Promise
 }
 
 export async function POST(request: NextRequest) {
+  console.log('=== Channel Connect API called ===');
   try {
-    const supabase = createServerClient();
+    const supabase = createRouteHandlerClient(request);
+    console.log('Supabase client created');
 
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 });
+    console.log('Auth check:', { hasUser: !!user, authError: authError?.message });
+
+    if (authError || !user) {
+      console.error('Auth error in channel connect:', authError);
+      return NextResponse.json({ ok: false, error: 'Not authenticated. Please log in.' }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    console.log('User authenticated:', user.id);
+
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role:roles(name)')
       .eq('id', user.id)
       .maybeSingle();
 
-    const roleName = (profile?.role as any)?.name;
-    if (roleName?.toLowerCase() !== 'analyzer') {
+    console.log('Profile fetch:', { profile, error: profileError });
+
+    if (profileError) {
+      console.error('Profile fetch error:', profileError);
       return NextResponse.json(
-        { ok: false, error: 'Only analyzers can connect channels' },
+        { ok: false, error: 'Failed to verify user role' },
+        { status: 500 }
+      );
+    }
+
+    const roleName = (profile?.role as any)?.name;
+    console.log('Role check:', { roleName, isAnalyzer: roleName?.toLowerCase() === 'analyzer' });
+
+    if (!roleName || roleName.toLowerCase() !== 'analyzer') {
+      console.error('Role check failed. User role:', roleName);
+      return NextResponse.json(
+        { ok: false, error: 'Only analyzers can connect channels. Your role: ' + (roleName || 'none') },
         { status: 403 }
       );
     }
 
     const body = await request.json();
-    let { channelId, channelUsername, audienceType } = body;
+    console.log('Request body:', body);
+    let { channelId, channelUsername, audienceType, isPlatformDefault, linkedPlanId } = body;
 
     if (!channelId && !channelUsername) {
       return NextResponse.json(
@@ -120,21 +143,26 @@ export async function POST(request: NextRequest) {
       channelId = `@${channelUsername.replace('@', '')}`;
     }
 
-    // Check if user already has a channel for this audience type
-    const { data: userChannel } = await supabase
-      .from('telegram_channels')
-      .select('id, channel_id, audience_type')
-      .eq('user_id', user.id)
-      .eq('audience_type', audienceType)
-      .eq('enabled', true)
-      .maybeSingle();
+    // If marking as platform default, check if user already has a platform default for this audience type
+    if (isPlatformDefault) {
+      const { data: existingDefault } = await supabase
+        .from('telegram_channels')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('audience_type', audienceType)
+        .eq('is_platform_default', true)
+        .eq('enabled', true)
+        .maybeSingle();
 
-    if (userChannel) {
-      return NextResponse.json(
-        { ok: false, error: `You already have a ${audienceType} channel connected. Disconnect it first.` },
-        { status: 400 }
-      );
+      if (existingDefault) {
+        return NextResponse.json(
+          { ok: false, error: `You already have a platform default ${audienceType} channel. Only one platform default per type is allowed.` },
+          { status: 400 }
+        );
+      }
     }
+
+    // For non-platform channels, user can have multiple (for different plans)
 
     const botToken = await getBotToken(supabase);
 
@@ -200,6 +228,8 @@ export async function POST(request: NextRequest) {
         audience_type: audienceType,
         enabled: true,
         verified_at: new Date().toISOString(),
+        is_platform_default: isPlatformDefault || false,
+        linked_plan_id: linkedPlanId || null,
       });
 
     if (insertError) {
@@ -218,9 +248,11 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error in channel connect route:', error);
+    console.error('=== ERROR in channel connect route ===');
+    console.error('Error:', error);
+    console.error('Stack:', error instanceof Error ? error.stack : 'No stack');
     return NextResponse.json(
-      { ok: false, error: 'Internal server error' },
+      { ok: false, error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }

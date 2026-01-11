@@ -126,7 +126,14 @@ function checkAnalysis(
   targets: any[],
   currentPrice: number
 ): ValidationResult {
+  // Only validate analyses with status IN_PROGRESS
   if (analysis.status !== 'IN_PROGRESS') {
+    return { shouldValidate: false }
+  }
+
+  // CRITICAL: Only validate if activation_status is 'active'
+  // If published_inactive, the analysis is waiting for activation condition
+  if (analysis.activation_status && analysis.activation_status !== 'active') {
     return { shouldValidate: false }
   }
 

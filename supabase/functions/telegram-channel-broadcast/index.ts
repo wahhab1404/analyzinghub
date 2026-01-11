@@ -387,88 +387,61 @@ async function processBroadcast(req: Request, supabase: any, supabaseUrl: string
         ? analysis.chart_image_url
         : `${supabaseUrl}/storage/v1/object/public/chart-images/${analysis.chart_image_url}`;
 
-      console.log('[Broadcast] Sending with image:', chartImageUrl);
+      console.log('[Broadcast] Sending with HIGH QUALITY image:', chartImageUrl);
 
-      if (finalMessage.length <= 1024) {
-        console.log('[Broadcast] Message fits in caption, sending as single message');
-        const photoApiUrl = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+      const postType = analysis.post_type || 'analysis';
+      const shortCaption = postType === 'analysis' ? '📊 New Technical Analysis' :
+                          postType === 'news' ? '📰 Market News' : '📝 New Article';
 
-        const photoResponse = await fetch(photoApiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            chat_id: channelData.channel_id,
-            photo: chartImageUrl,
-            caption: finalMessage,
-            parse_mode: "Markdown",
-          }),
-        });
+      console.log('[Broadcast] Sending as document for maximum quality');
+      const documentApiUrl = `https://api.telegram.org/bot${botToken}/sendDocument`;
+      const documentResponse = await fetch(documentApiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chat_id: channelData.channel_id,
+          document: chartImageUrl,
+          caption: shortCaption,
+          parse_mode: "Markdown",
+        }),
+      });
 
-        const photoResult = await photoResponse.json();
-        console.log('[Broadcast] Photo send result:', JSON.stringify(photoResult));
+      const documentResult = await documentResponse.json();
+      console.log('[Broadcast] Document send result:', JSON.stringify(documentResult));
 
-        telegramResult = photoResult;
-        if (photoResult.ok) {
-          messageId = photoResult.result?.message_id?.toString();
-        }
+      if (!documentResult.ok) {
+        telegramResult = documentResult;
       } else {
-        console.log('[Broadcast] Message too long for caption, sending photo + text');
+        messageId = documentResult.result?.message_id?.toString();
 
-        const postType = analysis.post_type || 'analysis';
-        const shortCaption = postType === 'analysis' ? '📊 New Technical Analysis' :
-                            postType === 'news' ? '📰 Market News' : '📝 New Article';
+        const textChunks = chunkText(finalMessage, 4096);
+        console.log('[Broadcast] Sending full text in', textChunks.length, 'chunk(s)');
 
-        const photoApiUrl = `https://api.telegram.org/bot${botToken}/sendPhoto`;
-        const photoResponse = await fetch(photoApiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            chat_id: channelData.channel_id,
-            photo: chartImageUrl,
-            caption: shortCaption,
-            parse_mode: "Markdown",
-          }),
-        });
+        for (let i = 0; i < textChunks.length; i++) {
+          const textApiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+          const textResponse = await fetch(textApiUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              chat_id: channelData.channel_id,
+              text: textChunks[i],
+              parse_mode: "Markdown",
+              disable_web_page_preview: true,
+            }),
+          });
 
-        const photoResult = await photoResponse.json();
-        console.log('[Broadcast] Photo send result:', JSON.stringify(photoResult));
+          const textResult = await textResponse.json();
+          console.log(`[Broadcast] Text chunk ${i + 1}/${textChunks.length} result:`, JSON.stringify(textResult));
 
-        if (!photoResult.ok) {
-          telegramResult = photoResult;
-        } else {
-          messageId = photoResult.result?.message_id?.toString();
-
-          const textChunks = chunkText(finalMessage, 4096);
-          console.log('[Broadcast] Sending full text in', textChunks.length, 'chunk(s)');
-
-          for (let i = 0; i < textChunks.length; i++) {
-            const textApiUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-            const textResponse = await fetch(textApiUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                chat_id: channelData.channel_id,
-                text: textChunks[i],
-                parse_mode: "Markdown",
-                disable_web_page_preview: true,
-              }),
-            });
-
-            const textResult = await textResponse.json();
-            console.log(`[Broadcast] Text chunk ${i + 1}/${textChunks.length} result:`, JSON.stringify(textResult));
-
-            if (!textResult.ok) {
-              telegramResult = textResult;
-              break;
-            } else if (i === textChunks.length - 1) {
-              telegramResult = textResult;
-            }
+          if (!textResult.ok) {
+            telegramResult = textResult;
+            break;
+          } else if (i === textChunks.length - 1) {
+            telegramResult = textResult;
           }
         }
       }

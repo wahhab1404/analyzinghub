@@ -41,20 +41,25 @@ export async function GET(req: NextRequest) {
       .eq('analyst_id', user.id)
 
     const formattedChannels = channels?.map(ch => {
-      const linkedPlan = plans?.find(p => p.telegram_channel_id === ch.channel_id)
+      // Find plan linked to this channel (by UUID or by linked_plan_id)
+      const linkedPlan = plans?.find(p => p.telegram_channel_id === ch.id) ||
+                        (ch.linked_plan_id ? plans?.find(p => p.id === ch.linked_plan_id) : null)
+
       return {
         id: ch.id,
         channelId: ch.channel_id,
         channelName: ch.channel_name,
         audienceType: ch.audience_type,
         verified: !!ch.verified_at,
+        enabled: ch.enabled,
         notifyNewAnalysis: ch.notify_new_analysis,
         notifyTargetHit: ch.notify_target_hit,
         notifyStopHit: ch.notify_stop_hit,
         broadcastLanguage: ch.broadcast_language || 'both',
+        isPlatformDefault: ch.is_platform_default || false,
+        linkedPlanId: ch.linked_plan_id || linkedPlan?.id || null,
+        linkedPlanName: linkedPlan?.name || null,
         createdAt: ch.created_at,
-        plan_id: linkedPlan?.id || null,
-        plan_name: linkedPlan?.name || null,
       }
     }) || []
 

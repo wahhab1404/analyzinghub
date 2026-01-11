@@ -69,6 +69,10 @@ export async function POST(
       target_2: analysis.target_2,
       target_3: analysis.target_3,
       description: analysis.description,
+      activation_enabled: analysis.activation_enabled,
+      activation_type: analysis.activation_type,
+      activation_price: analysis.activation_price,
+      activation_timeframe: analysis.activation_timeframe,
     };
 
     // Apply changes
@@ -80,6 +84,42 @@ export async function POST(
     if (changes.target_2) updateData.target_2 = changes.target_2;
     if (changes.target_3) updateData.target_3 = changes.target_3;
     if (changes.description) updateData.description = changes.description;
+
+    // Handle activation condition changes (only if analysis is not yet activated)
+    if (analysis.activation_status === 'draft' || analysis.activation_status === 'published_inactive') {
+      if (changes.hasOwnProperty('activation_enabled')) {
+        updateData.activation_enabled = changes.activation_enabled;
+
+        if (changes.activation_enabled) {
+          // Validate activation fields
+          if (!changes.activation_type || !changes.activation_price || !changes.activation_timeframe) {
+            return NextResponse.json(
+              { error: 'When activation is enabled, activation_type, activation_price, and activation_timeframe are required' },
+              { status: 400 }
+            );
+          }
+
+          updateData.activation_type = changes.activation_type;
+          updateData.activation_price = parseFloat(changes.activation_price);
+          updateData.activation_timeframe = changes.activation_timeframe;
+          updateData.activation_notes = changes.activation_notes || null;
+
+          // Update status to published_inactive if not already
+          if (analysis.activation_status === 'active') {
+            updateData.activation_status = 'published_inactive';
+          }
+        } else {
+          // If disabling activation, set status to active
+          updateData.activation_status = 'active';
+        }
+      } else if (analysis.activation_enabled) {
+        // Update individual activation fields if activation is enabled
+        if (changes.activation_type) updateData.activation_type = changes.activation_type;
+        if (changes.activation_price) updateData.activation_price = parseFloat(changes.activation_price);
+        if (changes.activation_timeframe) updateData.activation_timeframe = changes.activation_timeframe;
+        if (changes.hasOwnProperty('activation_notes')) updateData.activation_notes = changes.activation_notes;
+      }
+    }
 
     updateData.is_edited = true;
     updateData.last_edited_at = new Date().toISOString();

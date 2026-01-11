@@ -59,11 +59,12 @@ async function sendTelegramPhoto(
   photoUrl: string,
   caption: string
 ) {
-  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
-  
+  console.log('[sendTelegramPhoto] Sending HIGH QUALITY image as document');
+  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+
   const body = {
     chat_id: chatId,
-    photo: photoUrl,
+    document: photoUrl,
     caption,
     parse_mode: 'HTML',
   };
@@ -76,10 +77,13 @@ async function sendTelegramPhoto(
 
   if (!response.ok) {
     const error = await response.text();
+    console.error('[sendTelegramPhoto] Telegram API error:', error);
     throw new Error(`Telegram API error: ${error}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log('[sendTelegramPhoto] Successfully sent high quality image');
+  return result;
 }
 
 Deno.serve(async (req) => {

@@ -56,6 +56,7 @@ interface TelegramChannel {
   channelName: string
   audienceType: 'public' | 'followers' | 'subscribers'
   verified: boolean
+  enabled: boolean
   plan_id?: string | null
   plan_name?: string | null
 }
@@ -162,6 +163,12 @@ export function CreateAnalysisForm() {
 
   const [telegramChannels, setTelegramChannels] = useState<TelegramChannel[]>([])
   const [isLoadingChannels, setIsLoadingChannels] = useState(false)
+
+  const [activationEnabled, setActivationEnabled] = useState(false)
+  const [activationType, setActivationType] = useState<'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE'>('ABOVE_PRICE')
+  const [activationPrice, setActivationPrice] = useState('')
+  const [activationTimeframe, setActivationTimeframe] = useState<'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE'>('DAILY_CLOSE')
+  const [activationNotes, setActivationNotes] = useState('')
 
   useEffect(() => {
     const loadPopularSymbols = async () => {
@@ -400,6 +407,11 @@ export function CreateAnalysisForm() {
         if (targets.some(t => t.expectedTime && !validateDateFormat(t.expectedTime))) {
           throw new Error('All dates must be in dd/mm/yyyy format')
         }
+        if (activationEnabled) {
+          if (!activationPrice || isNaN(parseFloat(activationPrice)) || parseFloat(activationPrice) <= 0) {
+            throw new Error('Valid activation price is required when activation is enabled')
+          }
+        }
       } else if (postType === 'news') {
         if (!title.trim()) {
           throw new Error('Title is required')
@@ -461,6 +473,16 @@ export function CreateAnalysisForm() {
         payload.targets = processedTargets
         payload.analysisType = analysisType
         payload.chartFrame = chartFrame.trim()
+
+        if (activationEnabled) {
+          payload.activationEnabled = true
+          payload.activationType = activationType
+          payload.activationPrice = activationPrice
+          payload.activationTimeframe = activationTimeframe
+          payload.activationNotes = activationNotes.trim()
+        } else {
+          payload.activationEnabled = false
+        }
       } else if (postType === 'news') {
         payload.title = title.trim()
         payload.summary = summary.trim()
@@ -901,6 +923,157 @@ export function CreateAnalysisForm() {
 
               <Separator />
 
+              <div className="space-y-5 p-6 bg-gradient-to-r from-blue-50/50 to-indigo-50/50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-lg border-2 border-blue-200/50 dark:border-blue-800/50">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-5 w-5 text-blue-600" />
+                      <Label className="text-base font-semibold">
+                        Activation Condition (Optional)
+                      </Label>
+                    </div>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Set a condition that must be met before the analysis becomes active. If stoploss is hit before activation, it will NOT be counted as a failure.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="activation-enabled"
+                      checked={activationEnabled}
+                      onCheckedChange={(checked) => setActivationEnabled(checked === true)}
+                    />
+                    <Label
+                      htmlFor="activation-enabled"
+                      className="text-sm font-medium leading-none cursor-pointer"
+                    >
+                      Enable
+                    </Label>
+                  </div>
+                </div>
+
+                {activationEnabled && (
+                  <div className="space-y-4 pt-2">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="activation-type" className="text-sm font-semibold">
+                          Condition Type <span className="text-red-500">*</span>
+                        </Label>
+                        <Select value={activationType} onValueChange={(v) => setActivationType(v as 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE')}>
+                          <SelectTrigger className="h-10">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="PASSING_PRICE">
+                              <div className="flex flex-col">
+                                <span className="font-medium">Passing Price</span>
+                                <span className="text-xs text-muted-foreground">Price crosses through level</span>
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="ABOVE_PRICE">
+                              <div className="flex flex-col">
+                                <span className="font-medium">Above Price</span>
+                                <span className="text-xs text-muted-foreground">Price is above level</span>
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="UNDER_PRICE">
+                              <div className="flex flex-col">
+                                <span className="font-medium">Under Price</span>
+                                <span className="text-xs text-muted-foreground">Price is below level</span>
+                              </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          {activationType === 'PASSING_PRICE' && 'Activates when price crosses the activation price'}
+                          {activationType === 'ABOVE_PRICE' && 'Activates when price is above the activation price'}
+                          {activationType === 'UNDER_PRICE' && 'Activates when price is below the activation price'}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="activation-price" className="text-sm font-semibold">
+                          Activation Price <span className="text-red-500">*</span>
+                        </Label>
+                        <Input
+                          id="activation-price"
+                          type="number"
+                          step="0.01"
+                          placeholder="e.g., 185.00"
+                          value={activationPrice}
+                          onChange={(e) => setActivationPrice(e.target.value)}
+                          required={activationEnabled}
+                          className="h-10"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Price level that must be reached to activate
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="activation-timeframe" className="text-sm font-semibold">
+                        Evaluation Timeframe <span className="text-red-500">*</span>
+                      </Label>
+                      <Select value={activationTimeframe} onValueChange={(v) => setActivationTimeframe(v as 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE')}>
+                        <SelectTrigger className="h-10">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="INTRABAR">
+                            <div className="flex flex-col">
+                              <span className="font-medium">Intrabar (Real-time)</span>
+                              <span className="text-xs text-muted-foreground">Checks current price every 5 minutes</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="1H_CLOSE">
+                            <div className="flex flex-col">
+                              <span className="font-medium">1H Close</span>
+                              <span className="text-xs text-muted-foreground">Checks on hourly candle close</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="4H_CLOSE">
+                            <div className="flex flex-col">
+                              <span className="font-medium">4H Close</span>
+                              <span className="text-xs text-muted-foreground">Checks on 4-hour candle close</span>
+                            </div>
+                          </SelectItem>
+                          <SelectItem value="DAILY_CLOSE">
+                            <div className="flex flex-col">
+                              <span className="font-medium">Daily Close</span>
+                              <span className="text-xs text-muted-foreground">Checks on daily candle close</span>
+                            </div>
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Choose when to evaluate the activation condition
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="activation-notes" className="text-sm font-semibold">
+                        Notes (Optional)
+                      </Label>
+                      <Textarea
+                        id="activation-notes"
+                        placeholder="Add any notes about the activation condition..."
+                        value={activationNotes}
+                        onChange={(e) => setActivationNotes(e.target.value)}
+                        className="min-h-[80px] text-sm"
+                      />
+                    </div>
+
+                    <div className="p-3 bg-blue-100/50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
+                      <p className="text-xs text-blue-900 dark:text-blue-100 leading-relaxed">
+                        <strong>How it works:</strong> Your analysis will remain inactive until the activation condition is met. If the stoploss is touched before activation, it will be logged but NOT counted as a failed trade. Once activated, normal stop and target rules apply.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
               <div className="space-y-2">
                 <Label htmlFor="description" className="text-base font-semibold">
                   {t.dashboard.createForm.description} ({t.dashboard.createForm.optional})
@@ -1165,72 +1338,127 @@ export function CreateAnalysisForm() {
               <p className="text-xs text-muted-foreground">{t.dashboard.createForm.audienceVisibilityDesc}</p>
             </div>
 
-            {visibility === 'subscribers' && analyzerPlans.length > 0 && (
+            {visibility === 'subscribers' && (
               <div className="space-y-3">
                 <Label className="text-base font-semibold flex items-center gap-2">
                   <Star className="h-5 w-5" />
-                  Subscription Plans
+                  Subscription Plans <span className="text-red-500">*</span>
                 </Label>
-                <div className="space-y-2 p-4 border rounded-lg">
-                  {analyzerPlans.map((plan) => {
-                    const planChannel = telegramChannels.find(ch => ch.plan_id === plan.id && ch.audienceType === 'subscribers')
-                    return (
-                      <div key={plan.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
-                        <Checkbox
-                          id={`plan-${plan.id}`}
-                          checked={selectedPlanIds.includes(plan.id)}
-                          onCheckedChange={(checked) => {
-                            if (checked) {
-                              setSelectedPlanIds([...selectedPlanIds, plan.id])
-                            } else {
-                              setSelectedPlanIds(selectedPlanIds.filter(id => id !== plan.id))
-                            }
-                          }}
-                        />
-                        <Label
-                          htmlFor={`plan-${plan.id}`}
-                          className="flex-1 flex items-col gap-2 cursor-pointer font-normal"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <Star className="h-4 w-4 text-yellow-600" />
-                              <span className="font-medium">{plan.name}</span>
-                            </div>
-                            {planChannel && planChannel.verified && (
-                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-green-600">
-                                <Send className="h-3 w-3" />
-                                <span>Will broadcast to: {planChannel.channelName}</span>
+                {analyzerPlans.length === 0 ? (
+                  <div className="p-4 border-2 border-dashed rounded-lg text-center">
+                    <p className="text-sm text-muted-foreground">
+                      No subscription plans found. Please create a plan in Settings → Plan Management.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2 p-4 border rounded-lg">
+                      {analyzerPlans.map((plan) => {
+                        const planChannel = telegramChannels.find(ch => ch.plan_id === plan.id && ch.audienceType === 'subscribers')
+                        return (
+                          <div key={plan.id} className="flex items-center space-x-3 p-2 hover:bg-muted/50 rounded-md transition-colors">
+                            <Checkbox
+                              id={`plan-${plan.id}`}
+                              checked={selectedPlanIds.includes(plan.id)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedPlanIds([...selectedPlanIds, plan.id])
+                                } else {
+                                  setSelectedPlanIds(selectedPlanIds.filter(id => id !== plan.id))
+                                }
+                              }}
+                            />
+                            <Label
+                              htmlFor={`plan-${plan.id}`}
+                              className="flex-1 flex items-col gap-2 cursor-pointer font-normal"
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <Star className="h-4 w-4 text-yellow-600" />
+                                  <span className="font-medium">{plan.name}</span>
+                                </div>
+                                {planChannel && planChannel.verified && (
+                                  <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-green-600">
+                                    <Send className="h-3 w-3" />
+                                    <span>Will broadcast to: {planChannel.channelName}</span>
+                                  </div>
+                                )}
+                                {planChannel && !planChannel.verified && (
+                                  <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-orange-600">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    <span>Channel not verified: {planChannel.channelName}</span>
+                                  </div>
+                                )}
+                                {!planChannel && (
+                                  <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-muted-foreground">
+                                    <AlertTriangle className="h-3 w-3" />
+                                    <span>No Telegram channel connected</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                            {planChannel && !planChannel.verified && (
-                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-orange-600">
-                                <AlertTriangle className="h-3 w-3" />
-                                <span>Channel not verified: {planChannel.channelName}</span>
-                              </div>
-                            )}
-                            {!planChannel && (
-                              <div className="flex items-center gap-1.5 mt-1 ml-6 text-xs text-orange-600">
-                                <AlertTriangle className="h-3 w-3" />
-                                <span>No Telegram channel connected</span>
-                              </div>
-                            )}
+                            </Label>
                           </div>
-                        </Label>
+                        )
+                      })}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedPlanIds.length === 0
+                        ? 'Select at least one plan to post to'
+                        : (() => {
+                            const selectedChannelsCount = selectedPlanIds.filter(planId =>
+                              telegramChannels.some(ch => ch.plan_id === planId && ch.audienceType === 'subscribers' && ch.verified)
+                            ).length
+                            return `Will be posted to ${selectedPlanIds.length} plan${selectedPlanIds.length > 1 ? 's' : ''}${selectedChannelsCount > 0 ? ` and broadcast to ${selectedChannelsCount} verified Telegram channel${selectedChannelsCount > 1 ? 's' : ''}` : ''}`
+                          })()
+                      }
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+
+            {(visibility === 'public' || visibility === 'followers') && (
+              <div className="space-y-3">
+                <Label className="text-base font-semibold flex items-center gap-2">
+                  <Send className="h-5 w-5" />
+                  Telegram Channel
+                </Label>
+                {(() => {
+                  const channel = telegramChannels.find(ch => ch.audienceType === visibility)
+                  if (channel && channel.verified) {
+                    return (
+                      <div className="p-4 border rounded-lg bg-green-50/50 dark:bg-green-950/20">
+                        <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                          <Send className="h-4 w-4" />
+                          <span className="font-medium">Will broadcast to: {channel.channelName}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Your {visibility} audience will see this analysis on Telegram
+                        </p>
                       </div>
                     )
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {selectedPlanIds.length === 0
-                    ? 'Select at least one plan to post to'
-                    : (() => {
-                        const selectedChannelsCount = selectedPlanIds.filter(planId =>
-                          telegramChannels.some(ch => ch.plan_id === planId && ch.audienceType === 'subscribers' && ch.verified)
-                        ).length
-                        return `Will be posted to ${selectedPlanIds.length} plan${selectedPlanIds.length > 1 ? 's' : ''}${selectedChannelsCount > 0 ? ` and broadcast to ${selectedChannelsCount} verified Telegram channel${selectedChannelsCount > 1 ? 's' : ''}` : ''}`
-                      })()
+                  } else if (channel && !channel.verified) {
+                    return (
+                      <div className="p-4 border rounded-lg bg-orange-50/50 dark:bg-orange-950/20">
+                        <div className="flex items-center gap-2 text-orange-700 dark:text-orange-400">
+                          <AlertTriangle className="h-4 w-4" />
+                          <span className="font-medium">Channel not verified: {channel.channelName}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Please verify the channel in Settings → Telegram to enable broadcasting
+                        </p>
+                      </div>
+                    )
+                  } else {
+                    return (
+                      <div className="p-4 border-2 border-dashed rounded-lg text-center">
+                        <p className="text-sm text-muted-foreground">
+                          No {visibility} Telegram channel connected. Connect one in Settings → Telegram to broadcast this analysis.
+                        </p>
+                      </div>
+                    )
                   }
-                </p>
+                })()}
               </div>
             )}
           </div>
