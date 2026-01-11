@@ -56,6 +56,10 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
     schools_used: [] as string[],
     invalidation_price: '',
     targets: [] as { level: string; label: string }[],
+    activation_enabled: false,
+    activation_type: 'PASSING_PRICE' as 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE',
+    activation_price: '',
+    activation_timeframe: 'INTRABAR' as 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE',
     telegram_channel_id: 'none',
     auto_publish_telegram: false,
     visibility: 'public' as 'public' | 'subscribers' | 'admin_only',
@@ -216,6 +220,11 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
               reached: false,
               reached_at: null
             })),
+          activation_enabled: formData.activation_enabled,
+          activation_type: formData.activation_enabled ? formData.activation_type : null,
+          activation_price: formData.activation_enabled && formData.activation_price ? parseFloat(formData.activation_price) : null,
+          activation_timeframe: formData.activation_enabled ? formData.activation_timeframe : null,
+          activation_status: formData.activation_enabled ? 'published_inactive' : 'active',
           telegram_channel_id: formData.telegram_channel_id && formData.telegram_channel_id !== 'none' ? formData.telegram_channel_id : null,
           auto_publish_telegram: formData.auto_publish_telegram,
           visibility: formData.visibility,
@@ -425,6 +434,95 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
             Set price targets to get notifications when they're reached
           </p>
         </div>
+      </div>
+
+      {/* Activation Condition */}
+      <div className="space-y-4 border-t pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-lg">Activation Condition</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              Require a price condition to be met before the analysis becomes active
+            </p>
+          </div>
+          <Checkbox
+            id="activation_enabled"
+            checked={formData.activation_enabled}
+            onCheckedChange={(checked) =>
+              setFormData({ ...formData, activation_enabled: checked as boolean })
+            }
+          />
+        </div>
+
+        {formData.activation_enabled && (
+          <div className="space-y-4 pl-4 border-l-2 border-primary/20">
+            <div className="space-y-2">
+              <Label htmlFor="activation_type">Condition Type *</Label>
+              <Select
+                value={formData.activation_type}
+                onValueChange={(value: any) => setFormData({ ...formData, activation_type: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PASSING_PRICE">Passing Price (crosses)</SelectItem>
+                  <SelectItem value="ABOVE_PRICE">Above Price</SelectItem>
+                  <SelectItem value="UNDER_PRICE">Under Price</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {formData.activation_type === 'PASSING_PRICE' && 'Activates when price crosses the specified level'}
+                {formData.activation_type === 'ABOVE_PRICE' && 'Activates when price is above the specified level'}
+                {formData.activation_type === 'UNDER_PRICE' && 'Activates when price is under the specified level'}
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="activation_price">Activation Price *</Label>
+              <Input
+                id="activation_price"
+                type="number"
+                step="0.01"
+                placeholder="e.g., 5950.00"
+                value={formData.activation_price}
+                onChange={(e) => setFormData({ ...formData, activation_price: e.target.value })}
+                required={formData.activation_enabled}
+              />
+              <p className="text-xs text-muted-foreground">
+                Analysis will wait until this condition is met before becoming active
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="activation_timeframe">Timeframe Check</Label>
+              <Select
+                value={formData.activation_timeframe}
+                onValueChange={(value: any) => setFormData({ ...formData, activation_timeframe: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="INTRABAR">Intrabar (Real-time)</SelectItem>
+                  <SelectItem value="1H_CLOSE">1H Candle Close</SelectItem>
+                  <SelectItem value="4H_CLOSE">4H Candle Close</SelectItem>
+                  <SelectItem value="DAILY_CLOSE">Daily Candle Close</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                When to check if the condition has been met
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3 border border-amber-200 dark:border-amber-800">
+              <p className="text-xs text-amber-800 dark:text-amber-200">
+                <strong>Note:</strong> The analysis will be published but marked as "Waiting for Activation".
+                It will become active only when the condition is met. Subscribers will be notified when activation occurs.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Telegram Publishing */}

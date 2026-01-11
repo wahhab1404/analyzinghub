@@ -20,7 +20,9 @@ import {
   AlertCircle,
   User,
   X,
-  ExternalLink
+  ExternalLink,
+  Zap,
+  CheckCircle2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
@@ -55,6 +57,15 @@ interface IndexAnalysis {
   created_at: string
   published_at: string
   trades: Trade[]
+  activation_enabled?: boolean
+  activation_type?: 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE'
+  activation_price?: number
+  activation_timeframe?: 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE'
+  activation_status?: 'draft' | 'published_inactive' | 'active' | 'completed_success' | 'completed_fail' | 'cancelled' | 'expired'
+  activated_at?: string
+  activation_met_at?: string
+  preactivation_stop_touched?: boolean
+  preactivation_stop_touched_at?: string
   author?: {
     id: string
     full_name: string
@@ -132,6 +143,32 @@ export function IndexAnalysisDetailDialog({
     }
     return config[status]
   }
+
+  const getActivationTypeLabel = (type?: string) => {
+    switch (type) {
+      case 'PASSING_PRICE': return 'Passing Price'
+      case 'ABOVE_PRICE': return 'Price Above'
+      case 'UNDER_PRICE': return 'Price Under'
+      default: return 'Unknown'
+    }
+  }
+
+  const getActivationStatusLabel = (status?: string) => {
+    switch (status) {
+      case 'published_inactive': return 'Waiting for Activation'
+      case 'active': return 'Active'
+      case 'completed_success': return 'Completed Successfully'
+      case 'completed_fail': return 'Failed'
+      case 'cancelled': return 'Cancelled'
+      case 'expired': return 'Expired'
+      default: return status
+    }
+  }
+
+  const isConditionMet = analysis?.activation_enabled &&
+    (analysis.activation_status === 'active' ||
+     analysis.activation_status === 'completed_success' ||
+     analysis.activation_status === 'completed_fail')
 
   if (!analysis) {
     return (
@@ -212,6 +249,84 @@ export function IndexAnalysisDetailDialog({
                 {analysis.body}
               </div>
             </div>
+
+            {/* Activation Condition */}
+            {analysis.activation_enabled && (
+              <div className="mb-6">
+                <div className={`border-2 rounded-lg p-4 ${
+                  isConditionMet
+                    ? 'border-green-500/50 bg-green-50 dark:bg-green-900/20'
+                    : analysis.preactivation_stop_touched
+                    ? 'border-orange-500/50 bg-orange-50 dark:bg-orange-900/20'
+                    : 'border-amber-500/50 bg-amber-50 dark:bg-amber-900/20'
+                }`}>
+                  <div className="flex items-start gap-3">
+                    {isConditionMet ? (
+                      <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <Zap className="h-6 w-6 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1 space-y-3">
+                      <div>
+                        <h4 className="font-semibold text-base mb-1">
+                          {isConditionMet ? 'Activation Condition Met ✓' : 'Activation Condition Required'}
+                        </h4>
+                        <p className="text-sm opacity-90">
+                          This analysis will activate when price {getActivationTypeLabel(analysis.activation_type).toLowerCase()} ${analysis.activation_price?.toFixed(2)}
+                          {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
+                            <span> at {analysis.activation_timeframe.replace('_', ' ').toLowerCase()}</span>
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={isConditionMet ? 'default' : 'outline'} className="text-xs">
+                          Status: {getActivationStatusLabel(analysis.activation_status)}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          Condition: {getActivationTypeLabel(analysis.activation_type)}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          Price: ${analysis.activation_price?.toFixed(2)}
+                        </Badge>
+                        {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
+                          <Badge variant="outline" className="text-xs">
+                            Timeframe: {analysis.activation_timeframe.replace('_', ' ')}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {analysis.preactivation_stop_touched && !isConditionMet && (
+                        <div className="flex items-start gap-2 p-2 rounded bg-orange-100 dark:bg-orange-900/30 text-sm">
+                          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0 text-orange-600 dark:text-orange-400" />
+                          <div>
+                            <p className="font-medium">Stop Touched Before Activation</p>
+                            <p className="text-xs opacity-80 mt-1">
+                              The stop loss was touched at {analysis.preactivation_stop_touched_at && format(new Date(analysis.preactivation_stop_touched_at), 'PPP p')}. This is not counted as a failure since the analysis was not yet active.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {isConditionMet && analysis.activated_at && (
+                        <div className="flex items-start gap-2 p-2 rounded bg-green-100 dark:bg-green-900/30 text-sm">
+                          <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0 text-green-600 dark:text-green-400" />
+                          <div>
+                            <p className="font-medium">Analysis Activated</p>
+                            <p className="text-xs opacity-80 mt-1">
+                              Condition was met on {format(new Date(analysis.activated_at), 'PPP p')}
+                              {analysis.activation_met_at && analysis.activation_met_at !== analysis.activated_at && (
+                                <span> (first detected at {format(new Date(analysis.activation_met_at), 'PPP p')})</span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <Separator className="my-6" />
 

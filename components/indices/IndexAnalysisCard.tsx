@@ -13,7 +13,9 @@ import {
   FileText,
   Target,
   AlertCircle,
-  Eye
+  Eye,
+  Zap,
+  CheckCircle2
 } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -46,6 +48,14 @@ interface IndexAnalysis {
   active_trades_count: number
   targets?: Array<{ level: number; label: string; reached: boolean; reached_at: string | null }>
   invalidation_price?: number
+  activation_enabled?: boolean
+  activation_type?: 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE'
+  activation_price?: number
+  activation_timeframe?: 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE'
+  activation_status?: 'draft' | 'published_inactive' | 'active' | 'completed_success' | 'completed_fail' | 'cancelled' | 'expired'
+  activated_at?: string
+  activation_met_at?: string
+  preactivation_stop_touched?: boolean
   author?: {
     id: string
     full_name: string
@@ -101,6 +111,30 @@ export function IndexAnalysisCard({
       <TrendingUp className="h-3 w-3" /> :
       <TrendingDown className="h-3 w-3" />
   }
+
+  const getActivationTypeLabel = (type?: string) => {
+    switch (type) {
+      case 'PASSING_PRICE': return 'Passing'
+      case 'ABOVE_PRICE': return 'Above'
+      case 'UNDER_PRICE': return 'Under'
+      default: return 'Unknown'
+    }
+  }
+
+  const getActivationStatusLabel = (status?: string) => {
+    switch (status) {
+      case 'published_inactive': return 'Waiting for Activation'
+      case 'active': return 'Active'
+      case 'completed_success': return 'Completed'
+      case 'completed_fail': return 'Failed'
+      default: return status
+    }
+  }
+
+  const isConditionMet = analysis.activation_enabled &&
+    (analysis.activation_status === 'active' ||
+     analysis.activation_status === 'completed_success' ||
+     analysis.activation_status === 'completed_fail')
 
   return (
     <Card
@@ -202,6 +236,48 @@ export function IndexAnalysisCard({
               )}
             </div>
           ) : null}
+
+          {/* Activation Condition */}
+          {analysis.activation_enabled && (
+            <div className="pt-2 border-t mt-2">
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${
+                isConditionMet
+                  ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
+                  : analysis.preactivation_stop_touched
+                  ? 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+              }`}>
+                {isConditionMet ? (
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <Zap className="h-4 w-4 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold mb-0.5">
+                    {isConditionMet ? 'Condition Met' : 'Activation Required'}
+                  </div>
+                  <div className="text-xs opacity-90">
+                    {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(2)}
+                    {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' &&
+                      ` (${analysis.activation_timeframe.replace('_', ' ')})`}
+                  </div>
+                  {analysis.preactivation_stop_touched && !isConditionMet && (
+                    <div className="text-xs opacity-75 mt-1">
+                      ⚠️ Stop touched before activation
+                    </div>
+                  )}
+                  {isConditionMet && analysis.activated_at && (
+                    <div className="text-xs opacity-75 mt-1">
+                      Activated: {format(new Date(analysis.activated_at), 'MMM d, HH:mm')}
+                    </div>
+                  )}
+                </div>
+                <Badge variant={isConditionMet ? 'default' : 'outline'} className="text-xs">
+                  {getActivationStatusLabel(analysis.activation_status)}
+                </Badge>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Trades Section */}

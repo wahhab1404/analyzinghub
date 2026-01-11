@@ -9,6 +9,30 @@ interface Author {
   email?: string;
 }
 
+function getActivationTypeLabel(type?: string, lang: 'en' | 'ar' = 'en'): string {
+  if (!type) return lang === 'en' ? 'Unknown' : 'غير معروف';
+
+  const labels = {
+    PASSING_PRICE: { en: 'Passing', ar: 'عبور' },
+    ABOVE_PRICE: { en: 'Above', ar: 'فوق' },
+    UNDER_PRICE: { en: 'Under', ar: 'تحت' }
+  };
+
+  return labels[type as keyof typeof labels]?.[lang] || type;
+}
+
+function getActivationTimeframeLabel(timeframe?: string, lang: 'en' | 'ar' = 'en'): string {
+  if (!timeframe || timeframe === 'INTRABAR') return '';
+
+  const labels = {
+    '1H_CLOSE': { en: '1H Close', ar: 'إغلاق ساعة' },
+    '4H_CLOSE': { en: '4H Close', ar: 'إغلاق 4 ساعات' },
+    'DAILY_CLOSE': { en: 'Daily Close', ar: 'إغلاق يومي' }
+  };
+
+  return labels[timeframe as keyof typeof labels]?.[lang] || timeframe;
+}
+
 interface IndexAnalysis {
   id: string;
   index_symbol: string;
@@ -18,6 +42,15 @@ interface IndexAnalysis {
   schools_used?: string[];
   invalidation_price?: number;
   chart_image_url?: string;
+  activation_enabled?: boolean;
+  activation_type?: 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE';
+  activation_price?: number;
+  activation_timeframe?: 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE';
+  activation_status?: 'draft' | 'published_inactive' | 'active' | 'completed_success' | 'completed_fail' | 'cancelled' | 'expired';
+  activated_at?: string;
+  activation_met_at?: string;
+  preactivation_stop_touched?: boolean;
+  preactivation_stop_touched_at?: string;
   author: Author;
 }
 
@@ -99,6 +132,34 @@ export function formatAnalysisMessage(
     message += `<b>⚠️ Invalidation:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
 
+  // Activation Condition Info
+  if (analysis.activation_enabled && analysis.activation_price) {
+    const isActive = analysis.activation_status === 'active' ||
+      analysis.activation_status === 'completed_success' ||
+      analysis.activation_status === 'completed_fail';
+
+    if (isActive) {
+      message += `<b>✅ Activation Condition Met</b>\n`;
+      if (analysis.activated_at) {
+        message += `<i>Activated at ${new Date(analysis.activated_at).toLocaleString()}</i>\n\n`;
+      }
+    } else {
+      message += `<b>⚡ Activation Required:</b>\n`;
+      message += `Price must be ${getActivationTypeLabel(analysis.activation_type, 'en').toLowerCase()} $${analysis.activation_price.toFixed(2)}`;
+
+      const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'en');
+      if (tfLabel) {
+        message += ` (${tfLabel})`;
+      }
+      message += `\n`;
+
+      if (analysis.preactivation_stop_touched) {
+        message += `<i>⚠️ Stop touched before activation</i>\n`;
+      }
+      message += `\n`;
+    }
+  }
+
   message += `<a href="${analysisUrl}">📈 View Full Analysis</a>`;
 
   message += "\n\n━━━━━━━━━━\n\n";
@@ -110,6 +171,34 @@ export function formatAnalysisMessage(
 
   if (analysis.invalidation_price) {
     message += `<b>⚠️ الإبطال:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
+  }
+
+  // Activation Condition Info (Arabic)
+  if (analysis.activation_enabled && analysis.activation_price) {
+    const isActive = analysis.activation_status === 'active' ||
+      analysis.activation_status === 'completed_success' ||
+      analysis.activation_status === 'completed_fail';
+
+    if (isActive) {
+      message += `<b>✅ تم استيفاء شرط التفعيل</b>\n`;
+      if (analysis.activated_at) {
+        message += `<i>تم التفعيل في ${new Date(analysis.activated_at).toLocaleString('ar')}</i>\n\n`;
+      }
+    } else {
+      message += `<b>⚡ يتطلب التفعيل:</b>\n`;
+      message += `يجب أن يكون السعر ${getActivationTypeLabel(analysis.activation_type, 'ar')} $${analysis.activation_price.toFixed(2)}`;
+
+      const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'ar');
+      if (tfLabel) {
+        message += ` (${tfLabel})`;
+      }
+      message += `\n`;
+
+      if (analysis.preactivation_stop_touched) {
+        message += `<i>⚠️ تم لمس نقطة الوقف قبل التفعيل</i>\n`;
+      }
+      message += `\n`;
+    }
   }
 
   message += `<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;

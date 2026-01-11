@@ -20,7 +20,7 @@ export default function FeedPage() {
   const [followingAnalyses, setFollowingAnalyses] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [validating, setValidating] = useState(false)
-  const [activeTab, setActiveTab] = useState<string>('recommended')
+  const [activeTab, setActiveTab] = useState<string>('following')
   const [tabsLoaded, setTabsLoaded] = useState(false)
 
   const fetchAnalyses = () => {

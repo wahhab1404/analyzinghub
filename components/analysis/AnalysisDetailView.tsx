@@ -8,13 +8,14 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ImageViewer } from '@/components/ui/image-viewer'
 import { ShareMenu } from '@/components/ui/share-menu'
-import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, ArrowLeft, Newspaper, FileText, LineChart, ExternalLink, Send, Lock, Users } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, ArrowLeft, Newspaper, FileText, LineChart, ExternalLink, Send, Lock, Users, Repeat } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { FollowButton } from '@/components/profile/FollowButton'
 import { StockPrice } from './StockPrice'
 import { CommentSection } from './CommentSection'
+import { ResendToChannelDialog } from './ResendToChannelDialog'
 import { toast } from 'sonner'
 import { useAnalytics } from '@/hooks/use-analytics'
 import { downloadImageWithWatermark, generatePostSnapshot } from '@/lib/image-utils'
@@ -85,6 +86,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
   const [isLoading, setIsLoading] = useState(false)
   const [showImageViewer, setShowImageViewer] = useState(false)
   const [isBroadcasting, setIsBroadcasting] = useState(false)
+  const [showResendDialog, setShowResendDialog] = useState(false)
   const analytics = useAnalytics()
 
   // Handle both regular analyses and index analyses
@@ -669,19 +671,29 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
 
             <div className="flex items-center gap-1">
               {analysis.is_own_post && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleBroadcastToTelegram}
-                  disabled={isBroadcasting}
-                  title="Send to Telegram channel"
-                >
-                  {isBroadcasting ? (
-                    <Clock className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleBroadcastToTelegram}
+                    disabled={isBroadcasting}
+                    title="Send to default Telegram channel"
+                  >
+                    {isBroadcasting ? (
+                      <Clock className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowResendDialog(true)}
+                    title="Resend to another Telegram channel"
+                  >
+                    <Repeat className="h-4 w-4" />
+                  </Button>
+                </>
               )}
 
               <ShareMenu
@@ -728,6 +740,13 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
           onDownload={handleDownloadImage}
         />
       )}
+
+      <ResendToChannelDialog
+        open={showResendDialog}
+        onOpenChange={setShowResendDialog}
+        analysisId={analysis.id}
+        analysisTitle={analysis.title || analysis.summary || `${symbol} ${analysis.direction || ''} analysis`}
+      />
     </div>
   )
 }

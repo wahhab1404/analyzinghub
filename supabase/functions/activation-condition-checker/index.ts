@@ -9,9 +9,8 @@ const corsHeaders = {
 
 interface AnalysisWithActivation {
   id: string;
-  symbol_id: string;
-  direction: string;
-  stop_loss: number;
+  index_symbol: string;
+  invalidation_price: number | null;
   activation_enabled: boolean;
   activation_type: 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE';
   activation_price: number;
@@ -19,9 +18,6 @@ interface AnalysisWithActivation {
   activation_status: string;
   last_eval_price: number | null;
   preactivation_stop_touched: boolean;
-  symbols: {
-    symbol: string;
-  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -37,12 +33,11 @@ Deno.serve(async (req: Request) => {
 
     console.log("🔍 [activation-checker] Starting activation condition check...");
 
-    // Fetch analyses waiting for activation
+    // Fetch index analyses waiting for activation
     const { data: analyses, error: fetchError } = await supabase
-      .from("analyses")
+      .from("index_analyses")
       .select(`
-        *,
-        symbols!inner(symbol)
+        *
       `)
       .eq("activation_enabled", true)
       .eq("activation_status", "published_inactive")
@@ -73,40 +68,36 @@ Deno.serve(async (req: Request) => {
 
     for (const analysis of analyses as AnalysisWithActivation[]) {
       try {
-        console.log(`\n🔍 Checking analysis ${analysis.id} (${analysis.symbols.symbol})`);
+        console.log(`\n🔍 Checking analysis ${analysis.id} (${analysis.index_symbol})`);
 
         // Get current price based on timeframe
         const priceData = await fetchPriceForTimeframe(
-          analysis.symbols.symbol,
+          analysis.index_symbol,
           analysis.activation_timeframe,
           polygonApiKey
         );
 
         if (!priceData) {
-          console.log(`⚠️  No price data for ${analysis.symbols.symbol}`);
+          console.log(`⚠️  No price data for ${analysis.index_symbol}`);
           continue;
         }
 
         console.log(`💰 Price data: ${JSON.stringify(priceData)}`);
 
-        // Check for pre-activation stop touch
-        if (!analysis.preactivation_stop_touched && analysis.stop_loss) {
-          const stopTouched = checkStopTouched(
-            priceData.current,
-            analysis.stop_loss,
-            analysis.direction
-          );
+        // Check for pre-activation invalidation price touch
+        if (!analysis.preactivation_stop_touched && analysis.invalidation_price) {
+          const invalidationTouched = priceData.current <= analysis.invalidation_price;
 
-          if (stopTouched) {
-            console.log(`🛑 Pre-activation stop touched for ${analysis.id}`);
-            
-            const { error: stopError } = await supabase.rpc(
-              "mark_preactivation_stop_touched",
-              {
-                p_analysis_id: analysis.id,
-                p_price: priceData.current,
-              }
-            );
+          if (invalidationTouched) {
+            console.log(`🛑 Pre-activation invalidation price touched for ${analysis.id}`);
+
+            const { error: stopError } = await supabase
+              .from("index_analyses")
+              .update({
+                preactivation_stop_touched: true,
+                preactivation_stop_touched_at: new Date().toISOString()
+              })
+              .eq("id", analysis.id);
 
             if (stopError) {
               console.error("Error marking pre-activation stop:", stopError);
@@ -126,14 +117,15 @@ Deno.serve(async (req: Request) => {
         if (isActivated) {
           console.log(`✅ Activation condition met for ${analysis.id}`);
 
-          const { error: activateError } = await supabase.rpc(
-            "activate_analysis",
-            {
-              p_analysis_id: analysis.id,
-              p_activation_price: priceData.current,
-              p_notes: `Activated at ${priceData.current} via ${analysis.activation_timeframe} check`,
-            }
-          );
+          const { error: activateError } = await supabase
+            .from("index_analyses")
+            .update({
+              activation_status: 'active',
+              activated_at: new Date().toISOString(),
+              activation_met_at: new Date().toISOString(),
+              activation_notes: `Activated at ${priceData.current} via ${analysis.activation_timeframe} check`
+            })
+            .eq("id", analysis.id);
 
           if (activateError) {
             console.error("Error activating analysis:", activateError);
@@ -144,7 +136,7 @@ Deno.serve(async (req: Request) => {
         } else {
           // Update last eval price for next check
           await supabase
-            .from("analyses")
+            .from("index_analyses")
             .update({
               last_eval_price: priceData.current,
               last_eval_at: new Date().toISOString(),
@@ -240,7 +232,7 @@ function evaluateActivationCondition(
   currentPrice: number,
   previousPrice: number | null
 ): boolean {
-  const { activation_type, activation_price, last_eval_price, direction } = analysis;
+  const { activation_type, activation_price, last_eval_price } = analysis;
 
   switch (activation_type) {
     case "ABOVE_PRICE":
@@ -256,16 +248,6 @@ function evaluateActivationCondition(
         return false;
       }
 
-      // For LONG positions: crossing ABOVE activation price
-      if (direction === "LONG") {
-        return priceToCompare <= activation_price && currentPrice > activation_price;
-      }
-
-      // For SHORT positions: crossing BELOW activation price
-      if (direction === "SHORT") {
-        return priceToCompare >= activation_price && currentPrice < activation_price;
-      }
-
       // Generic crossing (either direction)
       return (
         (priceToCompare <= activation_price && currentPrice > activation_price) ||
@@ -275,19 +257,4 @@ function evaluateActivationCondition(
     default:
       return false;
   }
-}
-
-function checkStopTouched(
-  currentPrice: number,
-  stopLoss: number,
-  direction: string
-): boolean {
-  if (direction === "LONG") {
-    // For long, stop is below entry
-    return currentPrice <= stopLoss;
-  } else if (direction === "SHORT") {
-    // For short, stop is above entry
-    return currentPrice >= stopLoss;
-  }
-  return false;
 }

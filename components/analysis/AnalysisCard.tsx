@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ImageViewer } from '@/components/ui/image-viewer'
 import { ShareMenu } from '@/components/ui/share-menu'
-import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, Star, Newspaper, FileText, LineChart, ExternalLink, Lock, Users } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, Star, Newspaper, FileText, LineChart, ExternalLink, Lock, Users, Zap, AlertCircle } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { FollowButton } from '@/components/profile/FollowButton'
@@ -39,6 +39,15 @@ interface AnalysisCardProps {
     is_following?: boolean
     is_own_post?: boolean
     visibility?: 'public' | 'followers' | 'subscribers' | 'private'
+    activation_enabled?: boolean
+    activation_type?: 'PASSING_PRICE' | 'ABOVE_PRICE' | 'UNDER_PRICE'
+    activation_price?: number
+    activation_timeframe?: 'INTRABAR' | '1H_CLOSE' | '4H_CLOSE' | 'DAILY_CLOSE'
+    activation_status?: 'draft' | 'published_inactive' | 'active' | 'completed_success' | 'completed_fail' | 'cancelled' | 'expired'
+    activated_at?: string
+    activation_met_at?: string
+    preactivation_stop_touched?: boolean
+    preactivation_stop_touched_at?: string
     profiles: {
       id: string
       full_name: string
@@ -358,6 +367,20 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
   const status = analysis.status || 'IN_PROGRESS'
   const sortedTargets = analysis.analysis_targets ? [...analysis.analysis_targets].sort((a, b) => a.price - b.price) : []
 
+  const getActivationTypeLabel = (type?: string) => {
+    switch (type) {
+      case 'PASSING_PRICE': return 'Passing'
+      case 'ABOVE_PRICE': return 'Above'
+      case 'UNDER_PRICE': return 'Under'
+      default: return 'Unknown'
+    }
+  }
+
+  const isConditionMet = analysis.activation_enabled &&
+    (analysis.activation_status === 'active' ||
+     analysis.activation_status === 'completed_success' ||
+     analysis.activation_status === 'completed_fail')
+
   const validationEvent = analysis.validation_events?.[0]
   const hitTargetNumber = validationEvent?.event_type === 'TARGET_HIT' ? validationEvent.target_number : null
   const stopLossHit = validationEvent?.event_type === 'STOP_LOSS_HIT'
@@ -441,10 +464,25 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
             )}
             {postType === 'analysis' && analysis.direction && (
               <>
-                <Badge variant="outline" className={statusConfig[status].className}>
-                  <span className="mr-1">{statusConfig[status].icon}</span>
-                  {statusConfig[status].label}
-                </Badge>
+                {analysis.activation_enabled ? (
+                  <Badge variant="outline" className={
+                    isConditionMet
+                      ? 'bg-green-100 text-green-800 border-green-300'
+                      : analysis.preactivation_stop_touched
+                      ? 'bg-orange-100 text-orange-800 border-orange-300'
+                      : 'bg-amber-100 text-amber-800 border-amber-300'
+                  }>
+                    <span className="mr-1">
+                      {isConditionMet ? <CheckCircle2 className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+                    </span>
+                    {isConditionMet ? 'Active' : 'Waiting Activation'}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className={statusConfig[status].className}>
+                    <span className="mr-1">{statusConfig[status].icon}</span>
+                    {statusConfig[status].label}
+                  </Badge>
+                )}
                 <Badge variant="outline" className={directionColors[analysis.direction]}>
                   <span className="mr-1">{directionIcons[analysis.direction]}</span>
                   {analysis.direction}
@@ -527,6 +565,55 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
                 alt={postType === 'news' ? t.analysisCard.newsImage : postType === 'article' ? t.analysisCard.articleImage : t.analysis.chart}
                 className="w-full h-auto object-cover"
               />
+            </div>
+          )}
+
+          {postType === 'analysis' && analysis.activation_enabled && analysis.activation_price && (
+            <div className={`p-3 rounded-lg border ${
+              isConditionMet
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                : analysis.preactivation_stop_touched
+                ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800'
+                : 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+            }`}>
+              <div className="flex items-start gap-2">
+                <div className="flex-shrink-0 mt-0.5">
+                  {isConditionMet ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <Zap className="h-4 w-4 text-amber-600" />
+                  )}
+                </div>
+                <div className="flex-1 space-y-1">
+                  <p className={`text-sm font-semibold ${
+                    isConditionMet
+                      ? 'text-green-800 dark:text-green-300'
+                      : 'text-amber-800 dark:text-amber-300'
+                  }`}>
+                    {isConditionMet ? 'Condition Met - Analysis Active' : 'Activation Required'}
+                  </p>
+                  <p className={`text-xs ${
+                    isConditionMet
+                      ? 'text-green-700 dark:text-green-400'
+                      : 'text-amber-700 dark:text-amber-400'
+                  }`}>
+                    Price must be {getActivationTypeLabel(analysis.activation_type).toLowerCase()} ${analysis.activation_price.toFixed(2)}
+                    {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' &&
+                      ` (${analysis.activation_timeframe.replace('_', ' ')})`}
+                  </p>
+                  {analysis.preactivation_stop_touched && !isConditionMet && (
+                    <p className="text-xs text-orange-700 dark:text-orange-400 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      Stop touched before activation
+                    </p>
+                  )}
+                  {isConditionMet && analysis.activated_at && (
+                    <p className="text-xs text-green-700 dark:text-green-400">
+                      Activated {formatDistanceToNow(new Date(analysis.activated_at), { addSuffix: true })}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
