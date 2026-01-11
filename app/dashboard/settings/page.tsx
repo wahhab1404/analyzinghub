@@ -64,7 +64,7 @@ export default function SettingsPage() {
   const isAdmin = user.role?.toLowerCase() === 'admin'
 
   return (
-    <div className="container max-w-4xl py-8">
+    <div className="container max-w-7xl py-8 px-4 sm:px-6 lg:px-8">
       <div className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">{t.settings.title}</h1>
         <p className="text-muted-foreground mt-2">

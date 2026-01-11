@@ -253,7 +253,7 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
                 <DollarSign className="h-5 w-5" />
-                Total P/L
+                {t.dashboard.totalProfitLoss}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -261,7 +261,7 @@ export default function DashboardPage() {
                 {formatCurrency(tradeStats.totalProfit)}
               </p>
               <p className="text-sm text-muted-foreground mt-2">
-                {tradeStats.closedTrades} closed trades
+                {tradeStats.closedTrades} {t.dashboard.closedTrades}
               </p>
             </CardContent>
           </Card>
@@ -270,7 +270,7 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
                 <TrendingUp className="h-5 w-5" />
-                Win Rate
+                {t.dashboard.winRate}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -278,7 +278,7 @@ export default function DashboardPage() {
                 {tradeStats.winRate}%
               </p>
               <p className="text-sm text-muted-foreground mt-2">
-                {tradeStats.winningTrades} winning / {tradeStats.closedTrades} total
+                {tradeStats.winningTrades} {t.dashboard.winningOf} {tradeStats.closedTrades} {t.dashboard.total}
               </p>
             </CardContent>
           </Card>
@@ -287,7 +287,7 @@ export default function DashboardPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-purple-900 dark:text-purple-100">
                 <Calendar className="h-5 w-5" />
-                This Month
+                {t.dashboard.thisMonth}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -295,7 +295,7 @@ export default function DashboardPage() {
                 {formatCurrency(tradeStats.currentMonthProfit)}
               </p>
               <p className="text-sm text-muted-foreground mt-2">
-                Month-to-date performance
+                {t.dashboard.monthToDatePerformance}
               </p>
             </CardContent>
           </Card>
@@ -307,9 +307,9 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              Last 7 Days Performance
+              {t.dashboard.last7DaysPerformance}
             </CardTitle>
-            <CardDescription>Your daily profit/loss trend</CardDescription>
+            <CardDescription>{t.dashboard.dailyProfitLossTrend}</CardDescription>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -359,9 +359,9 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5" />
-              Last 5 Closed Trades
+              {t.dashboard.last5ClosedTrades}
             </CardTitle>
-            <CardDescription>Your most recent completed trades</CardDescription>
+            <CardDescription>{t.dashboard.mostRecentCompletedTrades}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">

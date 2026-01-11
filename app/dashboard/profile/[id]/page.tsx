@@ -18,6 +18,7 @@ import { PlanManagement } from '@/components/settings/PlanManagement'
 import { ProfileTradesList } from '@/components/profile/ProfileTradesList'
 import { ProfileStats } from '@/components/rankings/ProfileStats'
 import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package, Settings2, BarChart3 } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 interface ProfilePageProps {
   params: {
@@ -27,6 +28,7 @@ interface ProfilePageProps {
 
 export default function ProfilePage({ params }: ProfilePageProps) {
   const router = useRouter()
+  const { t } = useLanguage()
   const [profileData, setProfileData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [userRating, setUserRating] = useState<any>(null)
@@ -149,7 +151,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">Loading profile...</p>
+        <p className="text-muted-foreground">{t.profile.loadingProfile}</p>
       </div>
     )
   }
@@ -167,7 +169,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
   }
 
   return (
-    <div className="max-w-5xl mx-auto py-8 space-y-6">
+    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6">
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row items-start justify-between gap-6">
@@ -190,7 +192,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   {hasSubscriptionPlans && (
                     <Badge variant="default" className="gap-1 bg-gradient-to-r from-blue-600 to-purple-600">
                       <Package className="h-3 w-3" />
-                      Offers Subscriptions
+                      {t.profile.offersSubscriptions}
                     </Badge>
                   )}
                   {ratingStats && ratingStats.total_ratings > 0 && (
@@ -240,79 +242,79 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               {isOwnProfile && (
                 <Link href="/dashboard/settings">
                   <Badge variant="secondary" className="cursor-pointer hover:bg-secondary/80">
-                    Edit Profile
+                    {t.profile.editProfile}
                   </Badge>
                 </Link>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mt-8 pt-6 border-t">
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mt-8 pt-6 border-t">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.total_analyses || 0}</p>
-              <p className="text-xs text-muted-foreground">Total</p>
+              <p className="text-lg font-bold">{stats.total_analyses || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.total}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <Activity className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                <Activity className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.active_analyses || 0}</p>
-              <p className="text-xs text-muted-foreground">Active</p>
+              <p className="text-lg font-bold">{stats.active_analyses || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.active}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <Target className="h-4 w-4 text-green-600 dark:text-green-400" />
+                <Target className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.successful_analyses || 0}</p>
-              <p className="text-xs text-muted-foreground">Successful</p>
+              <p className="text-lg font-bold">{stats.successful_analyses || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.successful}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <TrendingUp className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                <TrendingUp className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
               </div>
-              <div className={`text-2xl font-bold px-2 py-1 rounded ${getSuccessRateBadgeColor(stats.success_rate || 0)}`}>
+              <div className={`text-lg font-bold px-2 py-0.5 rounded ${getSuccessRateBadgeColor(stats.success_rate || 0)}`}>
                 {stats.success_rate || 0}%
               </div>
-              <p className="text-xs text-muted-foreground mt-1">Success Rate</p>
+              <p className="text-[10px] text-muted-foreground mt-1">{t.profile.successRate}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <Users className="h-4 w-4 text-pink-600 dark:text-pink-400" />
+                <Users className="h-3.5 w-3.5 text-pink-600 dark:text-pink-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.followers_count || 0}</p>
-              <p className="text-xs text-muted-foreground">Followers</p>
+              <p className="text-lg font-bold">{stats.followers_count || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.followers}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <UserPlus className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
+                <UserPlus className="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.following_count || 0}</p>
-              <p className="text-xs text-muted-foreground">Following</p>
+              <p className="text-lg font-bold">{stats.following_count || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.following}</p>
             </div>
 
-            <div className="text-center p-3 rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="text-center p-2 rounded-lg bg-slate-50 dark:bg-slate-900">
               <div className="flex items-center justify-center mb-1">
-                <FileText className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                <FileText className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
               </div>
-              <p className="text-2xl font-bold">{stats.completed_analyses || 0}</p>
-              <p className="text-xs text-muted-foreground">Completed</p>
+              <p className="text-lg font-bold">{stats.completed_analyses || 0}</p>
+              <p className="text-[10px] text-muted-foreground">{t.profile.completed}</p>
             </div>
           </div>
 
           {stats.completed_analyses > 0 && (
             <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-950 rounded-lg border border-blue-100 dark:border-blue-900">
               <p className="text-sm text-blue-900 dark:text-blue-100">
-                <strong>Performance:</strong> {stats.successful_analyses} successful out of {stats.completed_analyses} completed analyses
-                {stats.success_rate >= 70 && ' - Excellent track record!'}
-                {stats.success_rate >= 50 && stats.success_rate < 70 && ' - Good performance'}
+                <strong>{t.profile.performance}:</strong> {stats.successful_analyses} {t.profile.successfulOutOf} {stats.completed_analyses} {t.profile.completedAnalyses}
+                {stats.success_rate >= 70 && ` - ${t.profile.excellentTrackRecord}`}
+                {stats.success_rate >= 50 && stats.success_rate < 70 && ` - ${t.profile.goodPerformance}`}
               </p>
             </div>
           )}
@@ -325,7 +327,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
             <TabsList>
               <TabsTrigger value="posts" className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                Posts
+                {t.profile.posts}
                 {analyses && analyses.length > 0 && (
                   <Badge variant="secondary" className="ml-1">{analyses.length}</Badge>
                 )}
@@ -333,7 +335,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               {profile.roles?.name === 'Analyzer' && (
                 <TabsTrigger value="trades" className="flex items-center gap-2">
                   <BarChart3 className="h-4 w-4" />
-                  Trades
+                  {t.profile.trades}
                 </TabsTrigger>
               )}
               <TabsTrigger
@@ -342,7 +344,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 onClick={() => reposts.length === 0 && fetchReposts()}
               >
                 <Repeat2 className="h-4 w-4" />
-                Reposts
+                {t.profile.reposts}
                 {reposts.length > 0 && (
                   <Badge variant="secondary" className="ml-1">{reposts.length}</Badge>
                 )}
@@ -353,7 +355,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                 onClick={() => replies.length === 0 && fetchReplies()}
               >
                 <MessageCircle className="h-4 w-4" />
-                Replies
+                {t.profile.replies}
                 {replies.length > 0 && (
                   <Badge variant="secondary" className="ml-1">{replies.length}</Badge>
                 )}
@@ -361,7 +363,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
               {isOwnProfile && profile.roles?.name === 'Analyzer' && (
                 <TabsTrigger value="plans" className="flex items-center gap-2">
                   <Settings2 className="h-4 w-4" />
-                  My Plans
+                  {t.profile.myPlans}
                 </TabsTrigger>
               )}
             </TabsList>
@@ -380,7 +382,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <CardContent className="py-12 text-center">
                     <FileText className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
                     <p className="text-muted-foreground">
-                      {isOwnProfile ? "You haven't created any analyses yet" : "No analyses yet"}
+                      {isOwnProfile ? t.profile.haventCreatedAnalyses : t.profile.noAnalysesYet}
                     </p>
                   </CardContent>
                 </Card>
@@ -421,7 +423,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <CardContent className="py-12 text-center">
                     <Repeat2 className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
                     <p className="text-muted-foreground">
-                      {isOwnProfile ? "You haven't reposted anything yet" : "No reposts yet"}
+                      {isOwnProfile ? t.profile.haventReposted : t.profile.noRepostsYet}
                     </p>
                   </CardContent>
                 </Card>
@@ -455,7 +457,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                           </div>
                           {comment.parent_comment_id && (
                             <p className="text-xs text-muted-foreground">
-                              Replying to @{comment.parent_comment?.profiles?.full_name}
+                              {t.profile.replyingTo} @{comment.parent_comment?.profiles?.full_name}
                             </p>
                           )}
                         </div>
@@ -478,7 +480,7 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <CardContent className="py-12 text-center">
                     <MessageCircle className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
                     <p className="text-muted-foreground">
-                      {isOwnProfile ? "You haven't commented or replied yet" : "No comments or replies yet"}
+                      {isOwnProfile ? t.profile.haventCommented : t.profile.noCommentsYet}
                     </p>
                   </CardContent>
                 </Card>

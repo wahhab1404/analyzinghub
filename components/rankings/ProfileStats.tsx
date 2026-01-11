@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Trophy, TrendingUp, Target, Award, Users, MessageSquare, Star, Repeat2, DollarSign, TrendingDown } from 'lucide-react'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 function SimpleProgress({ value, className = '' }: { value: number; className?: string }) {
   return (
@@ -61,6 +62,7 @@ interface TradingStats {
 }
 
 export function ProfileStats({ userId }: ProfileStatsProps) {
+  const { t } = useLanguage()
   const [data, setData] = useState<RankingData | null>(null)
   const [tradingStats, setTradingStats] = useState<TradingStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -129,83 +131,87 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-xl">
               <DollarSign className="h-5 w-5 text-muted-foreground" />
-              <span>Trading Performance</span>
+              <span>{t.profileStats.tradingPerformance}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Win Rate</div>
-                <div className={`text-xl font-bold ${tradingStats.win_rate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.winRate}</div>
+                <div className={`text-lg font-bold ${tradingStats.win_rate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
                   {tradingStats.win_rate}%
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Total Profit</div>
-                <div className={`text-xl font-bold break-all ${tradingStats.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.totalProfit}</div>
+                <div className={`text-lg font-bold break-words ${tradingStats.total_profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {tradingStats.total_profit >= 0 ? '+' : ''}{tradingStats.total_profit.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                 </div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">Closed Trades</div>
-                <div className="text-xl font-bold">{tradingStats.total_closed_trades.toLocaleString()}</div>
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.closedTrades}</div>
+                <div className="text-lg font-bold">{tradingStats.total_closed_trades.toLocaleString()}</div>
               </div>
               <div className="space-y-1">
-                <div className="text-xs text-muted-foreground">W/L Ratio</div>
-                <div className="text-xl font-bold">
-                  {tradingStats.winning_trades}/{tradingStats.losing_trades}
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.wlRatio}</div>
+                <div className="text-lg font-bold">
+                  <span className="text-green-600">{tradingStats.winning_trades}</span>
+                  <span className="text-muted-foreground mx-1">/</span>
+                  <span className="text-red-600">{tradingStats.losing_trades}</span>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Success Rate</span>
-                <span className="font-medium">
-                  {tradingStats.winning_trades} wins / {tradingStats.losing_trades} losses
+            <div className="space-y-3 p-4 rounded-lg bg-muted/50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-muted-foreground">{t.profileStats.successBreakdown}</span>
+                <span className="text-sm font-semibold">
+                  <span className="text-green-600">{tradingStats.winning_trades} {t.profileStats.wins}</span>
+                  <span className="text-muted-foreground mx-1">/</span>
+                  <span className="text-red-600">{tradingStats.losing_trades} {t.profileStats.losses}</span>
                 </span>
               </div>
               <SimpleProgress
                 value={tradingStats.win_rate}
-                className="h-2"
+                className="h-3"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
-                <TrendingUp className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <TrendingUp className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-green-600 truncate">
+                  <div className="text-sm font-semibold text-green-600 truncate">
                     {tradingStats.avg_win.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
-                  <div className="text-xs text-muted-foreground">Avg Win</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.avgWin}</div>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
-                <TrendingDown className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-950/20">
+                <TrendingDown className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-red-600 truncate">
+                  <div className="text-sm font-semibold text-red-600 truncate">
                     {Math.abs(tradingStats.avg_loss).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
-                  <div className="text-xs text-muted-foreground">Avg Loss</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.avgLoss}</div>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/20">
-                <Trophy className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-green-50 dark:bg-green-950/20">
+                <Trophy className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-green-600 truncate">
+                  <div className="text-sm font-semibold text-green-600 truncate">
                     {tradingStats.max_profit.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
-                  <div className="text-xs text-muted-foreground">Best Trade</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.bestTrade}</div>
                 </div>
               </div>
-              <div className="flex items-start gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/20">
-                <TrendingDown className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+              <div className="flex items-start gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-950/20">
+                <TrendingDown className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <div className="text-base font-semibold text-red-600 truncate">
+                  <div className="text-sm font-semibold text-red-600 truncate">
                     {Math.abs(tradingStats.max_loss).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </div>
-                  <div className="text-xs text-muted-foreground">Worst Trade</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.worstTrade}</div>
                 </div>
               </div>
             </div>
@@ -216,73 +222,77 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
       {data.analyst.points > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              Analyst Performance
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <TrendingUp className="h-5 w-5 text-muted-foreground" />
+              <span>{t.profileStats.analystPerformance}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-sm text-muted-foreground">Total Points</div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.totalPoints}</div>
                 <div className="text-2xl font-bold">{data.analyst.points.toLocaleString()}</div>
               </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Rank</div>
-                <div className="text-2xl font-bold">
-                  {data.analyst.rank ? `#${data.analyst.rank}` : 'Unranked'}
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.rank}</div>
+                {data.analyst.rank ? (
+                  <div className="text-2xl font-bold text-primary">#{data.analyst.rank}</div>
+                ) : (
+                  <Badge variant="outline" className="text-sm font-medium mt-1">{t.profileStats.unranked}</Badge>
+                )}
+              </div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.winRate}</div>
+                <div className={`text-2xl font-bold ${data.analyst.winRate >= 50 ? 'text-green-600' : data.analyst.winRate > 0 ? 'text-orange-600' : 'text-muted-foreground'}`}>
+                  {data.analyst.winRate.toFixed(1)}%
                 </div>
               </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Win Rate</div>
-                <div className="text-2xl font-bold">{data.analyst.winRate.toFixed(1)}%</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Closed</div>
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.closedAnalyses}</div>
                 <div className="text-2xl font-bold">{data.analyst.closedAnalyses}</div>
               </div>
             </div>
 
             {data.analyst.closedAnalyses > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Success Rate</span>
-                  <span className="font-medium">
-                    {data.analyst.wins} wins / {data.analyst.losses} losses
+              <div className="space-y-3 p-4 rounded-lg bg-muted/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-muted-foreground">{t.profileStats.successBreakdown}</span>
+                  <span className="text-sm font-semibold">
+                    <span className="text-green-600">{data.analyst.wins} {t.profileStats.wins}</span>
+                    <span className="text-muted-foreground mx-1">/</span>
+                    <span className="text-red-600">{data.analyst.losses} {t.profileStats.losses}</span>
                   </span>
                 </div>
-                <SimpleProgress value={data.analyst.winRate} className="h-2" />
+                <SimpleProgress value={data.analyst.winRate} className="h-3" />
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">{data.analyst.targetHitsLast30Days}</div>
-                  <div className="text-xs text-muted-foreground">Targets (30d)</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <Target className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.analyst.targetHitsLast30Days}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.targetsHit30Days}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {data.analyst.weeklyPoints.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Weekly Points</div>
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <Trophy className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.analyst.weeklyPoints.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.weeklyPoints}</div>
                 </div>
               </div>
             </div>
 
             {data.analyst.badges.length > 0 && (
-              <div>
-                <div className="text-sm font-medium mb-2">Badges</div>
+              <div className="pt-4 border-t">
+                <div className="text-sm font-semibold mb-3">{t.profileStats.achievements}</div>
                 <div className="flex flex-wrap gap-2">
                   {data.analyst.badges.map((badge: any) => (
                     <Badge
                       key={badge.badge_key}
                       variant="outline"
-                      className={getBadgeColor(badge.badge_tier)}
+                      className={`${getBadgeColor(badge.badge_tier)} font-medium`}
                     >
                       {badge.badge_name}
                     </Badge>
@@ -297,75 +307,77 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
       {data.trader.points > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Engagement Stats
+            <CardTitle className="flex items-center gap-2 text-xl">
+              <Users className="h-5 w-5 text-muted-foreground" />
+              <span>{t.profileStats.engagementStats}</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-sm text-muted-foreground">Total Points</div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.totalPoints}</div>
                 <div className="text-2xl font-bold">{data.trader.points.toLocaleString()}</div>
               </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Rank</div>
-                <div className="text-2xl font-bold">
-                  {data.trader.rank ? `#${data.trader.rank}` : 'Unranked'}
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.rank}</div>
+                {data.trader.rank ? (
+                  <div className="text-2xl font-bold text-primary">#{data.trader.rank}</div>
+                ) : (
+                  <Badge variant="outline" className="text-sm font-medium mt-1">{t.profileStats.unranked}</Badge>
+                )}
+              </div>
+              {data.trader.ratings > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.ratingAccuracy}</div>
+                  <div className="text-2xl font-bold text-blue-600">{data.trader.ratingAccuracy.toFixed(1)}%</div>
                 </div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Rating Accuracy</div>
-                <div className="text-2xl font-bold">{data.trader.ratingAccuracy.toFixed(1)}%</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground">Total Ratings</div>
+              )}
+              <div className="space-y-1">
+                <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{t.profileStats.totalRatings}</div>
                 <div className="text-2xl font-bold">{data.trader.ratings}</div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">{data.trader.comments}</div>
-                  <div className="text-xs text-muted-foreground">Comments</div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <MessageSquare className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.trader.comments}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.comments}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Star className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">{data.trader.likes}</div>
-                  <div className="text-xs text-muted-foreground">Likes</div>
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <Star className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.trader.likes}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.likes}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Repeat2 className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">{data.trader.reposts}</div>
-                  <div className="text-xs text-muted-foreground">Reposts</div>
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <Repeat2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.trader.reposts}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.reposts}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Trophy className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">
-                    {data.trader.weeklyPoints.toLocaleString()}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Weekly</div>
+              <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">
+                <Trophy className="h-4 w-4 text-purple-600 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-lg font-bold">{data.trader.weeklyPoints.toLocaleString()}</div>
+                  <div className="text-[10px] text-muted-foreground">{t.profileStats.weeklyPoints}</div>
                 </div>
               </div>
             </div>
 
             {data.trader.badges.length > 0 && (
-              <div>
-                <div className="text-sm font-medium mb-2">Badges</div>
+              <div className="pt-4 border-t">
+                <div className="text-sm font-semibold mb-3">{t.profileStats.achievements}</div>
                 <div className="flex flex-wrap gap-2">
                   {data.trader.badges.map((badge: any) => (
                     <Badge
                       key={badge.badge_key}
                       variant="outline"
-                      className={getBadgeColor(badge.badge_tier)}
+                      className={`${getBadgeColor(badge.badge_tier)} font-medium`}
                     >
                       {badge.badge_name}
                     </Badge>
