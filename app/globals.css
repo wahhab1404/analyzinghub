@@ -82,6 +82,8 @@
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    width: 100%;
   }
 
   html, body {
@@ -92,13 +94,9 @@
     @apply bg-background text-foreground antialiased;
     touch-action: manipulation;
     -webkit-text-size-adjust: 100%;
-  }
-
-  @supports (padding: max(0px)) {
-    body {
-      padding-left: max(0px, env(safe-area-inset-left));
-      padding-right: max(0px, env(safe-area-inset-right));
-    }
+    overflow-x: hidden;
+    width: 100%;
+    position: relative;
   }
 
   input, textarea, select, button {
@@ -110,5 +108,10 @@
       padding-left: 1rem;
       padding-right: 1rem;
     }
+  }
+
+  #__next {
+    overflow-x: hidden;
+    width: 100%;
   }
 }

@@ -75,24 +75,24 @@ export function Header({ user }: HeaderProps) {
   }
 
   return (
-    <header className="border-b bg-white dark:bg-slate-950 sticky top-0 z-40">
-      <div className="flex h-14 sm:h-16 items-center px-3 sm:px-6">
-        <div className="flex items-center gap-2 sm:gap-3 flex-1">
+    <header className="border-b bg-white dark:bg-slate-950 sticky top-0 z-40 w-full">
+      <div className="flex h-14 sm:h-16 items-center px-3 sm:px-6 w-full max-w-full">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-            <SheetTrigger asChild className="lg:hidden">
+            <SheetTrigger asChild className="lg:hidden flex-shrink-0">
               <Button variant="ghost" size="sm" className="h-9 w-9 p-0 mr-1">
                 <Menu className="h-5 w-5" />
                 <span className="sr-only">Toggle menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-[280px] sm:w-[320px] p-0">
+            <SheetContent side="left" className="w-[280px] sm:w-[320px] p-0 max-w-[85vw]">
               <div className="flex items-center gap-2 px-4 py-4 border-b">
                 <Image
                   src={logoSrc}
                   alt="AnalyzingHub Logo"
                   width={160}
                   height={53}
-                  className="h-10 w-auto"
+                  className="h-10 w-auto max-w-full"
                 />
               </div>
               <nav className="space-y-1 p-4">
@@ -127,10 +127,10 @@ export function Header({ user }: HeaderProps) {
             alt="AnalyzingHub Logo"
             width={160}
             height={53}
-            className="h-9 w-auto sm:h-11"
+            className="h-9 w-auto sm:h-11 max-w-[120px] sm:max-w-none flex-shrink-0"
           />
         </div>
-        <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
+        <div className="flex items-center gap-1 sm:gap-2 md:gap-4 flex-shrink-0">
           <div className="hidden md:flex flex-col items-end mr-2">
             <p className="text-sm font-medium text-slate-900 dark:text-slate-50">
               {user.profile.full_name}

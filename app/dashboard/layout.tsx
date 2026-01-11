@@ -95,16 +95,16 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden w-full">
       <Header user={user} />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden w-full">
         <Sidebar userRole={user.role} userId={user.id} />
-        <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900">
-          <div className="container mx-auto p-4 sm:p-6 pb-20 sm:pb-24">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 w-full min-w-0">
+          <div className="container mx-auto p-4 sm:p-6 pb-20 sm:pb-24 max-w-full">
             {children}
           </div>
           <footer className="border-t bg-white dark:bg-slate-950 mt-auto">
-            <div className="container mx-auto px-4 sm:px-6 py-4">
+            <div className="container mx-auto px-4 sm:px-6 py-4 max-w-full">
               <p className="text-xs text-center text-muted-foreground leading-relaxed">
                 <strong>Disclaimer:</strong> All analyses and market predictions on this platform are for educational purposes only.
                 This is not financial advice. Trading and investing involve substantial risk of loss.
