@@ -47,12 +47,12 @@ export async function POST(request: NextRequest) {
           onConflict: 'analyzer_id,user_id'
         })
         .select()
-        .single()
+        .maybeSingle()
 
       if (error) {
         console.error('Error submitting analyzer rating:', error)
         return NextResponse.json(
-          { error: 'Failed to submit rating' },
+          { error: 'Failed to submit rating', details: error.message },
           { status: 500 }
         )
       }
@@ -108,12 +108,12 @@ export async function POST(request: NextRequest) {
           onConflict: 'analysis_id,user_id'
         })
         .select()
-        .single()
+        .maybeSingle()
 
       if (error) {
         console.error('Error submitting rating:', error)
         return NextResponse.json(
-          { error: 'Failed to submit rating' },
+          { error: 'Failed to submit rating', details: error.message },
           { status: 500 }
         )
       }

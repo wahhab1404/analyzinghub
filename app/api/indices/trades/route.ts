@@ -314,6 +314,14 @@ export async function POST(request: NextRequest) {
           console.log('Snapshot generated successfully:', snapshotUrl);
           trade.contract_url = snapshotUrl;
 
+          // Save the snapshot URL to the database
+          await supabase
+            .from('index_trades')
+            .update({ contract_url: snapshotUrl })
+            .eq('id', trade.id);
+
+          console.log(`✅ Updated standalone trade ${trade.id} with snapshot URL in database`);
+
           await new Promise(resolve => setTimeout(resolve, 1000));
         } else {
           const errorText = await snapshotResponse.text();

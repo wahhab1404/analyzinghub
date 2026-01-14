@@ -333,8 +333,16 @@ export async function POST(
           snapshotUrl = result.imageUrl;
           console.log('Snapshot generated successfully:', snapshotUrl);
 
-          // Update trade with snapshot URL
+          // Update trade with snapshot URL in memory and database
           trade.contract_url = snapshotUrl;
+
+          // Save the snapshot URL to the database
+          await supabase
+            .from('index_trades')
+            .update({ contract_url: snapshotUrl })
+            .eq('id', trade.id);
+
+          console.log(`✅ Updated trade ${trade.id} with snapshot URL in database`);
         } else {
           const errorText = await snapshotResponse.text();
           console.error('Snapshot generation failed:', errorText);

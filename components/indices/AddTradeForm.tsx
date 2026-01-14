@@ -77,6 +77,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     canSetManualPrice: boolean
     message: string
   } | null>(null)
+  const [indexPrice, setIndexPrice] = useState<number | null>(null)
+  const [loadingIndexPrice, setLoadingIndexPrice] = useState(false)
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
@@ -99,7 +101,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   useEffect(() => {
     fetchTelegramChannels()
     fetchMarketStatus()
+    if (formData.underlying_index_symbol) {
+      fetchIndexPrice(formData.underlying_index_symbol)
+    }
   }, [analysisId])
+
+  useEffect(() => {
+    if (formData.underlying_index_symbol) {
+      fetchIndexPrice(formData.underlying_index_symbol)
+    }
+  }, [formData.underlying_index_symbol])
 
   const fetchTelegramChannels = async () => {
     try {
@@ -181,6 +192,25 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       }
     } catch (error) {
       console.error('Error fetching market status:', error)
+    }
+  }
+
+  const fetchIndexPrice = async (symbol: string) => {
+    setLoadingIndexPrice(true)
+    try {
+      const response = await fetch(`/api/indices/index-price?symbol=${symbol}`)
+
+      if (response.ok) {
+        const data = await response.json()
+        setIndexPrice(data.price)
+      } else {
+        setIndexPrice(null)
+      }
+    } catch (error) {
+      console.error('Error fetching index price:', error)
+      setIndexPrice(null)
+    } finally {
+      setLoadingIndexPrice(false)
     }
   }
 
@@ -421,6 +451,50 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   <SelectItem value="VIX">VIX (Volatility Index)</SelectItem>
                 </SelectContent>
               </Select>
+              {loadingIndexPrice ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Loading price...</span>
+                </div>
+              ) : indexPrice !== null ? (
+                <div className="flex items-center gap-2 text-sm">
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                  <span className="font-semibold text-green-600">
+                    ${indexPrice.toFixed(2)}
+                  </span>
+                  <Badge variant="outline" className="text-xs">
+                    Live
+                  </Badge>
+                </div>
+              ) : null}
+            </div>
+          )}
+          {!standalone && formData.underlying_index_symbol && (
+            <div className="col-span-2 space-y-2">
+              <Label>Current Index Value</Label>
+              {loadingIndexPrice ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span>Loading {formData.underlying_index_symbol} price...</span>
+                </div>
+              ) : indexPrice !== null ? (
+                <div className="flex items-center gap-2 p-3 border rounded-lg bg-green-50 dark:bg-green-950/20">
+                  <TrendingUp className="h-5 w-5 text-green-600" />
+                  <div>
+                    <div className="font-semibold text-lg text-green-600">
+                      {formData.underlying_index_symbol}: ${indexPrice.toFixed(2)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Live Market Price</div>
+                  </div>
+                  <Badge variant="outline" className="ml-auto">
+                    Live
+                  </Badge>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground p-3 border rounded-lg">
+                  Unable to fetch live price for {formData.underlying_index_symbol}
+                </div>
+              )}
             </div>
           )}
           <div className="space-y-2">

@@ -507,17 +507,18 @@ export async function POST(req: NextRequest) {
     // 1. Get plan-specific channels if plans are selected
     if (body.planIds && Array.isArray(body.planIds) && body.planIds.length > 0) {
       const { data: planChannels } = await supabaseAdmin
-        .from('analyzer_telegram_channels')
-        .select('id, telegram_channel_id, plan_id')
-        .eq('analyst_id', user.id)
-        .in('plan_id', body.planIds)
-        .eq('is_active', true)
+        .from('telegram_channels')
+        .select('id, channel_id, channel_name, linked_plan_id')
+        .eq('user_id', user.id)
+        .in('linked_plan_id', body.planIds)
+        .eq('enabled', true)
+        .eq('verified', true)
 
       if (planChannels && planChannels.length > 0) {
         broadcastChannels.push(...planChannels.map(ch => ({
           id: ch.id,
-          telegram_channel_id: ch.telegram_channel_id,
-          plan_id: ch.plan_id,
+          telegram_channel_id: ch.channel_id,
+          plan_id: ch.linked_plan_id,
           type: 'plan-specific'
         })))
       }

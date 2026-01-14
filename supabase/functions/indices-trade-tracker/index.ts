@@ -138,7 +138,15 @@ Deno.serve(async (req) => {
                 if (snapshotResponse.ok) {
                   const snapshotResult = await snapshotResponse.json();
                   winningSnapshotUrl = snapshotResult.imageUrl;
-                  console.log(`Snapshot generated for after-close winning trade: ${winningSnapshotUrl}`);
+                  console.log(`✅ Snapshot generated for after-close winning trade: ${winningSnapshotUrl}`);
+
+                  // Save snapshot URL to database
+                  await supabase
+                    .from("index_trades")
+                    .update({ contract_url: winningSnapshotUrl })
+                    .eq("id", trade.id);
+
+                  console.log(`✅ Updated trade ${trade.id} with after-close winning snapshot URL in database`);
                   await new Promise(resolve => setTimeout(resolve, 500));
                 }
               } catch (snapshotError) {
@@ -360,7 +368,15 @@ Deno.serve(async (req) => {
               if (snapshotResponse.ok) {
                 const snapshotResult = await snapshotResponse.json();
                 winningSnapshotUrl = snapshotResult.imageUrl;
-                console.log(`Snapshot generated for winning trade: ${winningSnapshotUrl}`);
+                console.log(`✅ Snapshot generated for winning trade: ${winningSnapshotUrl}`);
+
+                // Save snapshot URL to database
+                await supabase
+                  .from("index_trades")
+                  .update({ contract_url: winningSnapshotUrl })
+                  .eq("id", trade.id);
+
+                console.log(`✅ Updated trade ${trade.id} with winning snapshot URL in database`);
                 await new Promise(resolve => setTimeout(resolve, 500));
               }
             } catch (snapshotError) {
@@ -415,7 +431,15 @@ Deno.serve(async (req) => {
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
               snapshotUrl = snapshotResult.imageUrl;
-              console.log(`Snapshot generated for new high: ${snapshotUrl}`);
+              console.log(`✅ Snapshot generated for new high: ${snapshotUrl}`);
+
+              // Save snapshot URL to database immediately
+              await supabase
+                .from("index_trades")
+                .update({ contract_url: snapshotUrl })
+                .eq("id", trade.id);
+
+              console.log(`✅ Updated trade ${trade.id} with new high snapshot URL in database`);
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (snapshotError) {
@@ -474,7 +498,15 @@ Deno.serve(async (req) => {
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
               resultSnapshotUrl = snapshotResult.imageUrl;
-              console.log(`Snapshot generated for trade result: ${resultSnapshotUrl}`);
+              console.log(`✅ Snapshot generated for trade result: ${resultSnapshotUrl}`);
+
+              // Save snapshot URL to database
+              await supabase
+                .from("index_trades")
+                .update({ contract_url: resultSnapshotUrl })
+                .eq("id", trade.id);
+
+              console.log(`✅ Updated trade ${trade.id} with result snapshot URL in database`);
               await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (snapshotError) {

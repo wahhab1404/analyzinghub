@@ -391,10 +391,6 @@ export function CreateAnalysisForm() {
     setIsSubmitting(true)
 
     try {
-      if (visibility === 'subscribers' && selectedPlanIds.length === 0) {
-        throw new Error('Please select at least one subscription plan')
-      }
-
       if (postType === 'analysis') {
         if (!symbol.trim()) {
           throw new Error('Symbol is required')
@@ -1343,12 +1339,15 @@ export function CreateAnalysisForm() {
               <div className="space-y-3">
                 <Label className="text-base font-semibold flex items-center gap-2">
                   <Star className="h-5 w-5" />
-                  Subscription Plans <span className="text-red-500">*</span>
+                  Subscription Plans <span className="text-xs font-normal text-muted-foreground ml-1">(Optional)</span>
                 </Label>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Select specific plans to limit access, or leave unselected to make available to all your subscribers
+                </p>
                 {analyzerPlans.length === 0 ? (
                   <div className="p-4 border-2 border-dashed rounded-lg text-center">
                     <p className="text-sm text-muted-foreground">
-                      No subscription plans found. Please create a plan in Settings → Plan Management.
+                      No subscription plans found. This analysis will be available to all your subscribers.
                     </p>
                   </div>
                 ) : (
@@ -1404,7 +1403,7 @@ export function CreateAnalysisForm() {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {selectedPlanIds.length === 0
-                        ? 'Select at least one plan to post to'
+                        ? 'No plans selected - will be available to all your subscribers'
                         : (() => {
                             const selectedChannelsCount = selectedPlanIds.filter(planId =>
                               telegramChannels.some(ch => ch.linkedPlanId === planId && ch.audienceType === 'subscribers' && ch.verified)
