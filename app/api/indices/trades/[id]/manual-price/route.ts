@@ -86,9 +86,14 @@ export async function POST(
         );
       }
 
-      updates.manual_contract_high = manualHigh;
-      updates.contract_high_since = manualHigh;
-      changes.manual_contract_high = { old: existing.contract_high_since, new: manualHigh };
+      const currentHigh = existing.contract_high_since || 0;
+      if (manualHigh > currentHigh || currentHigh === 0) {
+        updates.manual_contract_high = manualHigh;
+        updates.contract_high_since = manualHigh;
+        changes.manual_contract_high = { old: existing.contract_high_since, new: manualHigh };
+      } else {
+        console.log(`⚠️ Ignoring manual high ${manualHigh} - current high ${currentHigh} is already higher`);
+      }
     }
 
     if (manualLow !== undefined) {
@@ -99,9 +104,14 @@ export async function POST(
         );
       }
 
-      updates.manual_contract_low = manualLow;
-      updates.contract_low_since = manualLow;
-      changes.manual_contract_low = { old: existing.contract_low_since, new: manualLow };
+      const currentLow = existing.contract_low_since || Infinity;
+      if (manualLow < currentLow || currentLow === Infinity) {
+        updates.manual_contract_low = manualLow;
+        updates.contract_low_since = manualLow;
+        changes.manual_contract_low = { old: existing.contract_low_since, new: manualLow };
+      } else {
+        console.log(`⚠️ Ignoring manual low ${manualLow} - current low ${currentLow} is already lower`);
+      }
     }
 
     const { data: trade, error: updateError } = await supabase

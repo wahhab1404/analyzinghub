@@ -124,9 +124,15 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
     if (!trade) return { percentage: 0, absolute: 0, isPositive: false }
 
     const entryPrice = trade.entry_contract_snapshot.mid
-    const currentPrice = trade.current_contract
-    const pnlPercentage = ((currentPrice - entryPrice) / entryPrice) * 100
-    const pnlAbsolute = currentPrice - entryPrice
+
+    // For CALL/LONG: best profit is at highest price
+    // For PUT/SHORT: best profit is at lowest price
+    const bestPrice = (trade.direction === 'call' || trade.direction === 'long')
+      ? trade.contract_high_since
+      : trade.contract_low_since
+
+    const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
+    const pnlAbsolute = bestPrice - entryPrice
 
     const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
 

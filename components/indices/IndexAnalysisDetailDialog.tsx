@@ -119,8 +119,14 @@ export function IndexAnalysisDetailDialog({
 
   const calculatePnL = (trade: Trade) => {
     const entryPrice = trade.entry_contract_snapshot.mid
-    const currentPrice = trade.current_contract
-    const pnlPercentage = ((currentPrice - entryPrice) / entryPrice) * 100
+
+    // For CALL/LONG: best profit is at highest price
+    // For PUT/SHORT: best profit is at lowest price
+    const bestPrice = (trade.direction === 'call' || trade.direction === 'long')
+      ? trade.contract_high_since
+      : trade.contract_low_since
+
+    const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
 
     const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
     const adjustedPnL = pnlPercentage * multiplier
@@ -128,7 +134,7 @@ export function IndexAnalysisDetailDialog({
     return {
       percentage: adjustedPnL,
       isPositive: adjustedPnL > 0,
-      value: currentPrice - entryPrice
+      value: bestPrice - entryPrice
     }
   }
 

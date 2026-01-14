@@ -46,6 +46,12 @@ interface ExpirationGroup {
   strikes: OptionContract[]
 }
 
+interface StrikeRow {
+  strike: number
+  call?: OptionContract
+  put?: OptionContract
+}
+
 interface Target {
   price: number
   percentage: number
@@ -65,7 +71,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const [loading, setLoading] = useState(false)
   const [searchingContracts, setSearchingContracts] = useState(false)
   const [expirationGroups, setExpirationGroups] = useState<ExpirationGroup[]>([])
+  const [callsData, setCallsData] = useState<ExpirationGroup[]>([])
+  const [putsData, setPutsData] = useState<ExpirationGroup[]>([])
   const [selectedContract, setSelectedContract] = useState<OptionContract | null>(null)
+  const [showBothSides, setShowBothSides] = useState(true)
   const [datePreset, setDatePreset] = useState<DatePreset>('week')
   const [customDate, setCustomDate] = useState('')
   const [channels, setChannels] = useState<TelegramChannel[]>([])
@@ -220,9 +229,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
     switch (preset) {
       case 'today':
-        return { minDTE: 0, maxDTE: 0 }
+        return { minDTE: 0, maxDTE: 1 }
       case 'tomorrow':
-        return { minDTE: 1, maxDTE: 1 }
+        return { minDTE: 1, maxDTE: 3 }
       case 'week':
         return { minDTE: 0, maxDTE: 7 }
       case 'month':
@@ -232,7 +241,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           const targetDate = new Date(customDate)
           targetDate.setHours(0, 0, 0, 0)
           const dte = Math.floor((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
-          return { minDTE: Math.max(0, dte), maxDTE: Math.max(0, dte) }
+          return { minDTE: Math.max(0, dte - 1), maxDTE: Math.max(0, dte + 1) }
         }
         return { minDTE: 0, maxDTE: 45 }
       default:
@@ -241,7 +250,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   }
 
   const searchContracts = async () => {
-    if (!formData.option_type) {
+    if (!showBothSides && !formData.option_type) {
       toast.error('Please select option type to search')
       return
     }
@@ -250,51 +259,134 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     try {
       const { minDTE, maxDTE } = getDTERange(datePreset)
 
-      const params = new URLSearchParams({
-        underlying: formData.underlying_index_symbol,
-        direction: formData.option_type,
-        minDTE: minDTE.toString(),
-        maxDTE: maxDTE.toString(),
-        maxExpirations: '5',
-        strikesPerExpiration: '50',
-        percentBand: '0.10',
-      })
+      if (showBothSides) {
+        // Fetch both calls and puts
+        const callParams = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: 'call',
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          cacheTTL: '10',
+        })
 
-      const response = await fetch(`/api/indices/contracts?${params}`)
-      if (response.ok) {
-        const data = await response.json()
+        const putParams = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: 'put',
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          cacheTTL: '10',
+        })
 
-        if (data.expirations && data.expirations.length > 0) {
-          const transformedGroups = data.expirations.map((group: any) => ({
-            expirationDate: group.expirationDate,
-            dte: group.dte,
-            strikes: group.strikes.map((strike: any) => ({
-              ...strike,
-              expiry: group.expirationDate,
-              type: data.contractType || formData.direction,
-            })),
-          }))
-          setExpirationGroups(transformedGroups)
+        const [callResponse, putResponse] = await Promise.all([
+          fetch(`/api/indices/contracts?${callParams}`),
+          fetch(`/api/indices/contracts?${putParams}`)
+        ])
 
-          // Initialize visible strikes to 5 for each expiration
-          const initialVisible: Record<string, number> = {}
-          transformedGroups.forEach((group: ExpirationGroup) => {
-            initialVisible[group.expirationDate] = 5
-          })
-          setVisibleStrikesPerExpiration(initialVisible)
+        if (callResponse.ok && putResponse.ok) {
+          const callData = await callResponse.json()
+          const putData = await putResponse.json()
 
-          const totalContracts = transformedGroups.reduce(
-            (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
-            0
-          )
-          toast.success(`Found ${totalContracts} contracts across ${transformedGroups.length} expiration(s)`)
+          if (callData.expirations && callData.expirations.length > 0) {
+            const transformedCalls = callData.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: 'call' as const,
+              })),
+            }))
+            setCallsData(transformedCalls)
+
+            const transformedPuts = putData.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: 'put' as const,
+              })),
+            }))
+            setPutsData(transformedPuts)
+
+            // Initialize visible strikes to 12 for each expiration
+            const initialVisible: Record<string, number> = {}
+            transformedCalls.forEach((group: ExpirationGroup) => {
+              initialVisible[group.expirationDate] = 12
+            })
+            setVisibleStrikesPerExpiration(initialVisible)
+
+            const totalContracts = transformedCalls.reduce(
+              (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
+              0
+            ) + transformedPuts.reduce(
+              (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
+              0
+            )
+            toast.success(`Found ${totalContracts} contracts (calls + puts) across ${transformedCalls.length} expiration(s)`)
+          } else {
+            toast.error('No contracts found for selected criteria')
+            setCallsData([])
+            setPutsData([])
+          }
         } else {
-          toast.error('No contracts found for selected criteria')
-          setExpirationGroups([])
+          toast.error('Failed to fetch contracts')
         }
       } else {
-        const error = await response.json()
-        toast.error(error.error || 'Failed to search contracts')
+        // Original single-side fetch
+        const params = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: formData.option_type,
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          cacheTTL: '10',
+        })
+
+        const response = await fetch(`/api/indices/contracts?${params}`)
+        if (response.ok) {
+          const data = await response.json()
+
+          if (data.expirations && data.expirations.length > 0) {
+            const transformedGroups = data.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: data.contractType || formData.direction,
+              })),
+            }))
+            setExpirationGroups(transformedGroups)
+
+            // Initialize visible strikes to 12 for each expiration
+            const initialVisible: Record<string, number> = {}
+            transformedGroups.forEach((group: ExpirationGroup) => {
+              initialVisible[group.expirationDate] = 12
+            })
+            setVisibleStrikesPerExpiration(initialVisible)
+
+            const totalContracts = transformedGroups.reduce(
+              (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
+              0
+            )
+            toast.success(`Found ${totalContracts} contracts across ${transformedGroups.length} expiration(s)`)
+          } else {
+            toast.error('No contracts found for selected criteria')
+            setExpirationGroups([])
+          }
+        } else {
+          const error = await response.json()
+          toast.error(error.error || 'Failed to search contracts')
+        }
       }
     } catch (error) {
       console.error('Error searching contracts:', error)
@@ -319,14 +411,35 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const handleDatePresetChange = (preset: DatePreset) => {
     setDatePreset(preset)
     setExpirationGroups([])
+    setCallsData([])
+    setPutsData([])
     setSelectedContract(null)
     setVisibleStrikesPerExpiration({})
+  }
+
+  const mergeStrikesForDisplay = (callsExp: ExpirationGroup, putsExp: ExpirationGroup): StrikeRow[] => {
+    const strikeMap = new Map<number, StrikeRow>()
+
+    callsExp.strikes.forEach(contract => {
+      strikeMap.set(contract.strike, { strike: contract.strike, call: contract })
+    })
+
+    putsExp.strikes.forEach(contract => {
+      const existing = strikeMap.get(contract.strike)
+      if (existing) {
+        existing.put = contract
+      } else {
+        strikeMap.set(contract.strike, { strike: contract.strike, put: contract })
+      }
+    })
+
+    return Array.from(strikeMap.values()).sort((a, b) => b.strike - a.strike)
   }
 
   const loadMoreStrikes = (expirationDate: string) => {
     setVisibleStrikesPerExpiration(prev => ({
       ...prev,
-      [expirationDate]: (prev[expirationDate] || 15) + 15
+      [expirationDate]: (prev[expirationDate] || 8) + 7
     }))
   }
 
@@ -622,6 +735,42 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 )}
               </div>
 
+              <div className="space-y-2">
+                <Label>Contract View</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={showBothSides ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowBothSides(true)
+                      setExpirationGroups([])
+                      setCallsData([])
+                      setPutsData([])
+                      setSelectedContract(null)
+                    }}
+                  >
+                    Both Calls & Puts
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!showBothSides ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => {
+                      setShowBothSides(false)
+                      setExpirationGroups([])
+                      setCallsData([])
+                      setPutsData([])
+                      setSelectedContract(null)
+                    }}
+                  >
+                    Single Type
+                  </Button>
+                </div>
+              </div>
+
               <Button
                 type="button"
                 onClick={searchContracts}
@@ -636,12 +785,117 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 ) : (
                   <>
                     <Search className="h-4 w-4 mr-2" />
-                    Search Available Contracts
+                    Search {showBothSides ? 'Calls & Puts' : 'Contracts'}
                   </>
                 )}
               </Button>
 
-              {expirationGroups.length > 0 && (
+              {showBothSides && callsData.length > 0 && putsData.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4" />
+                      Calls & Puts - Centered on ${indexPrice ? indexPrice.toFixed(2) : 'Current Price'}
+                    </Label>
+                    {indexPrice && (
+                      <Badge variant="secondary" className="text-xs">
+                        {formData.underlying_index_symbol} Index: ${indexPrice.toFixed(2)}
+                      </Badge>
+                    )}
+                  </div>
+                  <Tabs defaultValue={callsData[0]?.expirationDate} className="w-full">
+                    <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${Math.min(callsData.length, 5)}, 1fr)` }}>
+                      {callsData.slice(0, 5).map((group) => (
+                        <TabsTrigger key={group.expirationDate} value={group.expirationDate} className="text-xs">
+                          <div className="flex flex-col items-center">
+                            <span>{new Date(group.expirationDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                            <span className="text-[10px] text-muted-foreground">{group.dte}d</span>
+                          </div>
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                    {callsData.map((callGroup, idx) => {
+                      const putGroup = putsData[idx]
+                      const visibleCount = visibleStrikesPerExpiration[callGroup.expirationDate] || 12
+                      const strikeRows = mergeStrikesForDisplay(callGroup, putGroup)
+                      const visibleRows = strikeRows.slice(0, visibleCount)
+                      const hasMore = visibleCount < strikeRows.length
+
+                      return (
+                        <TabsContent key={callGroup.expirationDate} value={callGroup.expirationDate} className="space-y-2">
+                          <div className="text-xs text-muted-foreground mb-2">
+                            {strikeRows.length} strike levels • Expires in {callGroup.dte} day{callGroup.dte !== 1 ? 's' : ''}
+                            {hasMore && <span className="ml-2">(Showing nearest {visibleCount} strikes)</span>}
+                          </div>
+                          <div className="max-h-[500px] overflow-y-auto">
+                            <div className="grid grid-cols-2 gap-2 mb-2 text-xs font-semibold text-center sticky top-0 bg-background z-10 pb-2">
+                              <div className="text-green-600 dark:text-green-400">CALLS</div>
+                              <div className="text-red-600 dark:text-red-400">PUTS</div>
+                            </div>
+                            {visibleRows.map((row) => (
+                              <div key={row.strike} className="grid grid-cols-2 gap-2 mb-2">
+                                {row.call ? (
+                                  <Card
+                                    className={`cursor-pointer transition-colors ${
+                                      selectedContract?.ticker === row.call.ticker
+                                        ? 'border-green-500 bg-green-50 dark:bg-green-950/20 ring-2 ring-green-500'
+                                        : 'hover:bg-muted/50 border-green-200 dark:border-green-900'
+                                    }`}
+                                    onClick={() => selectContract(row.call!)}
+                                  >
+                                    <CardContent className="p-2">
+                                      <div className="text-xs font-bold text-green-600 dark:text-green-400">${row.call.strike}</div>
+                                      <div className="text-lg font-bold">${(row.call.mid || 0).toFixed(2)}</div>
+                                      <div className="text-[10px] text-muted-foreground">{row.call.delta ? `Δ ${row.call.delta.toFixed(3)}` : ''}</div>
+                                    </CardContent>
+                                  </Card>
+                                ) : (
+                                  <div className="border border-dashed border-muted-foreground/20 rounded-lg p-2 flex items-center justify-center text-xs text-muted-foreground">
+                                    No Call
+                                  </div>
+                                )}
+                                {row.put ? (
+                                  <Card
+                                    className={`cursor-pointer transition-colors ${
+                                      selectedContract?.ticker === row.put.ticker
+                                        ? 'border-red-500 bg-red-50 dark:bg-red-950/20 ring-2 ring-red-500'
+                                        : 'hover:bg-muted/50 border-red-200 dark:border-red-900'
+                                    }`}
+                                    onClick={() => selectContract(row.put!)}
+                                  >
+                                    <CardContent className="p-2">
+                                      <div className="text-xs font-bold text-red-600 dark:text-red-400">${row.put.strike}</div>
+                                      <div className="text-lg font-bold">${(row.put.mid || 0).toFixed(2)}</div>
+                                      <div className="text-[10px] text-muted-foreground">{row.put.delta ? `Δ ${row.put.delta.toFixed(3)}` : ''}</div>
+                                    </CardContent>
+                                  </Card>
+                                ) : (
+                                  <div className="border border-dashed border-muted-foreground/20 rounded-lg p-2 flex items-center justify-center text-xs text-muted-foreground">
+                                    No Put
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          {hasMore && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => loadMoreStrikes(callGroup.expirationDate)}
+                              className="w-full"
+                            >
+                              Load More Strikes ({strikeRows.length - visibleCount} remaining)
+                            </Button>
+                          )}
+                        </TabsContent>
+                      )
+                    })}
+                  </Tabs>
+                </div>
+              )}
+
+              {!showBothSides && expirationGroups.length > 0 && (
                 <div className="space-y-3">
                   <Label className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4" />
@@ -659,7 +913,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       ))}
                     </TabsList>
                     {expirationGroups.map((group) => {
-                      const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 15
+                      const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 12
                       const visibleStrikes = group.strikes.slice(0, visibleCount)
                       const hasMore = visibleCount < group.strikes.length
 
@@ -667,7 +921,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       <TabsContent key={group.expirationDate} value={group.expirationDate} className="space-y-2">
                         <div className="text-xs text-muted-foreground mb-2">
                           {group.strikes.length} contract{group.strikes.length !== 1 ? 's' : ''} • Expires in {group.dte} day{group.dte !== 1 ? 's' : ''}
-                          {hasMore && <span className="ml-2">(Showing {visibleCount} of {group.strikes.length})</span>}
+                          {hasMore && <span className="ml-2">(Showing nearest {visibleCount} contracts)</span>}
                         </div>
                         <div className="space-y-2">
                           <div className="grid gap-2 max-h-80 overflow-y-auto pb-2">
@@ -730,7 +984,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               }}
                               className="w-full"
                             >
-                              Load 15 More Contracts ({group.strikes.length - visibleCount} remaining)
+                              Load 7 More Contracts ({group.strikes.length - visibleCount} remaining)
                             </Button>
                           )}
                         </div>

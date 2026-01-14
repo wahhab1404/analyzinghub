@@ -164,18 +164,28 @@ export async function PATCH(
     if ((body as any).manualContractHigh !== undefined) {
       const newHigh = (body as any).manualContractHigh;
       if (typeof newHigh === 'number' && newHigh > 0) {
-        updates.manual_contract_high = newHigh;
-        updates.contract_high_since = newHigh;
-        changes.manual_contract_high = { old: existing.contract_high_since, new: newHigh };
+        const currentHigh = existing.contract_high_since || 0;
+        if (newHigh > currentHigh || currentHigh === 0) {
+          updates.manual_contract_high = newHigh;
+          updates.contract_high_since = newHigh;
+          changes.manual_contract_high = { old: existing.contract_high_since, new: newHigh };
+        } else {
+          console.log(`⚠️ Ignoring manual high ${newHigh} - current high ${currentHigh} is already higher`);
+        }
       }
     }
 
     if ((body as any).manualContractLow !== undefined) {
       const newLow = (body as any).manualContractLow;
       if (typeof newLow === 'number' && newLow > 0) {
-        updates.manual_contract_low = newLow;
-        updates.contract_low_since = newLow;
-        changes.manual_contract_low = { old: existing.contract_low_since, new: newLow };
+        const currentLow = existing.contract_low_since || Infinity;
+        if (newLow < currentLow || currentLow === Infinity) {
+          updates.manual_contract_low = newLow;
+          updates.contract_low_since = newLow;
+          changes.manual_contract_low = { old: existing.contract_low_since, new: newLow };
+        } else {
+          console.log(`⚠️ Ignoring manual low ${newLow} - current low ${currentLow} is already lower`);
+        }
       }
     }
 

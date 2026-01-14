@@ -33,23 +33,40 @@ Deno.serve(async (req: Request) => {
 
     console.log("🔍 [activation-checker] Starting activation condition check...");
 
-    // Fetch index analyses waiting for activation
-    const { data: analyses, error: fetchError } = await supabase
+    const { data: indexAnalyses, error: indexFetchError } = await supabase
       .from("index_analyses")
-      .select(`
-        *
-      `)
+      .select(`*`)
       .eq("activation_enabled", true)
       .eq("activation_status", "published_inactive")
       .not("activation_price", "is", null)
       .not("activation_type", "is", null);
 
-    if (fetchError) {
-      console.error("❌ Failed to fetch analyses:", fetchError);
-      throw fetchError;
+    if (indexFetchError) {
+      console.error("❌ Failed to fetch index analyses:", indexFetchError);
     }
 
-    if (!analyses || analyses.length === 0) {
+    const { data: stockAnalyses, error: stockFetchError } = await supabase
+      .from("analyses")
+      .select(`*,symbols!inner(symbol)`)
+      .eq("activation_enabled", true)
+      .eq("activation_status", "published_inactive")
+      .not("activation_price", "is", null)
+      .not("activation_type", "is", null);
+
+    if (stockFetchError) {
+      console.error("❌ Failed to fetch stock analyses:", stockFetchError);
+    }
+
+    const indexAnalysesList = indexAnalyses || [];
+    const stockAnalysesList = (stockAnalyses || []).map((a: any) => ({
+      ...a,
+      index_symbol: a.symbols.symbol,
+      table: 'analyses'
+    }));
+
+    const analyses = [...indexAnalysesList.map((a: any) => ({ ...a, table: 'index_analyses' })), ...stockAnalysesList];
+
+    if (analyses.length === 0) {
       console.log("✅ No analyses waiting for activation");
       return new Response(
         JSON.stringify({ success: true, message: "No analyses to check", checked: 0 }),
@@ -57,7 +74,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    console.log(`📊 Checking ${analyses.length} analyses for activation`);
+    console.log(`📊 Checking ${analyses.length} analyses (${indexAnalysesList.length} index, ${stockAnalysesList.length} stock)`);
 
     const results = {
       checked: analyses.length,
@@ -66,11 +83,11 @@ Deno.serve(async (req: Request) => {
       errors: 0,
     };
 
-    for (const analysis of analyses as AnalysisWithActivation[]) {
+    for (const analysis of analyses as any[]) {
       try {
-        console.log(`\n🔍 Checking analysis ${analysis.id} (${analysis.index_symbol})`);
+        const tableName = analysis.table || 'index_analyses';
+        console.log(`\n🔍 Checking ${analysis.id} (${analysis.index_symbol}) from ${tableName}`);
 
-        // Get current price based on timeframe
         const priceData = await fetchPriceForTimeframe(
           analysis.index_symbol,
           analysis.activation_timeframe,
@@ -82,17 +99,16 @@ Deno.serve(async (req: Request) => {
           continue;
         }
 
-        console.log(`💰 Price data: ${JSON.stringify(priceData)}`);
+        console.log(`💰 Current: ${priceData.current}, Previous: ${priceData.previous}, Activation: ${analysis.activation_price}`);
 
-        // Check for pre-activation invalidation price touch
-        if (!analysis.preactivation_stop_touched && analysis.invalidation_price) {
-          const invalidationTouched = priceData.current <= analysis.invalidation_price;
+        const stopPrice = analysis.invalidation_price || analysis.stop_loss;
+        if (!analysis.preactivation_stop_touched && stopPrice) {
+          const stopTouched = priceData.current <= stopPrice;
 
-          if (invalidationTouched) {
-            console.log(`🛑 Pre-activation invalidation price touched for ${analysis.id}`);
-
+          if (stopTouched) {
+            console.log(`🛑 Pre-activation stop touched for ${analysis.id}`);
             const { error: stopError } = await supabase
-              .from("index_analyses")
+              .from(tableName)
               .update({
                 preactivation_stop_touched: true,
                 preactivation_stop_touched_at: new Date().toISOString()
@@ -107,7 +123,6 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        // Check activation condition
         const isActivated = evaluateActivationCondition(
           analysis,
           priceData.current,
@@ -118,7 +133,7 @@ Deno.serve(async (req: Request) => {
           console.log(`✅ Activation condition met for ${analysis.id}`);
 
           const { error: activateError } = await supabase
-            .from("index_analyses")
+            .from(tableName)
             .update({
               activation_status: 'active',
               activated_at: new Date().toISOString(),
@@ -128,15 +143,14 @@ Deno.serve(async (req: Request) => {
             .eq("id", analysis.id);
 
           if (activateError) {
-            console.error("Error activating analysis:", activateError);
+            console.error("Error activating:", activateError);
             results.errors++;
           } else {
             results.activated++;
           }
         } else {
-          // Update last eval price for next check
           await supabase
-            .from("index_analyses")
+            .from(tableName)
             .update({
               last_eval_price: priceData.current,
               last_eval_at: new Date().toISOString(),
@@ -149,14 +163,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    console.log("\n✅ [activation-checker] Completed:", results);
+    console.log("\n✅ Completed:", results);
 
     return new Response(
       JSON.stringify({ success: true, results }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
-    console.error("❌ [activation-checker] Error:", error);
+    console.error("❌ Error:", error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -170,7 +184,6 @@ async function fetchPriceForTimeframe(
   apiKey: string
 ): Promise<{ current: number; previous: number | null } | null> {
   try {
-    // For INTRABAR, use snapshot (current/last trade)
     if (timeframe === "INTRABAR") {
       const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${apiKey}`;
       const response = await fetch(url);
@@ -190,13 +203,12 @@ async function fetchPriceForTimeframe(
       return null;
     }
 
-    // For candle-based timeframes, fetch aggregates
     const timespan = timeframe === "1H_CLOSE" ? "hour" : timeframe === "4H_CLOSE" ? "hour" : "day";
     const multiplier = timeframe === "4H_CLOSE" ? 4 : 1;
     
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 7); // Get last 7 days of data
+    startDate.setDate(startDate.getDate() - 7);
 
     const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/${multiplier}/${timespan}/${startDate.toISOString().split('T')[0]}/${endDate.toISOString().split('T')[0]}?adjusted=true&sort=desc&limit=2&apiKey=${apiKey}`;
     
@@ -210,12 +222,11 @@ async function fetchPriceForTimeframe(
     const data = await response.json();
     
     if (data.status === "OK" && data.results && data.results.length > 0) {
-      // Most recent completed candle
       const latestCandle = data.results[0];
       const previousCandle = data.results[1];
       
       return {
-        current: latestCandle.c, // close price
+        current: latestCandle.c,
         previous: previousCandle ? previousCandle.c : null,
       };
     }
@@ -234,6 +245,8 @@ function evaluateActivationCondition(
 ): boolean {
   const { activation_type, activation_price, last_eval_price } = analysis;
 
+  console.log(`Evaluating ${activation_type}: current=${currentPrice}, activation=${activation_price}, last_eval=${last_eval_price}, previous=${previousPrice}`);
+
   switch (activation_type) {
     case "ABOVE_PRICE":
       return currentPrice > activation_price;
@@ -242,17 +255,28 @@ function evaluateActivationCondition(
       return currentPrice < activation_price;
 
     case "PASSING_PRICE":
-      // Need previous price to detect crossing
-      const priceToCompare = last_eval_price || previousPrice;
-      if (priceToCompare === null) {
-        return false;
+      if (last_eval_price === null) {
+        if (previousPrice !== null) {
+          const crossed = (
+            (previousPrice <= activation_price && currentPrice > activation_price) ||
+            (previousPrice >= activation_price && currentPrice < activation_price)
+          );
+          console.log(`First check with previous: crossed=${crossed}`);
+          return crossed;
+        } else {
+          const tolerance = activation_price * 0.01;
+          const alreadyPassed = Math.abs(currentPrice - activation_price) > tolerance;
+          console.log(`First check without previous: alreadyPassed=${alreadyPassed} (tolerance=${tolerance})`);
+          return alreadyPassed;
+        }
       }
 
-      // Generic crossing (either direction)
-      return (
-        (priceToCompare <= activation_price && currentPrice > activation_price) ||
-        (priceToCompare >= activation_price && currentPrice < activation_price)
+      const crossed = (
+        (last_eval_price <= activation_price && currentPrice > activation_price) ||
+        (last_eval_price >= activation_price && currentPrice < activation_price)
       );
+      console.log(`Subsequent check: crossed=${crossed}`);
+      return crossed;
 
     default:
       return false;

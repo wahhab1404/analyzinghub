@@ -101,11 +101,11 @@ export async function GET(request: NextRequest) {
     // Parse optional parameters with validation
     if (searchParams.get('percentBand')) {
       const percentBand = parseFloat(searchParams.get('percentBand')!);
-      if (percentBand > 0 && percentBand <= 0.10) {
+      if (percentBand > 0 && percentBand <= 0.20) {
         config.percentBand = percentBand;
       } else {
         return NextResponse.json(
-          { error: 'percentBand must be between 0 and 0.10 (0-10%)' },
+          { error: 'percentBand must be between 0 and 0.20 (0-20%)' },
           { status: 400 }
         );
       }
@@ -140,16 +140,22 @@ export async function GET(request: NextRequest) {
     }
 
     const cacheTTL = parseInt(searchParams.get('cacheTTL') || '60');
+    const bypassCache = searchParams.get('bypassCache') === 'true';
 
     console.log('[API /indices/contracts] Request config:', JSON.stringify(config, null, 2));
 
     try {
-      // Check cache first
-      let response = await optionsCacheService.get(config);
+      // Check cache first (unless bypass is requested)
+      let response;
+      if (!bypassCache) {
+        response = await optionsCacheService.get(config);
 
-      if (response) {
-        console.log('[API /indices/contracts] Cache hit');
-        return NextResponse.json(response);
+        if (response) {
+          console.log('[API /indices/contracts] Cache hit');
+          return NextResponse.json(response);
+        }
+      } else {
+        console.log('[API /indices/contracts] Cache bypassed');
       }
 
       // Cache miss - fetch from Polygon

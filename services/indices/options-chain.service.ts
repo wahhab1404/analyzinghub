@@ -18,11 +18,11 @@ const POLYGON_BASE_URL = 'https://api.polygon.io';
 
 // Configuration defaults
 const DEFAULT_CONFIG = {
-  percentBand: 0.03, // 3% band around ATM
+  percentBand: 0.02, // 2% band around ATM (tighter for better ATM focus)
   minDTE: 0, // Allow 0DTE
   maxDTE: 45, // 45 days max
   maxExpirations: 5, // Top 5 nearest expirations
-  strikesPerExpiration: 8, // 8 strikes per expiration
+  strikesPerExpiration: 15, // 15 strikes per expiration (show nearest 15)
   includeOneITM: true, // Include 1 ITM strike
   minVolume: 0, // Minimum volume
   minOpenInterest: 0, // Minimum OI
@@ -197,17 +197,30 @@ class OptionsChainService {
 
   /**
    * Filter contracts by liquidity
+   * Be more lenient for contracts very close to ATM
    */
-  private hasLiquidity(contract: any, config: OptionsChainConfig): boolean {
+  private hasLiquidity(contract: any, config: OptionsChainConfig, underlyingPrice?: number): boolean {
     const volume = contract.day?.volume || 0;
     const openInterest = contract.open_interest || 0;
     const hasBidAsk = contract.last_quote?.bid > 0 || contract.last_quote?.ask > 0;
+    const hasLast = contract.last_trade?.price > 0;
 
-    // Must have at least one of: volume, OI, or bid/ask
-    const hasAnyActivity = volume > 0 || openInterest > 0 || hasBidAsk;
+    // For contracts very close to ATM (within 1% of underlying), be very lenient
+    if (underlyingPrice) {
+      const strike = contract.details.strike_price;
+      const distancePercent = Math.abs(strike - underlyingPrice) / underlyingPrice;
+
+      if (distancePercent < 0.01) { // Within 1% of ATM
+        // ATM strikes: accept if there's any quote or trade data at all
+        if (hasBidAsk || hasLast || openInterest > 0) return true;
+      }
+    }
+
+    // Must have at least one of: volume, OI, bid/ask, or last trade
+    const hasAnyActivity = volume > 0 || openInterest > 0 || hasBidAsk || hasLast;
     if (!hasAnyActivity) return false;
 
-    // Check minimum thresholds
+    // Check minimum thresholds (only if specified)
     if (config.minVolume && volume < config.minVolume) return false;
     if (config.minOpenInterest && openInterest < config.minOpenInterest) return false;
 
@@ -216,6 +229,7 @@ class OptionsChainService {
 
   /**
    * Select strikes based on direction and ATM anchoring
+   * ALWAYS shows nearest strikes to current price first
    */
   private selectStrikes(
     contracts: any[],
@@ -224,34 +238,19 @@ class OptionsChainService {
     config: OptionsChainConfig
   ): StrikeContract[] {
     const strikesCount = config.strikesPerExpiration || DEFAULT_CONFIG.strikesPerExpiration;
-    const includeITM = config.includeOneITM ?? DEFAULT_CONFIG.includeOneITM;
 
-    // Sort contracts by distance from ATM
-    const sorted = [...contracts].sort((a, b) => {
+    // Sort ALL contracts by distance from ATM (nearest first)
+    const sortedByDistance = [...contracts].sort((a, b) => {
       const distA = Math.abs(a.details.strike_price - underlyingPrice);
       const distB = Math.abs(b.details.strike_price - underlyingPrice);
       return distA - distB;
     });
 
-    let selected: any[] = [];
+    // Take the closest N strikes regardless of ITM/OTM
+    // This ensures we always show contracts near the current price
+    const selected = sortedByDistance.slice(0, strikesCount);
 
-    if (contractType === 'call') {
-      // For CALLS: prioritize ATM and OTM, but include all available strikes
-      const atmAndOtm = sorted.filter(c => c.details.strike_price >= underlyingPrice);
-      const itm = sorted.filter(c => c.details.strike_price < underlyingPrice);
-
-      // Take ATM/OTM first, then ITM if needed to fill quota
-      selected = [...atmAndOtm, ...itm].slice(0, strikesCount);
-    } else {
-      // For PUTS: prioritize ATM and OTM, but include all available strikes
-      const atmAndOtm = sorted.filter(c => c.details.strike_price <= underlyingPrice);
-      const itm = sorted.filter(c => c.details.strike_price > underlyingPrice);
-
-      // Take ATM/OTM first, then ITM if needed to fill quota
-      selected = [...atmAndOtm, ...itm].slice(0, strikesCount);
-    }
-
-    // Sort final selection by strike (ascending)
+    // Sort final selection by strike (ascending) for display
     selected.sort((a, b) => a.details.strike_price - b.details.strike_price);
 
     // Map to StrikeContract format
@@ -363,9 +362,23 @@ class OptionsChainService {
 
     console.log('[OptionsChain] Received', data.results.length, 'contracts from Polygon');
 
-    // Filter by liquidity
-    const liquidContracts = data.results.filter((c: any) => this.hasLiquidity(c, config));
+    // Log strikes near ATM
+    const nearestStrikes = data.results
+      .map((c: any) => c.details.strike_price)
+      .sort((a: number, b: number) => Math.abs(a - underlyingPrice) - Math.abs(b - underlyingPrice))
+      .slice(0, 10);
+    console.log('[OptionsChain] Nearest 10 strikes to', underlyingPrice, ':', nearestStrikes);
+
+    // Filter by liquidity (pass underlyingPrice for ATM prioritization)
+    const liquidContracts = data.results.filter((c: any) => this.hasLiquidity(c, config, underlyingPrice));
     console.log('[OptionsChain] After liquidity filter:', liquidContracts.length, 'contracts');
+
+    // Log liquid strikes near ATM
+    const liquidStrikes = liquidContracts
+      .map((c: any) => c.details.strike_price)
+      .sort((a: number, b: number) => Math.abs(a - underlyingPrice) - Math.abs(b - underlyingPrice))
+      .slice(0, 10);
+    console.log('[OptionsChain] Nearest 10 liquid strikes:', liquidStrikes);
 
     if (liquidContracts.length === 0) {
       return {
