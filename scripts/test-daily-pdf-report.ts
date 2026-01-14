@@ -53,25 +53,23 @@ async function testDailyPDFReport() {
       .eq('report_date', today)
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (reportError) {
-      console.log('\n⚠️  Report not found in database:', reportError.message);
-    } else {
+      console.log('\n⚠️  Error checking report:', reportError.message);
+    } else if (reportData) {
       console.log('\n💾 Report Stored in Database:');
       console.log('  Report ID:', reportData.id);
       console.log('  Date:', reportData.report_date);
       console.log('  HTML Length:', reportData.report_html?.length || 0, 'characters');
+    } else {
+      console.log('\n⚠️  Report not yet in database (may take a moment to save)');
     }
 
     // Check configured channels
     const { data: channels, error: channelsError } = await supabase
       .from('analyzer_plans')
-      .select(`
-        id,
-        telegram_channel_username,
-        profiles!inner (username, full_name)
-      `)
+      .select('id, telegram_channels!telegram_channel_id(channel_id, channel_name)')
       .not('telegram_channel_id', 'is', null)
       .eq('is_active', true);
 
@@ -80,8 +78,10 @@ async function testDailyPDFReport() {
     } else {
       console.log('\n📢 Reports Sent to Channels:');
       if (channels && channels.length > 0) {
-        channels.forEach((channel: any) => {
-          console.log(`  ✓ ${channel.telegram_channel_username} (${channel.profiles.full_name})`);
+        channels.forEach((plan: any) => {
+          if (plan.telegram_channels) {
+            console.log(`  ✓ ${plan.telegram_channels.channel_name} (${plan.telegram_channels.channel_id})`);
+          }
         });
       } else {
         console.log('  No Telegram channels configured');
