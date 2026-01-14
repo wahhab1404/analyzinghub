@@ -60,9 +60,6 @@ Deno.serve(async (req: Request) => {
       entryUnderlying: trade.entry_underlying_snapshot,
     });
 
-    const screenshotApiKey = Deno.env.get("SCREENSHOT_API_KEY") || "VHC72UO-TWQF3WH-N8SXQDS-R77KQPZ";
-    const screenshotUrl = `https://shot.screenshotapi.net/screenshot`;
-
     const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
     const cacheBuster = Date.now();
     const isNewHighParam = payload.isNewHigh ? '&isNewHigh=true' : '';
@@ -70,22 +67,22 @@ Deno.serve(async (req: Request) => {
     const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}${isNewHighParam}${newHighPriceParam}`;
     console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl, "isNewHigh:", payload.isNewHigh, "newHighPrice:", payload.newHighPrice);
 
-    console.log("[generate-trade-snapshot] Generating screenshot from hosted HTML...");
+    console.log("[generate-trade-snapshot] Using ApiFlash screenshot service...");
+
+    const apiflashKey = Deno.env.get("APIFLASH_KEY") || "8daad83fec0948579f899e3c44dea0c4";
 
     const screenshotParams = new URLSearchParams({
-      token: screenshotApiKey,
+      access_key: apiflashKey,
       url: htmlPublicUrl,
       width: "1280",
       height: "720",
-      output: "image",
-      file_type: "png",
-      wait_for_event: "load",
-      delay: "2000",
+      format: "png",
+      wait_until: "page_loaded",
+      delay: "2",
       fresh: "true",
-      no_cache: "true",
     });
 
-    const fullScreenshotUrl = `${screenshotUrl}?${screenshotParams.toString()}`;
+    const fullScreenshotUrl = `https://api.apiflash.com/v1/urltoimage?${screenshotParams.toString()}`;
     const screenshotResponse = await fetch(fullScreenshotUrl);
 
     if (!screenshotResponse.ok) {

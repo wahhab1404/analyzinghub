@@ -140,7 +140,6 @@ Deno.serve(async (req) => {
                   winningSnapshotUrl = snapshotResult.imageUrl;
                   console.log(`✅ Snapshot generated for after-close winning trade: ${winningSnapshotUrl}`);
 
-                  // Save snapshot URL to database
                   await supabase
                     .from("index_trades")
                     .update({ contract_url: winningSnapshotUrl })
@@ -181,7 +180,7 @@ Deno.serve(async (req) => {
 
         const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
-        const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 55000);
+        const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 45000);
 
         if (!shouldCheckPrice) {
           if (!marketIsOpen) {
@@ -330,6 +329,7 @@ Deno.serve(async (req) => {
 
         const netPnl = (newContract - entryContractPrice) * (trade.qty || 1);
         const percentGain = ((newContractHigh - entryContractPrice) / entryContractPrice) * 100;
+        const percentChange = ((newContract - entryContractPrice) / entryContractPrice) * 100;
 
         const prevHighPercent = trade.contract_high_since
           ? ((trade.contract_high_since - entryContractPrice) / entryContractPrice) * 100
@@ -337,6 +337,8 @@ Deno.serve(async (req) => {
 
         const gainThreshold = 5;
         const isSignificantNewHigh = percentGain >= gainThreshold && percentGain > prevHighPercent + 2;
+
+        console.log(`💰 Trade ${trade.id} P&L: $${netPnl.toFixed(2)} (${percentChange.toFixed(2)}%), High gain: ${percentGain.toFixed(2)}%`);
 
         if (isSignificantNewHigh) {
           if (!trade.win_100_announced && netPnl >= 100) {
@@ -370,7 +372,6 @@ Deno.serve(async (req) => {
                 winningSnapshotUrl = snapshotResult.imageUrl;
                 console.log(`✅ Snapshot generated for winning trade: ${winningSnapshotUrl}`);
 
-                // Save snapshot URL to database
                 await supabase
                   .from("index_trades")
                   .update({ contract_url: winningSnapshotUrl })
@@ -400,17 +401,19 @@ Deno.serve(async (req) => {
 
         const oldContractHigh = trade.contract_high_since || entryContractPrice;
         const isNewHigh = newContractHigh > oldContractHigh;
+        const highIncrease = newContractHigh - oldContractHigh;
+        const highIncreasePercent = oldContractHigh > 0 ? (highIncrease / oldContractHigh) * 100 : 0;
 
-        if (isNewHigh && isSignificantNewHigh) {
-          console.log(`🚀 NEW HIGH for trade ${trade.id}: ${newContractHigh.toFixed(4)} (+${percentGain.toFixed(2)}%)`);
+        if (isNewHigh && highIncreasePercent > 0.5) {
+          console.log(`🚀 NEW HIGH for trade ${trade.id}: ${newContractHigh.toFixed(4)} (+${percentGain.toFixed(2)}% from entry, +${highIncreasePercent.toFixed(2)}% from prev high)`);
           results.newHighs++;
 
           await supabase.from("index_trade_updates").insert({
             trade_id: trade.id,
             update_type: "new_high",
             title: `New High: $${newContractHigh.toFixed(4)}`,
-            body: `New high! Contract price reached $${newContractHigh.toFixed(4)} (+${percentGain}%)`,
-            changes: { type: "new_high", price: newContractHigh, gain_percent: percentGain },
+            body: `New high! Contract price reached $${newContractHigh.toFixed(4)} (+${percentGain.toFixed(2)}% from entry)`,
+            changes: { type: "new_high", price: newContractHigh, gain_percent: percentGain, increase_percent: highIncreasePercent },
           });
 
           let snapshotUrl = null;
@@ -433,7 +436,6 @@ Deno.serve(async (req) => {
               snapshotUrl = snapshotResult.imageUrl;
               console.log(`✅ Snapshot generated for new high: ${snapshotUrl}`);
 
-              // Save snapshot URL to database immediately
               await supabase
                 .from("index_trades")
                 .update({ contract_url: snapshotUrl })
@@ -500,7 +502,6 @@ Deno.serve(async (req) => {
               resultSnapshotUrl = snapshotResult.imageUrl;
               console.log(`✅ Snapshot generated for trade result: ${resultSnapshotUrl}`);
 
-              // Save snapshot URL to database
               await supabase
                 .from("index_trades")
                 .update({ contract_url: resultSnapshotUrl })
@@ -663,42 +664,65 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
   try {
     const isOption = ticker.startsWith('O:');
     const cleanTicker = isOption ? ticker : `O:${ticker}`;
-    const url = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}?apiKey=${apiKey}`;
 
-    console.log(`📡 Fetching quote from Polygon: ${url}`);
+    const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}?apiKey=${apiKey}`;
+    console.log(`📡 Trying snapshot endpoint: ${snapshotUrl}`);
 
-    const response = await fetch(url);
+    const snapshotResponse = await fetch(snapshotUrl);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Polygon API error (${response.status}):`, errorText);
+    if (snapshotResponse.ok) {
+      const snapshotData = await snapshotResponse.json();
+
+      if (snapshotData.status === 'OK' && snapshotData.results && !Array.isArray(snapshotData.results)) {
+        const result = snapshotData.results;
+        const lastQuote = result.last_quote || {};
+
+        if (lastQuote.bid || lastQuote.ask || lastQuote.last_price) {
+          console.log(`✅ Got snapshot data: bid=${lastQuote.bid}, ask=${lastQuote.ask}`);
+          return {
+            last: lastQuote.last_price || 0,
+            bid: lastQuote.bid || 0,
+            ask: lastQuote.ask || 0,
+            mid: lastQuote.bid && lastQuote.ask ? (lastQuote.bid + lastQuote.ask) / 2 : lastQuote.last_price || 0,
+            volume: result.day?.volume || 0,
+            timestamp: lastQuote.timeframe,
+          };
+        }
+      }
+    }
+
+    console.log(`⚠️ Snapshot empty, trying quotes endpoint...`);
+
+    const quotesUrl = `https://api.polygon.io/v3/quotes/${encodeURIComponent(cleanTicker)}?limit=1&order=desc&sort=timestamp&apiKey=${apiKey}`;
+    console.log(`📡 Fetching from quotes endpoint: ${quotesUrl}`);
+
+    const quotesResponse = await fetch(quotesUrl);
+
+    if (!quotesResponse.ok) {
+      const errorText = await quotesResponse.text();
+      console.error(`Polygon quotes API error (${quotesResponse.status}):`, errorText);
       return null;
     }
 
-    const data = await response.json();
+    const quotesData = await quotesResponse.json();
 
-    if (data.status === 'OK' && data.results) {
-      const result = data.results;
+    if (quotesData.status === 'OK' && quotesData.results && quotesData.results.length > 0) {
+      const quote = quotesData.results[0];
+      const mid = quote.bid_price && quote.ask_price ? (quote.bid_price + quote.ask_price) / 2 : 0;
 
-      if (Array.isArray(result) && result.length === 0) {
-        console.log(`⚠️ Empty results array for ${ticker} - likely expired or no data available`);
-        return null;
-      }
-
-      const lastQuote = result.last_quote || {};
-      const details = result.details || {};
+      console.log(`✅ Got quotes data: bid=${quote.bid_price}, ask=${quote.ask_price}, mid=${mid.toFixed(4)}`);
 
       return {
-        last: lastQuote.last_price || 0,
-        bid: lastQuote.bid || 0,
-        ask: lastQuote.ask || 0,
-        mid: lastQuote.bid && lastQuote.ask ? (lastQuote.bid + lastQuote.ask) / 2 : lastQuote.last_price || 0,
-        volume: result.day?.volume || 0,
-        timestamp: lastQuote.timeframe,
+        last: 0,
+        bid: quote.bid_price || 0,
+        ask: quote.ask_price || 0,
+        mid: mid,
+        volume: 0,
+        timestamp: quote.sip_timestamp,
       };
     }
 
-    console.log('No results from Polygon API');
+    console.log('❌ No quote data available from either endpoint');
     return null;
   } catch (error) {
     console.error('Error fetching Polygon quote:', error);
