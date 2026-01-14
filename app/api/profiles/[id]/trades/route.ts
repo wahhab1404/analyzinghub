@@ -65,6 +65,8 @@ export async function GET(
         entry_contract_snapshot,
         current_contract,
         max_contract_price,
+        contract_high_since,
+        contract_low_since,
         analysis_id,
         instrument_type
       `)

@@ -37,6 +37,8 @@ interface Trade {
   entry_contract_snapshot: any
   current_contract: number
   max_contract_price: number | null
+  contract_high_since: number | null
+  contract_low_since: number | null
   analysis_id: string | null
 }
 
@@ -268,14 +270,16 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
 
                       {isActive ? (
                         <div>
-                          <p className="text-muted-foreground mb-1">Current Price</p>
-                          <span className="font-medium">${(trade.current_contract || 0).toFixed(2)}</span>
+                          <p className="text-muted-foreground mb-1">Highest Price</p>
+                          <span className="font-medium">
+                            ${(trade.contract_high_since || trade.current_contract || 0).toFixed(2)}
+                          </span>
                         </div>
                       ) : (
                         <div>
-                          <p className="text-muted-foreground mb-1">Max Price</p>
+                          <p className="text-muted-foreground mb-1">Highest Price</p>
                           <span className="font-medium">
-                            ${(trade.max_contract_price || trade.current_contract || 0).toFixed(2)}
+                            ${(trade.contract_high_since || trade.max_contract_price || trade.current_contract || 0).toFixed(2)}
                           </span>
                         </div>
                       )}
