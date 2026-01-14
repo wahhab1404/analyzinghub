@@ -117,10 +117,10 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     const entryPrice = trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last
     if (entryPrice === 0) return null
 
-    // Use final_profit for closed trades, profit_from_entry for active trades
+    // Use final_profit for closed trades, max_profit for active trades (best profit achieved)
     const profitValue = trade.status === 'closed'
-      ? (trade.final_profit ?? trade.profit_from_entry ?? 0)
-      : (trade.profit_from_entry || 0)
+      ? (trade.final_profit ?? trade.max_profit ?? 0)
+      : (trade.max_profit ?? 0)
 
     const percentReturn = (profitValue / (entryPrice * 100)) * 100
     return percentReturn
@@ -285,15 +285,15 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
                       isActive
-                        ? (trade.profit_from_entry >= 0 ? 'text-blue-600' : 'text-orange-600')
-                        : (trade.final_profit ?? trade.profit_from_entry ?? 0) >= 0
+                        ? (trade.max_profit ?? 0) >= 0 ? 'text-blue-600' : 'text-orange-600'
+                        : (trade.final_profit ?? trade.max_profit ?? 0) >= 0
                           ? 'text-green-600'
                           : 'text-red-600'
                     }`}>
                       {formatCurrency(
                         isActive
-                          ? (trade.profit_from_entry || 0)
-                          : (trade.final_profit ?? trade.profit_from_entry ?? 0)
+                          ? (trade.max_profit ?? 0)
+                          : (trade.final_profit ?? trade.max_profit ?? 0)
                       )}
                     </div>
                     {percentReturn !== null && (

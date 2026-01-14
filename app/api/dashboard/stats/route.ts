@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
     const { data: tradeStats } = await supabase
       .from('index_trades')
-      .select('status, is_winning_trade, profit_from_entry, max_profit, closed_at, trade_outcome')
+      .select('status, is_winning_trade, profit_from_entry, max_profit, final_profit, closed_at, trade_outcome')
       .eq('author_id', user.id);
 
     const totalTrades = tradeStats?.length || 0;
@@ -26,18 +26,20 @@ export async function GET(request: NextRequest) {
     const winRate = closedTrades > 0 ? ((winningTrades / closedTrades) * 100).toFixed(1) : '0';
 
     const totalProfit = tradeStats?.reduce((sum, t) => {
-      if (t.status === 'closed' && t.profit_from_entry) {
-        return sum + parseFloat(t.profit_from_entry.toString());
+      if (t.status === 'closed') {
+        const profit = t.final_profit ?? t.max_profit ?? 0;
+        return sum + parseFloat(profit.toString());
       }
       return sum;
     }, 0) || 0;
 
     const currentMonthProfit = tradeStats?.reduce((sum, t) => {
-      if (t.closed_at && t.profit_from_entry) {
+      if (t.closed_at) {
         const closedDate = new Date(t.closed_at);
         const now = new Date();
         if (closedDate.getMonth() === now.getMonth() && closedDate.getFullYear() === now.getFullYear()) {
-          return sum + parseFloat(t.profit_from_entry.toString());
+          const profit = t.final_profit ?? t.max_profit ?? 0;
+          return sum + parseFloat(profit.toString());
         }
       }
       return sum;
@@ -56,6 +58,7 @@ export async function GET(request: NextRequest) {
         option_type,
         profit_from_entry,
         max_profit,
+        final_profit,
         is_winning_trade,
         trade_outcome,
         closed_at,
@@ -83,7 +86,8 @@ export async function GET(request: NextRequest) {
       }) || [];
 
       const dayProfit = dayTrades.reduce((sum, t) => {
-        return sum + (parseFloat(t.profit_from_entry?.toString() || '0'));
+        const profit = t.final_profit ?? t.max_profit ?? 0;
+        return sum + parseFloat(profit.toString());
       }, 0);
 
       last7DaysData.push({

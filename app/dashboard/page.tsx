@@ -30,6 +30,7 @@ interface RecentTrade {
   option_type?: string
   profit_from_entry?: number
   max_profit?: number
+  final_profit?: number
   is_winning_trade?: boolean
   trade_outcome?: string
   closed_at?: string
@@ -367,7 +368,10 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {recentTrades.map((trade) => {
                 const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
-                const profit = trade.profit_from_entry || 0
+                // Use final_profit for closed trades, max_profit for active trades
+                const profit = trade.status === 'closed'
+                  ? (trade.final_profit ?? trade.max_profit ?? 0)
+                  : (trade.max_profit ?? 0)
                 const profitPercent = entryPrice > 0 ? ((profit / (entryPrice * (trade as any).qty || 1)) * 100).toFixed(1) : '0'
 
                 return (
