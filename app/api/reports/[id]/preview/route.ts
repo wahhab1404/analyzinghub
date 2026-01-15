@@ -1,4 +1,4 @@
-import { createRouteHandlerClient } from '@/lib/api-helpers'
+import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
 export const runtime = 'nodejs'
@@ -10,7 +10,17 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    const supabase = createRouteHandlerClient(request)
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      }
+    )
 
     const { data: report, error } = await supabase
       .from('daily_trade_reports')
