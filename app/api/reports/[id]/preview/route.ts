@@ -32,6 +32,13 @@ export async function GET(
       return new NextResponse('Report not found', { status: 404 })
     }
 
+    // If the report has stored HTML content, use it
+    if (report.html_content) {
+      return new NextResponse(report.html_content, {
+        headers: { 'Content-Type': 'text/html' }
+      })
+    }
+
     const summary = report.summary || {}
     const totalTrades = summary.total_trades || 0
     const activeTrades = summary.active_trades || 0
