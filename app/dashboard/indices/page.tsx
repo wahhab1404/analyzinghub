@@ -11,6 +11,7 @@ import { AddTradeForm } from '@/components/indices/AddTradeForm'
 import { TradesList } from '@/components/indices/TradesList'
 import { TradeMonitor } from '@/components/indices/TradeMonitor'
 import { NewTradeDialog } from '@/components/indices/NewTradeDialog'
+import { DailyReportControls } from '@/components/indices/DailyReportControls'
 import { useLanguage } from '@/lib/i18n/language-context'
 
 type View = 'list' | 'manage-trades' | 'monitor-trade'
@@ -94,6 +95,8 @@ export default function IndicesHubPage() {
               </CardContent>
             </Card>
           )}
+
+          <DailyReportControls />
 
           <Tabs defaultValue="analyses" className="w-full">
             <TabsList className="grid w-full grid-cols-3">

@@ -21,6 +21,84 @@ interface Trade {
   outcome?: string;
 }
 
+// PDF Translations
+const translations = {
+  en: {
+    title: 'Daily Trading Report',
+    totalTrades: 'Total Trades',
+    activeTrades: 'Active Trades',
+    closedTrades: 'Closed Trades',
+    expiredTrades: 'Expired Trades',
+    avgProfit: 'Avg Profit',
+    maxProfit: 'Max Profit',
+    winRate: 'Win Rate',
+    todaysTrades: "Today's Trades",
+    strikePrice: 'Strike Price',
+    entryPrice: 'Entry Price',
+    highestPrice: 'Highest Price',
+    currentPrice: 'Current Price',
+    maxProfitLabel: 'Max Profit',
+    outcome: 'Outcome',
+    win: 'WIN',
+    loss: 'LOSS',
+    noTrades: 'No Trades Today',
+    noTradesDesc: 'There were no trades recorded for today.',
+    platform: 'AnalyZHub - Professional Trading Analysis Platform',
+    generatedOn: 'Generated on',
+    copyright: 'All Rights Reserved',
+    telegram: {
+      title: 'Daily Trading Report',
+      summary: 'Performance Summary',
+      metrics: 'Profit Metrics',
+      total: 'Total Trades',
+      active: 'Active',
+      closed: 'Closed',
+      expired: 'Expired',
+      avgProfit: 'Avg Profit',
+      maxProfit: 'Max Profit',
+      winRate: 'Win Rate',
+      attached: 'Full detailed report attached below'
+    }
+  },
+  ar: {
+    title: 'التقرير اليومي للتداول',
+    totalTrades: 'إجمالي الصفقات',
+    activeTrades: 'الصفقات النشطة',
+    closedTrades: 'الصفقات المغلقة',
+    expiredTrades: 'الصفقات المنتهية',
+    avgProfit: 'متوسط الربح',
+    maxProfit: 'أعلى ربح',
+    winRate: 'معدل النجاح',
+    todaysTrades: 'صفقات اليوم',
+    strikePrice: 'سعر التنفيذ',
+    entryPrice: 'سعر الدخول',
+    highestPrice: 'أعلى سعر',
+    currentPrice: 'السعر الحالي',
+    maxProfitLabel: 'أعلى ربح',
+    outcome: 'النتيجة',
+    win: 'ربح',
+    loss: 'خسارة',
+    noTrades: 'لا توجد صفقات اليوم',
+    noTradesDesc: 'لم يتم تسجيل أي صفقات لهذا اليوم.',
+    platform: 'AnalyZHub - منصة احترافية لتحليل التداول',
+    generatedOn: 'تم الإنشاء في',
+    copyright: 'جميع الحقوق محفوظة',
+    telegram: {
+      title: 'التقرير اليومي للتداول',
+      summary: 'ملخص الأداء',
+      metrics: 'مؤشرات الربح',
+      total: 'إجمالي الصفقات',
+      active: 'نشط',
+      closed: 'مغلق',
+      expired: 'منتهي',
+      avgProfit: 'متوسط الربح',
+      maxProfit: 'أعلى ربح',
+      winRate: 'معدل النجاح',
+      attached: 'التقرير التفصيلي الكامل مرفق أدناه'
+    }
+  }
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -31,9 +109,18 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    const today = new Date();
-    const startOfDay = new Date(today.setUTCHours(0, 0, 0, 0)).toISOString();
-    const endOfDay = new Date(today.setUTCHours(23, 59, 59, 999)).toISOString();
+    const body = await req.json().catch(() => ({}));
+    const reportDateStr = body.date || new Date().toISOString().split('T')[0];
+    const previewOnly = body.previewOnly === true;
+    const language = body.language || 'ar'; // Default to Arabic
+
+    console.log('[PDF Report] Request:', { reportDateStr, previewOnly, language });
+
+    const t = translations[language as 'en' | 'ar'] || translations.ar;
+
+    const reportDate = new Date(reportDateStr + 'T00:00:00Z');
+    const startOfDay = new Date(reportDate.setUTCHours(0, 0, 0, 0)).toISOString();
+    const endOfDay = new Date(reportDate.setUTCHours(23, 59, 59, 999)).toISOString();
 
     const { data: trades, error: tradesError } = await supabase
       .from('index_trades')
@@ -43,6 +130,8 @@ Deno.serve(async (req) => {
       .order('created_at', { ascending: false });
 
     if (tradesError) throw tradesError;
+
+    console.log('[PDF Report] Found trades:', trades?.length || 0);
 
     const tradesWithCalculatedProfit = (trades || []).map(trade => {
       const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
@@ -76,16 +165,36 @@ Deno.serve(async (req) => {
     const winningTrades = tradesWithCalculatedProfit.filter(t => t.calculated_max_profit >= 100).length;
     const winRate = totalTrades > 0 ? ((winningTrades / totalTrades) * 100) : 0;
 
+    const formattedDate = language === 'ar'
+      ? reportDate.toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+      : reportDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
     const html = generatePDFHTML({
-      date: today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+      date: formattedDate,
       trades: tradesWithCalculatedProfit,
-      stats: { totalTrades, activeTrades, closedTrades, expiredTrades, avgProfit, maxProfit, winRate }
+      stats: { totalTrades, activeTrades, closedTrades, expiredTrades, avgProfit, maxProfit, winRate },
+      t,
+      language
     });
+
+    console.log('[PDF Report] HTML generated, length:', html.length);
+
+    if (previewOnly) {
+      console.log('[PDF Report] Returning preview');
+      return new Response(
+        JSON.stringify({
+          success: true,
+          html: html,
+          stats: { totalTrades, activeTrades, closedTrades, expiredTrades, avgProfit, maxProfit, winRate }
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const { data: reportData, error: reportError } = await supabase
       .from('daily_trade_reports')
       .upsert({
-        report_date: today.toISOString().split('T')[0],
+        report_date: reportDateStr,
         total_trades: totalTrades,
         active_trades: activeTrades,
         closed_trades: closedTrades,
@@ -108,14 +217,15 @@ Deno.serve(async (req) => {
       avgProfit,
       maxProfit,
       winRate
-    });
+    }, reportDate, formattedDate, t);
 
     return new Response(
       JSON.stringify({
         success: true,
         message: 'Daily report generated',
-        stats: { totalTrades, activeTrades, closedTrades, avgProfit, maxProfit, winRate },
-        reportSaved: !reportError
+        stats: { totalTrades, activeTrades, closedTrades, expiredTrades, avgProfit, maxProfit, winRate },
+        reportSaved: !reportError,
+        language
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -129,10 +239,15 @@ Deno.serve(async (req) => {
 });
 
 function generatePDFHTML(data: any): string {
-  const { date, trades, stats } = data;
-  
+  const { date, trades, stats, t, language } = data;
+  const isRTL = language === 'ar';
+  const dir = isRTL ? 'rtl' : 'ltr';
+  const fontFamily = isRTL
+    ? "'Cairo', 'Segoe UI', Tahoma, sans-serif"
+    : "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
   const tradesHtml = trades.length === 0
-    ? '<div class="no-trades"><div class="no-trades-icon">📭</div><h3>No Trades Today</h3><p>There were no trades recorded for today.</p></div>'
+    ? `<div class="no-trades"><div class="no-trades-icon">📭</div><h3>${t.noTrades}</h3><p>${t.noTradesDesc}</p></div>`
     : trades.map((trade: any) => {
         const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
@@ -148,36 +263,36 @@ function generatePDFHTML(data: any): string {
                 <span class="trade-type ${trade.option_type?.toLowerCase()}">${trade.option_type?.toUpperCase() || 'N/A'}</span>
               </div>
               <div>
-                <span class="trade-status ${trade.status}">${trade.status?.toUpperCase()}</span>
+                <span class="trade-status ${trade.status}">${t[trade.status]?.toUpperCase() || trade.status?.toUpperCase()}</span>
               </div>
             </div>
             <div class="trade-details">
               <div class="trade-detail">
-                <div class="trade-detail-label">Strike Price</div>
+                <div class="trade-detail-label">${t.strikePrice}</div>
                 <div class="trade-detail-value">$${trade.strike?.toFixed(2)}</div>
               </div>
               <div class="trade-detail">
-                <div class="trade-detail-label">Entry Price</div>
+                <div class="trade-detail-label">${t.entryPrice}</div>
                 <div class="trade-detail-value">$${entryPrice.toFixed(2)}</div>
               </div>
               <div class="trade-detail">
-                <div class="trade-detail-label">Highest Price</div>
+                <div class="trade-detail-label">${t.highestPrice}</div>
                 <div class="trade-detail-value">$${highestPrice.toFixed(2)}</div>
               </div>
               <div class="trade-detail">
-                <div class="trade-detail-label">Current Price</div>
+                <div class="trade-detail-label">${t.currentPrice}</div>
                 <div class="trade-detail-value">$${trade.current_contract?.toFixed(2) || 'N/A'}</div>
               </div>
               <div class="trade-detail">
-                <div class="trade-detail-label">Max Profit</div>
+                <div class="trade-detail-label">${t.maxProfitLabel}</div>
                 <div class="trade-detail-value">
                   <span class="profit-badge ${profitClass}">$${profitDollar.toFixed(2)} (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)</span>
                 </div>
               </div>
               ${trade.status === 'closed' ? `
                 <div class="trade-detail">
-                  <div class="trade-detail-label">Outcome</div>
-                  <div class="trade-detail-value" style="font-size: 14px;">${profitDollar >= 100 ? 'WIN' : 'LOSS'}</div>
+                  <div class="trade-detail-label">${t.outcome}</div>
+                  <div class="trade-detail-value" style="font-size: 14px;">${profitDollar >= 100 ? t.win : t.loss}</div>
                 </div>
               ` : ''}
             </div>
@@ -186,18 +301,20 @@ function generatePDFHTML(data: any): string {
       }).join('');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${language}" dir="${dir}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Daily Trading Report - ${date}</title>
+  <title>${t.title} - ${date}</title>
+  ${isRTL ? '<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">' : ''}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-family: ${fontFamily};
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       padding: 40px 20px;
       color: #1a202c;
+      direction: ${dir};
     }
     .container {
       max-width: 1200px;
@@ -229,12 +346,13 @@ function generatePDFHTML(data: any): string {
       box-shadow: 0 4px 6px rgba(0,0,0,0.07);
       text-align: center;
       border-left: 4px solid;
+      ${isRTL ? 'border-left: none; border-right: 4px solid;' : ''}
     }
-    .stat-card.primary { border-left-color: #667eea; }
-    .stat-card.success { border-left-color: #48bb78; }
-    .stat-card.warning { border-left-color: #ed8936; }
-    .stat-card.danger { border-left-color: #f56565; }
-    .stat-card.info { border-left-color: #4299e1; }
+    .stat-card.primary { ${isRTL ? 'border-right-color: #667eea;' : 'border-left-color: #667eea;'} }
+    .stat-card.success { ${isRTL ? 'border-right-color: #48bb78;' : 'border-left-color: #48bb78;'} }
+    .stat-card.warning { ${isRTL ? 'border-right-color: #ed8936;' : 'border-left-color: #ed8936;'} }
+    .stat-card.danger { ${isRTL ? 'border-right-color: #f56565;' : 'border-left-color: #f56565;'} }
+    .stat-card.info { ${isRTL ? 'border-right-color: #4299e1;' : 'border-left-color: #4299e1;'} }
     .stat-value { font-size: 32px; font-weight: 700; color: #2d3748; margin-bottom: 5px; }
     .stat-label { font-size: 14px; color: #718096; text-transform: uppercase; letter-spacing: 0.5px; }
     .trades-section { padding: 40px; }
@@ -271,7 +389,7 @@ function generatePDFHTML(data: any): string {
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-left: 10px;
+      margin-${isRTL ? 'right' : 'left'}: 10px;
     }
     .trade-type.call { background: #c6f6d5; color: #22543d; }
     .trade-type.put { background: #fed7d7; color: #742a2a; }
@@ -324,54 +442,54 @@ function generatePDFHTML(data: any): string {
 <body>
   <div class="container">
     <div class="header">
-      <h1>📊 Daily Trading Report</h1>
+      <h1>📊 ${t.title}</h1>
       <p>${date}</p>
     </div>
     <div class="stats-grid">
       <div class="stat-card primary">
         <div class="stat-value">${stats.totalTrades}</div>
-        <div class="stat-label">Total Trades</div>
+        <div class="stat-label">${t.totalTrades}</div>
       </div>
       <div class="stat-card info">
         <div class="stat-value">${stats.activeTrades}</div>
-        <div class="stat-label">Active Trades</div>
+        <div class="stat-label">${t.activeTrades}</div>
       </div>
       <div class="stat-card success">
         <div class="stat-value">${stats.closedTrades}</div>
-        <div class="stat-label">Closed Trades</div>
+        <div class="stat-label">${t.closedTrades}</div>
       </div>
       <div class="stat-card warning">
         <div class="stat-value">${stats.expiredTrades}</div>
-        <div class="stat-label">Expired Trades</div>
+        <div class="stat-label">${t.expiredTrades}</div>
       </div>
       <div class="stat-card ${stats.avgProfit >= 0 ? 'success' : 'danger'}">
         <div class="stat-value">${stats.avgProfit.toFixed(1)}%</div>
-        <div class="stat-label">Avg Profit</div>
+        <div class="stat-label">${t.avgProfit}</div>
       </div>
       <div class="stat-card success">
         <div class="stat-value">${stats.maxProfit.toFixed(1)}%</div>
-        <div class="stat-label">Max Profit</div>
+        <div class="stat-label">${t.maxProfit}</div>
       </div>
       <div class="stat-card primary">
         <div class="stat-value">${stats.winRate.toFixed(1)}%</div>
-        <div class="stat-label">Win Rate</div>
+        <div class="stat-label">${t.winRate}</div>
       </div>
     </div>
     <div class="trades-section">
-      <h2 class="section-title">📈 Today's Trades</h2>
+      <h2 class="section-title">📈 ${t.todaysTrades}</h2>
       ${tradesHtml}
     </div>
     <div class="footer">
-      <p><strong>AnalyZHub</strong> - Professional Trading Analysis Platform</p>
-      <p>Generated on ${new Date().toLocaleString('en-US')}</p>
-      <p>© ${new Date().getFullYear()} All Rights Reserved</p>
+      <p><strong>${t.platform}</strong></p>
+      <p>${t.generatedOn} ${new Date().toLocaleString(language === 'ar' ? 'ar-SA' : 'en-US')}</p>
+      <p>© ${new Date().getFullYear()} ${t.copyright}</p>
     </div>
   </div>
 </body>
 </html>`;
 }
 
-async function sendToTelegramChannels(html: string, supabase: any, stats: any) {
+async function sendToTelegramChannels(html: string, supabase: any, stats: any, reportDate: Date, formattedDate: string, t: any) {
   try {
     const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
     if (!botToken) {
@@ -391,36 +509,29 @@ async function sendToTelegramChannels(html: string, supabase: any, stats: any) {
       return;
     }
 
-    const today = new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-
     const profitEmoji = stats.avgProfit >= 0 ? '📈' : '📉';
 
     for (const plan of analyzerPlans) {
       const channelId = plan.telegram_channels.channel_id;
       const channelName = plan.telegram_channels.channel_name;
 
-      const message = `📊 <b>Daily Trading Report</b>
-📅 ${today}
+      const message = `📊 <b>${t.telegram.title}</b>
+📅 ${formattedDate}
 
-🎯 <b>Performance Summary</b>
+🎯 <b>${t.telegram.summary}</b>
 ━━━━━━━━━━━━━━━━━━━━
-📌 Total Trades: <b>${stats.totalTrades}</b>
-🔵 Active: <b>${stats.activeTrades}</b>
-✅ Closed: <b>${stats.closedTrades}</b>
-⏰ Expired: <b>${stats.expiredTrades}</b>
+📌 ${t.telegram.total}: <b>${stats.totalTrades}</b>
+🔵 ${t.telegram.active}: <b>${stats.activeTrades}</b>
+✅ ${t.telegram.closed}: <b>${stats.closedTrades}</b>
+⏰ ${t.telegram.expired}: <b>${stats.expiredTrades}</b>
 
-${profitEmoji} <b>Profit Metrics</b>
+${profitEmoji} <b>${t.telegram.metrics}</b>
 ━━━━━━━━━━━━━━━━━━━━
-💰 Avg Profit: <b>${stats.avgProfit >= 0 ? '+' : ''}${stats.avgProfit.toFixed(1)}%</b>
-🚀 Max Profit: <b>+${stats.maxProfit.toFixed(1)}%</b>
-🎯 Win Rate: <b>${stats.winRate.toFixed(1)}%</b>
+💰 ${t.telegram.avgProfit}: <b>${stats.avgProfit >= 0 ? '+' : ''}${stats.avgProfit.toFixed(1)}%</b>
+🚀 ${t.telegram.maxProfit}: <b>+${stats.maxProfit.toFixed(1)}%</b>
+🎯 ${t.telegram.winRate}: <b>${stats.winRate.toFixed(1)}%</b>
 
-<i>📎 Full detailed report attached below</i>`.trim();
+<i>📎 ${t.telegram.attached}</i>`.trim();
 
       try {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -437,9 +548,9 @@ ${profitEmoji} <b>Profit Metrics</b>
         formData.append('chat_id', channelId);
 
         const htmlBlob = new Blob([html], { type: 'text/html' });
-        const fileName = `Daily_Trading_Report_${new Date().toISOString().split('T')[0]}.html`;
+        const fileName = `Daily_Trading_Report_${reportDate.toISOString().split('T')[0]}.html`;
         formData.append('document', htmlBlob, fileName);
-        formData.append('caption', `📊 Daily Trading Report - ${today}`);
+        formData.append('caption', `📊 ${t.telegram.title} - ${formattedDate}`);
         formData.append('parse_mode', 'HTML');
 
         await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
@@ -447,7 +558,7 @@ ${profitEmoji} <b>Profit Metrics</b>
           body: formData
         });
 
-        console.log(`Daily report with PDF sent to channel: ${channelName}`);
+        console.log(`Daily report sent to channel: ${channelName}`);
       } catch (err) {
         console.error(`Error sending to channel ${channelName}:`, err);
       }
