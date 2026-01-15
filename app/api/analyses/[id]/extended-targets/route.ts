@@ -4,9 +4,10 @@ import { EntitlementsService } from '@/services/entitlements/entitlements.servic
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createRouteHandlerClient(request);
 
     const {
@@ -18,7 +19,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const analysisId = params.id;
+    const analysisId = id;
     const body = await request.json();
     const { price, label, notes } = body;
 
@@ -100,11 +101,12 @@ export async function POST(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createRouteHandlerClient(request);
-    const analysisId = params.id;
+    const analysisId = id;
 
     const { data: analysis, error } = await supabase
       .from('analyses')

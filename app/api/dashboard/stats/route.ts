@@ -64,7 +64,9 @@ export async function GET(request: NextRequest) {
         closed_at,
         created_at,
         entry_contract_snapshot,
-        current_contract
+        current_contract,
+        qty,
+        contract_multiplier
       `)
       .eq('author_id', user.id)
       .eq('status', 'closed')

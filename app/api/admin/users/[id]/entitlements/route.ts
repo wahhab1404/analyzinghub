@@ -3,9 +3,10 @@ import { createRouteHandlerClient } from '@/lib/api-helpers';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createRouteHandlerClient(request);
 
     const {
@@ -38,7 +39,7 @@ export async function POST(
       );
     }
 
-    const targetUserId = params.id;
+    const targetUserId = id;
 
     // Get existing entitlement
     const { data: existingEntitlement } = await supabase
@@ -108,9 +109,10 @@ export async function POST(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await params;
     const supabase = createRouteHandlerClient(request);
 
     const {
@@ -133,7 +135,7 @@ export async function GET(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const targetUserId = params.id;
+    const targetUserId = id;
 
     // Get entitlement
     const { data: entitlement, error } = await supabase

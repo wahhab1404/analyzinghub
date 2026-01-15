@@ -368,11 +368,15 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {recentTrades.map((trade) => {
                 const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
-                // Use final_profit for closed trades, max_profit for active trades
+                const qty = (trade as any).qty || 1
+                const multiplier = (trade as any).contract_multiplier || 100
+
                 const profit = trade.status === 'closed'
                   ? (trade.final_profit ?? trade.max_profit ?? 0)
                   : (trade.max_profit ?? 0)
-                const profitPercent = entryPrice > 0 ? ((profit / (entryPrice * (trade as any).qty || 1)) * 100).toFixed(1) : '0'
+
+                const entryCost = entryPrice * qty * multiplier
+                const profitPercent = entryCost > 0 ? ((profit / entryCost) * 100).toFixed(1) : '0'
 
                 return (
                   <Link

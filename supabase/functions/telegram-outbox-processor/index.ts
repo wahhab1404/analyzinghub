@@ -272,40 +272,36 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
 function formatTradeResultMessage(payload: any): { text: string } {
   const trade = payload.trade || payload;
   const outcome = payload.outcome || trade.outcome;
+  const pnl = payload.pnl || trade.pnl_usd || 0;
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
 
   const isWin = outcome === 'succeed';
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || 0;
-  const highestPrice = trade.contract_high_since || entryPrice;
-
-  const profitFromHigh = ((highestPrice - entryPrice) * 100).toFixed(2);
-  const percentFromHigh = (((highestPrice - entryPrice) / entryPrice) * 100).toFixed(2);
+  const highestPrice = trade.contract_high_since || 0;
 
   let message = isWin
-    ? "🎉 <b>TRADE CLOSED - TARGET HIT! | إغلاق الصفقة - تحقيق الهدف!</b>\n\n"
+    ? "🎉 <b>TRADE WIN | فوز في الصفقة!</b>\n\n"
     : outcome === 'expired'
-    ? "📊 <b>TRADE CLOSED (EXPIRED) | إغلاق الصفقة (منتهية)</b>\n\n"
+    ? "⏰ <b>TRADE EXPIRED | انتهت الصفقة</b>\n\n"
     : "🛑 <b>TRADE STOPPED | إيقاف الصفقة</b>\n\n";
 
   message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
   message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
+  message += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  message += `<b>Close | الإغلاق:</b> $${currentPrice.toFixed(2)}\n`;
 
-  if (trade.strike) {
-    message += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
+  if (highestPrice > 0) {
+    message += `<b>Highest | الأعلى:</b> $${highestPrice.toFixed(2)}\n`;
   }
 
-  message += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
-  message += `<b>Highest Price | أعلى سعر:</b> $${highestPrice.toFixed(2)}\n`;
-  message += `<b>Close Price | سعر الإغلاق:</b> $${currentPrice.toFixed(2)}\n\n`;
-  message += `<b>💰 Max Profit | أقصى ربح:</b> +$${profitFromHigh} (+${percentFromHigh}%)`;
-
-  if (parseFloat(profitFromHigh) > 0) {
+  message += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)}`;
+  if (pnl > 0) {
     message += " ✅";
-  } else if (parseFloat(profitFromHigh) < 0) {
+  } else if (pnl < 0) {
     message += " ❌";
   }
-  message += "\n\n";
+  message += "\n";
 
   if (trade.author?.full_name) {
     message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;

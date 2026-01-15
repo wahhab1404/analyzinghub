@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const { id } = await params;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    const userId = params.id
+    const userId = id
 
     const { data: balance } = await supabase
       .from('user_points_balance')

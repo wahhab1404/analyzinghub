@@ -21,7 +21,6 @@
     "test:resend-channel": "node node_modules/tsx/dist/cli.mjs scripts/test-resend-channel.ts",
     "test:expired-closer": "node node_modules/tsx/dist/cli.mjs scripts/test-expired-trades-closer.ts",
     "clear:cache": "node node_modules/tsx/dist/cli.mjs scripts/clear-spx-cache.ts",
-    "verify:credentials": "node verify-credentials.js",
     "sync:test": "npm install && npm run build",
     "sync:push": "git add . && git commit -m 'Sync from Bolt' && git push origin main",
     "sync:deploy": "npm run sync:test && npm run sync:push"
