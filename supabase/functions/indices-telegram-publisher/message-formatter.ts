@@ -372,7 +372,9 @@ export function formatTradeResultMessage(
   const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || 0;
   const highestPrice = trade.contract_high_since || 0;
-  const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
+
+  const profitDollar = ((highestPrice - entryPrice) * 100).toFixed(2);
+  const pnlPercent = ((highestPrice - entryPrice) / entryPrice * 100).toFixed(2);
 
   let cleanSymbol = trade.analysis.index_symbol;
   if (trade.polygon_option_ticker) {
@@ -386,9 +388,9 @@ export function formatTradeResultMessage(
   let message = "";
 
   if (isWin) {
-    message = "🎉 <b>TRADE WIN!</b>\n\n";
+    message = "🎉 <b>TRADE CLOSED - TARGET HIT!</b>\n\n";
   } else {
-    message = "🛑 <b>TRADE STOPPED</b>\n\n";
+    message = "📊 <b>TRADE CLOSED (EXPIRED)</b>\n\n";
   }
 
   message += `<b>Index:</b> ${trade.analysis.index_symbol}\n`;
@@ -397,41 +399,41 @@ export function formatTradeResultMessage(
   if (trade.polygon_option_ticker) {
     message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
   }
-  
-  message += `<b>Entry:</b> ${entryPrice.toFixed(2)}\n`;
-  message += `<b>Close:</b> ${currentPrice.toFixed(2)}\n`;
-  message += `<b>Highest After Entry:</b> ${highestPrice.toFixed(2)}\n`;
-  message += `<b>P/L:</b> ${pnlPercent}%\n\n`;
-  
+
+  message += `<b>Entry:</b> $${entryPrice.toFixed(2)}\n`;
+  message += `<b>Highest Price:</b> $${highestPrice.toFixed(2)}\n`;
+  message += `<b>Close Price:</b> $${currentPrice.toFixed(2)}\n\n`;
+  message += `<b>💰 Max Profit:</b> +$${profitDollar} (+${pnlPercent}%)\n\n`;
+
   if (isWin && trade.win_condition_met) {
     message += `<i>${trade.win_condition_met}</i>\n\n`;
   } else if (!isWin && trade.loss_condition_met) {
     message += `<i>${trade.loss_condition_met}</i>\n\n`;
   }
-  
+
   message += `<b>Analyst:</b> ${trade.author.full_name}\n\n`;
   message += `<a href="${analysisUrl}">📊 View Analysis</a>`;
 
   message += "\n\n━━━━━━━━━━\n\n";
-  
+
   if (isWin) {
-    message += "🎉 <b>فوز في الصفقة!</b>\n\n";
+    message += "🎉 <b>إغلاق الصفقة - تحقيق الهدف!</b>\n\n";
   } else {
-    message += "🛑 <b>إيقاف الصفقة</b>\n\n";
+    message += "📊 <b>إغلاق الصفقة (منتهية)</b>\n\n";
   }
-  
+
   message += `<b>المؤشر:</b> ${trade.analysis.index_symbol}\n`;
   message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
 
   if (trade.polygon_option_ticker) {
     message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
   }
-  
-  message += `<b>الدخول:</b> ${entryPrice.toFixed(2)}\n`;
-  message += `<b>الإغلاق:</b> ${currentPrice.toFixed(2)}\n`;
-  message += `<b>أعلى سعر بعد الدخول:</b> ${highestPrice.toFixed(2)}\n`;
-  message += `<b>الربح/الخسارة:</b> ${pnlPercent}%\n\n`;
-  
+
+  message += `<b>الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  message += `<b>أعلى سعر:</b> $${highestPrice.toFixed(2)}\n`;
+  message += `<b>سعر الإغلاق:</b> $${currentPrice.toFixed(2)}\n\n`;
+  message += `<b>💰 أقصى ربح:</b> +$${profitDollar} (+${pnlPercent}%)\n\n`;
+
   message += `<b>المحلل:</b> ${trade.author.full_name}\n\n`;
   message += `<a href="${analysisUrl}">📊 عرض التحليل</a>`;
 

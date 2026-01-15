@@ -145,38 +145,44 @@ Deno.serve(async (req: Request) => {
             isWin: isWinningTrade
           });
 
-          const { data: channel } = await supabase
-            .from('telegram_channels')
-            .select('channel_id')
-            .eq('id', trade.telegram_channel_id)
-            .single();
+          const { data: analyzerPlan } = await supabase
+            .from('analyzer_plans')
+            .select(`
+              id,
+              telegram_channel_id,
+              telegram_channels!telegram_channel_id(channel_id, channel_name)
+            `)
+            .eq('analyst_id', trade.author_id)
+            .eq('is_active', true)
+            .not('telegram_channel_id', 'is', null)
+            .maybeSingle();
 
-          if (channel?.channel_id) {
-            const profitSign = finalProfit >= 0 ? '+' : '';
-            const profitEmoji = finalProfit >= 0 ? '💰' : '📉';
-
-            const message = isWinningTrade
-              ? `🎯 *Trade Auto-Closed (Expired)*\n\n${trade.underlying_index_symbol} ${trade.strike}${trade.option_type?.toUpperCase()}\n\n✅ *Max Profit Reached:* $${maxProfit.toFixed(2)}\n💰 *Final P/L:* ${profitSign}$${finalProfit.toFixed(2)}\n📊 *Outcome:* ${tradeOutcome.toUpperCase().replace('_', ' ')}\n\nExpired: ${trade.expiry}`
-              : `📊 *Trade Auto-Closed (Expired)*\n\n${trade.underlying_index_symbol} ${trade.strike}${trade.option_type?.toUpperCase()}\n\n❌ *Did not reach $100 target*\n${profitEmoji} *Total Loss:* ${profitSign}$${finalProfit.toFixed(2)}\n📊 *Outcome:* ${tradeOutcome.toUpperCase().replace('_', ' ')}\n\nExpired: ${trade.expiry}`;
+          if (analyzerPlan?.telegram_channels?.channel_id) {
+            const channelId = analyzerPlan.telegram_channels.channel_id;
+            const highestPrice = trade.contract_high_since || entryPrice;
+            const profitFromHigh = ((highestPrice - entryPrice) * qty * multiplier).toFixed(2);
+            const percentFromHigh = (((highestPrice - entryPrice) / entryPrice) * 100).toFixed(2);
 
             await supabase.from('telegram_outbox').insert({
-              message_type: 'trade_closed',
+              message_type: 'trade_result',
               payload: {
                 trade: {
                   ...trade,
                   status: 'closed',
                   profit_from_entry: finalProfit,
-                  trade_outcome: tradeOutcome
+                  trade_outcome: tradeOutcome,
+                  current_contract: closingPrice,
                 },
-                message
+                outcome: isWinningTrade ? 'succeed' : 'expired',
+                pnl: parseFloat(profitFromHigh),
               },
-              channel_id: channel.channel_id,
+              channel_id: channelId,
               status: 'pending',
               priority: 5,
               next_retry_at: now.toISOString(),
             });
 
-            console.log(`[Expired Trades Closer] Queued Telegram notification for trade ${trade.id}`);
+            console.log(`[Expired Trades Closer] Queued Telegram notification for trade ${trade.id} - Max Profit: $${profitFromHigh} (+${percentFromHigh}%)`);
           }
         }
       } catch (error) {

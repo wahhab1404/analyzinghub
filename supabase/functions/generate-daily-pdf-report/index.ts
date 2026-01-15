@@ -37,32 +37,48 @@ Deno.serve(async (req) => {
 
     const { data: trades, error: tradesError } = await supabase
       .from('index_trades')
-      .select('id, underlying_index_symbol, option_type, strike, entry_contract_snapshot, current_contract, contract_high_since, status, max_profit, created_at, closed_at, outcome')
+      .select('id, underlying_index_symbol, option_type, strike, entry_contract_snapshot, current_contract, contract_high_since, status, max_profit, created_at, closed_at, outcome, qty')
       .gte('created_at', startOfDay)
       .lte('created_at', endOfDay)
       .order('created_at', { ascending: false });
 
     if (tradesError) throw tradesError;
 
-    const totalTrades = trades?.length || 0;
-    const activeTrades = trades?.filter(t => t.status === 'active').length || 0;
-    const closedTrades = trades?.filter(t => t.status === 'closed').length || 0;
-    const expiredTrades = trades?.filter(t => t.status === 'expired').length || 0;
+    const tradesWithCalculatedProfit = (trades || []).map(trade => {
+      const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+      const highestPrice = trade.contract_high_since || entryPrice;
+      const qty = trade.qty || 1;
+      const multiplier = 100;
 
-    const avgProfit = trades && trades.length > 0
-      ? trades.reduce((sum, t) => sum + (t.max_profit || 0), 0) / trades.length
+      const calculatedMaxProfit = (highestPrice - entryPrice) * qty * multiplier;
+      const maxProfitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
+
+      return {
+        ...trade,
+        calculated_max_profit: calculatedMaxProfit,
+        max_profit_percent: maxProfitPercent
+      };
+    });
+
+    const totalTrades = tradesWithCalculatedProfit.length;
+    const activeTrades = tradesWithCalculatedProfit.filter(t => t.status === 'active').length;
+    const closedTrades = tradesWithCalculatedProfit.filter(t => t.status === 'closed').length;
+    const expiredTrades = tradesWithCalculatedProfit.filter(t => t.status === 'expired').length;
+
+    const avgProfit = totalTrades > 0
+      ? tradesWithCalculatedProfit.reduce((sum, t) => sum + t.max_profit_percent, 0) / totalTrades
       : 0;
 
-    const maxProfit = trades && trades.length > 0
-      ? Math.max(...trades.map(t => t.max_profit || 0))
+    const maxProfit = totalTrades > 0
+      ? Math.max(...tradesWithCalculatedProfit.map(t => t.max_profit_percent))
       : 0;
 
-    const winningTrades = trades?.filter(t => (t.max_profit || 0) > 0).length || 0;
+    const winningTrades = tradesWithCalculatedProfit.filter(t => t.calculated_max_profit >= 100).length;
     const winRate = totalTrades > 0 ? ((winningTrades / totalTrades) * 100) : 0;
 
     const html = generatePDFHTML({
       date: today.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-      trades: trades || [],
+      trades: tradesWithCalculatedProfit,
       stats: { totalTrades, activeTrades, closedTrades, expiredTrades, avgProfit, maxProfit, winRate }
     });
 
@@ -117,11 +133,12 @@ function generatePDFHTML(data: any): string {
   
   const tradesHtml = trades.length === 0
     ? '<div class="no-trades"><div class="no-trades-icon">📭</div><h3>No Trades Today</h3><p>There were no trades recorded for today.</p></div>'
-    : trades.map((trade: Trade) => {
+    : trades.map((trade: any) => {
         const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
-        const profitPercent = trade.max_profit || 0;
-        const profitClass = profitPercent > 0 ? 'positive' : profitPercent < 0 ? 'negative' : 'neutral';
+        const profitDollar = trade.calculated_max_profit || 0;
+        const profitPercent = trade.max_profit_percent || 0;
+        const profitClass = profitDollar >= 100 ? 'positive' : profitDollar < 0 ? 'negative' : 'neutral';
 
         return `
           <div class="trade-card">
@@ -154,13 +171,13 @@ function generatePDFHTML(data: any): string {
               <div class="trade-detail">
                 <div class="trade-detail-label">Max Profit</div>
                 <div class="trade-detail-value">
-                  <span class="profit-badge ${profitClass}">${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%</span>
+                  <span class="profit-badge ${profitClass}">$${profitDollar.toFixed(2)} (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)</span>
                 </div>
               </div>
               ${trade.status === 'closed' ? `
                 <div class="trade-detail">
                   <div class="trade-detail-label">Outcome</div>
-                  <div class="trade-detail-value" style="font-size: 14px;">${trade.outcome || 'Closed'}</div>
+                  <div class="trade-detail-value" style="font-size: 14px;">${profitDollar >= 100 ? 'WIN' : 'LOSS'}</div>
                 </div>
               ` : ''}
             </div>
@@ -403,7 +420,7 @@ ${profitEmoji} <b>Profit Metrics</b>
 🚀 Max Profit: <b>+${stats.maxProfit.toFixed(1)}%</b>
 🎯 Win Rate: <b>${stats.winRate.toFixed(1)}%</b>
 
-<i>Generated by AnalyZHub - Professional Trading Platform</i>`.trim();
+<i>📎 Full detailed report attached below</i>`.trim();
 
       try {
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
@@ -415,7 +432,22 @@ ${profitEmoji} <b>Profit Metrics</b>
             parse_mode: 'HTML'
           })
         });
-        console.log(`Daily report sent to channel: ${channelName}`);
+
+        const formData = new FormData();
+        formData.append('chat_id', channelId);
+
+        const htmlBlob = new Blob([html], { type: 'text/html' });
+        const fileName = `Daily_Trading_Report_${new Date().toISOString().split('T')[0]}.html`;
+        formData.append('document', htmlBlob, fileName);
+        formData.append('caption', `📊 Daily Trading Report - ${today}`);
+        formData.append('parse_mode', 'HTML');
+
+        await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+          method: 'POST',
+          body: formData
+        });
+
+        console.log(`Daily report with PDF sent to channel: ${channelName}`);
       } catch (err) {
         console.error(`Error sending to channel ${channelName}:`, err);
       }
