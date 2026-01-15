@@ -72,52 +72,25 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
 
   const fetchTelegramChannels = async () => {
     try {
-      const supabase = createClient()
+      const allChannels: TelegramChannel[] = []
 
-      const { data: user } = await supabase.auth.getUser()
-      if (!user?.user?.id) {
-        setLoadingChannels(false)
-        return
-      }
-
-      const analystChannels: TelegramChannel[] = []
-      const planChannels: TelegramChannel[] = []
-
-      const { data: analystData, error: analystError } = await supabase
-        .from('telegram_channels')
-        .select('id, channel_name, channel_id')
-        .eq('user_id', user.user.id)
-        .eq('enabled', true)
-
-      if (analystData) {
-        analystChannels.push(...analystData.map(ch => ({
-          ...ch,
-          source: 'analyst' as const
-        })))
-      }
-
-      const { data: planData, error: planError } = await supabase
-        .from('analyzer_plans')
-        .select('id, name, telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
-        .eq('analyst_id', user.user.id)
-        .eq('is_active', true)
-        .not('telegram_channel_id', 'is', null)
-
-      if (planData) {
-        for (const plan of planData) {
-          if (plan.telegram_channels) {
-            planChannels.push({
-              id: plan.telegram_channels.id,
-              channel_name: plan.telegram_channels.channel_name,
-              channel_id: plan.telegram_channels.channel_id,
-              source: 'plan' as const,
-              plan_name: plan.name
-            })
-          }
+      // Fetch channels via API to avoid CORS issues
+      const response = await fetch('/api/telegram/channels/list')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.ok && data.channels) {
+          // Convert API format to component format
+          allChannels.push(...data.channels.map((ch: any) => ({
+            id: ch.id,
+            channel_name: ch.linkedPlanName ? `${ch.channelName} (${ch.linkedPlanName})` : ch.channelName,
+            channel_id: ch.channelId,
+            source: ch.linkedPlanId ? 'plan' as const : 'analyst' as const,
+            plan_name: ch.linkedPlanName
+          })))
         }
       }
 
-      setChannels([...analystChannels, ...planChannels])
+      setChannels(allChannels)
     } catch (error) {
       console.error('Error fetching channels:', error)
     } finally {

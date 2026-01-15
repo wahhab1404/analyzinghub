@@ -113,6 +113,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     if (formData.underlying_index_symbol) {
       fetchIndexPrice(formData.underlying_index_symbol)
     }
+
+    // Refresh market status every 30 seconds
+    const marketStatusInterval = setInterval(() => {
+      fetchMarketStatus()
+    }, 30000)
+
+    return () => clearInterval(marketStatusInterval)
   }, [analysisId])
 
   useEffect(() => {
@@ -123,62 +130,35 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   const fetchTelegramChannels = async () => {
     try {
-      const supabase = createClient()
-
-      const { data: user } = await supabase.auth.getUser()
-      if (!user?.user?.id) {
-        setLoadingChannels(false)
-        return
-      }
-
       const channels: TelegramChannel[] = []
 
-      if (analysisId) {
-        const { data: analysisData } = await supabase
-          .from('index_analyses')
-          .select('telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
-          .eq('id', analysisId)
-          .maybeSingle()
-
-        if (analysisData?.telegram_channel_id && analysisData.telegram_channels) {
-          channels.push({
-            id: 'analysis',
-            channel_name: `Analysis Default: ${analysisData.telegram_channels.channel_name}`,
-            channel_id: analysisData.telegram_channels.channel_id,
-            source: 'analysis' as const
-          })
+      // Fetch channels via API to avoid CORS issues
+      const response = await fetch('/api/telegram/channels/list')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.ok && data.channels) {
+          // Convert API format to component format
+          channels.push(...data.channels.map((ch: any) => ({
+            id: ch.id,
+            channel_name: ch.linkedPlanName ? `${ch.channelName} (${ch.linkedPlanName})` : ch.channelName,
+            channel_id: ch.channelId,
+            source: ch.linkedPlanId ? 'plan' as const : 'analyst' as const,
+            plan_name: ch.linkedPlanName
+          })))
         }
       }
 
-      const { data: analystData } = await supabase
-        .from('telegram_channels')
-        .select('id, channel_name, channel_id')
-        .eq('user_id', user.user.id)
-        .eq('enabled', true)
-
-      if (analystData) {
-        channels.push(...analystData.map(ch => ({
-          ...ch,
-          source: 'analyst' as const
-        })))
-      }
-
-      const { data: planData } = await supabase
-        .from('analyzer_plans')
-        .select('id, name, telegram_channel_id, telegram_channels(id, channel_name, channel_id)')
-        .eq('analyst_id', user.user.id)
-        .eq('is_active', true)
-        .not('telegram_channel_id', 'is', null)
-
-      if (planData) {
-        for (const plan of planData) {
-          if (plan.telegram_channels) {
-            channels.push({
-              id: plan.telegram_channels.id,
-              channel_name: plan.telegram_channels.channel_name,
-              channel_id: plan.telegram_channels.channel_id,
-              source: 'plan' as const,
-              plan_name: plan.name
+      // If there's an analysisId, fetch the analysis default channel
+      if (analysisId) {
+        const analysisResponse = await fetch(`/api/indices/analyses/${analysisId}`)
+        if (analysisResponse.ok) {
+          const analysisData = await analysisResponse.json()
+          if (analysisData.telegram_channel_id && analysisData.telegram_channels) {
+            channels.unshift({
+              id: 'analysis',
+              channel_name: `Analysis Default: ${analysisData.telegram_channels.channel_name}`,
+              channel_id: analysisData.telegram_channels.channel_id,
+              source: 'analysis' as const
             })
           }
         }
