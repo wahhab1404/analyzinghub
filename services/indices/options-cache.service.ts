@@ -8,9 +8,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { OptionsChainConfig, OptionsChainResponse } from './options-chain.service';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
 // Default cache TTL (5 seconds for live data)
 const DEFAULT_CACHE_TTL = 5;
 
@@ -22,7 +19,21 @@ interface CacheEntry {
 }
 
 class OptionsCacheService {
-  private supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  private _supabase: ReturnType<typeof createClient> | null = null;
+
+  private get supabase() {
+    if (!this._supabase) {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!url || !key) {
+        throw new Error('Supabase environment variables not configured');
+      }
+
+      this._supabase = createClient(url, key);
+    }
+    return this._supabase;
+  }
 
   /**
    * Generate cache key from config
