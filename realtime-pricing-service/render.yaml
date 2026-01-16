@@ -1,0 +1,29 @@
+# Render Blueprint for Polygon WebSocket Service
+# This tells Render how to deploy the WebSocket service correctly
+
+services:
+  - type: web
+    name: indices-websocket-service
+    env: node
+    region: oregon
+    plan: free
+
+    # IMPORTANT: Point to the subdirectory
+    rootDir: realtime-pricing-service
+
+    buildCommand: npm install && npm run build
+    startCommand: npm run websocket
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: POLYGON_API_KEY
+        sync: false  # Set manually in Render dashboard
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://gbdzhdlpbwrnhykmstic.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false  # Set manually in Render dashboard
+
+    healthCheckPath: /  # WebSocket service doesn't have HTTP endpoint
+
+    autoDeploy: true

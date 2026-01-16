@@ -88,6 +88,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   } | null>(null)
   const [indexPrice, setIndexPrice] = useState<number | null>(null)
   const [loadingIndexPrice, setLoadingIndexPrice] = useState(false)
+  const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null)
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
@@ -121,6 +122,17 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
     return () => clearInterval(marketStatusInterval)
   }, [analysisId])
+
+  // Auto-refresh contract prices every 10 seconds when contracts are displayed
+  useEffect(() => {
+    if ((callsData.length > 0 || putsData.length > 0 || expirationGroups.length > 0) && !searchingContracts) {
+      const refreshInterval = setInterval(() => {
+        refreshContractPrices()
+      }, 10000) // Refresh every 10 seconds
+
+      return () => clearInterval(refreshInterval)
+    }
+  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts, datePreset, showBothSides])
 
   useEffect(() => {
     if (formData.underlying_index_symbol) {
@@ -236,6 +248,105 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     }
   }
 
+  const refreshContractPrices = async () => {
+    // Silently refresh prices in background without showing loading UI
+    try {
+      const { minDTE, maxDTE } = getDTERange(datePreset)
+
+      if (showBothSides && callsData.length > 0) {
+        const callParams = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: 'call',
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          bypassCache: 'true', // Force fresh data
+        })
+
+        const putParams = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: 'put',
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          bypassCache: 'true', // Force fresh data
+        })
+
+        const [callResponse, putResponse] = await Promise.all([
+          fetch(`/api/indices/contracts?${callParams}`),
+          fetch(`/api/indices/contracts?${putParams}`)
+        ])
+
+        if (callResponse.ok && putResponse.ok) {
+          const callData = await callResponse.json()
+          const putData = await putResponse.json()
+
+          if (callData.expirations && callData.expirations.length > 0) {
+            const transformedCalls = callData.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: 'call' as const,
+              })),
+            }))
+            setCallsData(transformedCalls)
+
+            const transformedPuts = putData.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: 'put' as const,
+              })),
+            }))
+            setPutsData(transformedPuts)
+            setLastPriceUpdate(new Date())
+          }
+        }
+      } else if (!showBothSides && expirationGroups.length > 0) {
+        const params = new URLSearchParams({
+          underlying: formData.underlying_index_symbol,
+          direction: formData.option_type,
+          minDTE: minDTE.toString(),
+          maxDTE: maxDTE.toString(),
+          maxExpirations: '5',
+          strikesPerExpiration: '20',
+          percentBand: '0.15',
+          bypassCache: 'true', // Force fresh data
+        })
+
+        const response = await fetch(`/api/indices/contracts?${params}`)
+        if (response.ok) {
+          const data = await response.json()
+
+          if (data.expirations && data.expirations.length > 0) {
+            const transformedGroups = data.expirations.map((group: any) => ({
+              expirationDate: group.expirationDate,
+              dte: group.dte,
+              strikes: group.strikes.map((strike: any) => ({
+                ...strike,
+                expiry: group.expirationDate,
+                type: data.contractType || formData.direction,
+              })),
+            }))
+            setExpirationGroups(transformedGroups)
+            setLastPriceUpdate(new Date())
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing contract prices:', error)
+      // Silent fail - don't show error to user
+    }
+  }
+
   const searchContracts = async () => {
     if (!showBothSides && !formData.option_type) {
       toast.error('Please select option type to search')
@@ -316,11 +427,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
               0
             )
+            setLastPriceUpdate(new Date())
             toast.success(`Found ${totalContracts} contracts (calls + puts) across ${transformedCalls.length} expiration(s)`)
           } else {
             toast.error('No contracts found for selected criteria')
             setCallsData([])
             setPutsData([])
+            setLastPriceUpdate(null)
           }
         } else {
           toast.error('Failed to fetch contracts')
@@ -365,10 +478,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               (sum: number, exp: ExpirationGroup) => sum + exp.strikes.length,
               0
             )
+            setLastPriceUpdate(new Date())
             toast.success(`Found ${totalContracts} contracts across ${transformedGroups.length} expiration(s)`)
           } else {
             toast.error('No contracts found for selected criteria')
             setExpirationGroups([])
+            setLastPriceUpdate(null)
           }
         } else {
           const error = await response.json()
@@ -784,11 +899,19 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       <TrendingUp className="h-4 w-4" />
                       Calls & Puts - Centered on ${indexPrice ? indexPrice.toFixed(2) : 'Current Price'}
                     </Label>
-                    {indexPrice && (
-                      <Badge variant="secondary" className="text-xs">
-                        {formData.underlying_index_symbol} Index: ${indexPrice.toFixed(2)}
-                      </Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {lastPriceUpdate && (
+                        <Badge variant="outline" className="text-xs animate-pulse">
+                          <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
+                          Live - Updated {new Date().getTime() - lastPriceUpdate.getTime() < 2000 ? 'now' : 'recently'}
+                        </Badge>
+                      )}
+                      {indexPrice && (
+                        <Badge variant="secondary" className="text-xs">
+                          {formData.underlying_index_symbol} Index: ${indexPrice.toFixed(2)}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                   <Tabs defaultValue={callsData[0]?.expirationDate} className="w-full">
                     <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${Math.min(callsData.length, 5)}, 1fr)` }}>
@@ -884,10 +1007,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
               {!showBothSides && expirationGroups.length > 0 && (
                 <div className="space-y-3">
-                  <Label className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4" />
-                    Available Contracts by Expiration
-                  </Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4" />
+                      Available Contracts by Expiration
+                    </Label>
+                    {lastPriceUpdate && (
+                      <Badge variant="outline" className="text-xs animate-pulse">
+                        <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
+                        Live - Updated {new Date().getTime() - lastPriceUpdate.getTime() < 2000 ? 'now' : 'recently'}
+                      </Badge>
+                    )}
+                  </div>
                   <Tabs defaultValue={expirationGroups[0]?.expirationDate} className="w-full">
                     <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${Math.min(expirationGroups.length, 5)}, 1fr)` }}>
                       {expirationGroups.slice(0, 5).map((group) => (

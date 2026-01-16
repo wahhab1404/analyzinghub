@@ -1,0 +1,18 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source files
+COPY src/polygon-websocket.ts ./src/
+
+# Install ts-node globally for running TypeScript
+RUN npm install -g ts-node typescript
+
+# Run the WebSocket service
+CMD ["ts-node", "src/polygon-websocket.ts"]
