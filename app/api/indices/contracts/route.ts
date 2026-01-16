@@ -27,7 +27,7 @@ import { optionsCacheService } from '@/services/indices/options-cache.service';
  * - includeOneITM: include 1 ITM strike (default: true)
  * - minVolume: minimum volume filter (default: 0)
  * - minOpenInterest: minimum OI filter (default: 0)
- * - cacheTTL: cache TTL in seconds (default: 60)
+ * - cacheTTL: cache TTL in seconds (default: 5)
  */
 export async function GET(request: NextRequest) {
   try {
@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
       config.minOpenInterest = parseInt(searchParams.get('minOpenInterest')!);
     }
 
-    const cacheTTL = parseInt(searchParams.get('cacheTTL') || '60');
+    const cacheTTL = parseInt(searchParams.get('cacheTTL') || '5');
     const bypassCache = searchParams.get('bypassCache') === 'true';
 
     console.log('[API /indices/contracts] Request config:', JSON.stringify(config, null, 2));

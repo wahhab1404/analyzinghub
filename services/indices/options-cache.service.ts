@@ -11,8 +11,8 @@ import type { OptionsChainConfig, OptionsChainResponse } from './options-chain.s
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-// Default cache TTL (60 seconds for live data)
-const DEFAULT_CACHE_TTL = 60;
+// Default cache TTL (5 seconds for live data)
+const DEFAULT_CACHE_TTL = 5;
 
 interface CacheEntry {
   cache_key: string;

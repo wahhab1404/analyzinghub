@@ -32,19 +32,19 @@ export async function GET(
       win_rate: closedTrades.length > 0
         ? Math.round((winningTrades.length / closedTrades.length) * 100)
         : 0,
-      // Use final_profit for closed trades (actual profit at close)
-      total_profit: closedTrades.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0),
+      // Use max_profit for all trades (highest profit achieved)
+      total_profit: closedTrades.reduce((sum, t) => sum + (t.max_profit ?? t.profit_from_entry ?? 0), 0),
       avg_win: winningTrades.length > 0
-        ? winningTrades.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / winningTrades.length
+        ? winningTrades.reduce((sum, t) => sum + (t.max_profit ?? t.profit_from_entry ?? 0), 0) / winningTrades.length
         : 0,
       avg_loss: losingTrades.length > 0
-        ? losingTrades.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / losingTrades.length
+        ? losingTrades.reduce((sum, t) => sum + (t.max_profit ?? t.profit_from_entry ?? 0), 0) / losingTrades.length
         : 0,
       max_profit: closedTrades.length > 0
-        ? Math.max(...closedTrades.map(t => t.final_profit ?? t.profit_from_entry ?? 0))
+        ? Math.max(...closedTrades.map(t => t.max_profit ?? t.profit_from_entry ?? 0))
         : 0,
       max_loss: closedTrades.length > 0
-        ? Math.min(...closedTrades.map(t => t.final_profit ?? t.profit_from_entry ?? 0))
+        ? Math.min(...closedTrades.map(t => t.max_profit ?? t.profit_from_entry ?? 0))
         : 0
     }
 

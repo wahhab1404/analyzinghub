@@ -70,7 +70,13 @@ export async function GET(
         successful_analyses: 0,
         success_rate: 0,
         followers_count: 0,
-        following_count: 0
+        following_count: 0,
+        total_trades: 0,
+        active_trades: 0,
+        closed_trades: 0,
+        winning_trades: 0,
+        trade_win_rate: 0,
+        total_trading_pnl: 0
       },
       isFollowing,
       isOwnProfile,

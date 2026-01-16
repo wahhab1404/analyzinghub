@@ -22,7 +22,11 @@ export async function POST(
 
     const { data: existing, error: fetchError } = await supabase
       .from('index_trades')
-      .select('author_id, current_contract, contract_high_since, contract_low_since, status')
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name),
+        analysis:index_analyses!analysis_id(id, title, telegram_channel_id)
+      `)
       .eq('id', id)
       .single();
 
@@ -49,20 +53,18 @@ export async function POST(
 
     const marketStatus = getMarketStatus();
 
-    if (marketStatus.isOpen) {
-      return NextResponse.json(
-        {
-          error: 'Cannot set manual prices during RTH. Live prices are being tracked.',
-          marketStatus: marketStatus.status
-        },
-        { status: 400 }
-      );
-    }
-
     const updates: any = {
       updated_at: new Date().toISOString(),
+      last_quote_at: new Date().toISOString(),
     };
     const changes: Record<string, { old: any; new: any }> = {};
+
+    const entrySnapshot = existing.entry_contract_snapshot || {};
+    const entryPrice = entrySnapshot.mid || entrySnapshot.last || 0;
+
+    let newContractPrice = existing.current_contract;
+    let isNewHigh = false;
+    let sendNewHighNotification = false;
 
     if (manualPrice !== undefined) {
       if (typeof manualPrice !== 'number' || manualPrice <= 0) {
@@ -72,10 +74,19 @@ export async function POST(
         );
       }
 
+      newContractPrice = manualPrice;
       updates.manual_contract_price = manualPrice;
       updates.current_contract = manualPrice;
       updates.is_using_manual_price = true;
       changes.manual_contract_price = { old: existing.current_contract, new: manualPrice };
+
+      const currentHigh = existing.contract_high_since || entryPrice;
+      if (manualPrice > currentHigh) {
+        updates.contract_high_since = manualPrice;
+        updates.max_contract_price = manualPrice;
+        isNewHigh = true;
+        sendNewHighNotification = true;
+      }
     }
 
     if (manualHigh !== undefined) {
@@ -86,11 +97,14 @@ export async function POST(
         );
       }
 
-      const currentHigh = existing.contract_high_since || 0;
-      if (manualHigh > currentHigh || currentHigh === 0) {
+      const currentHigh = existing.contract_high_since || entryPrice;
+      if (manualHigh > currentHigh) {
         updates.manual_contract_high = manualHigh;
         updates.contract_high_since = manualHigh;
+        updates.max_contract_price = manualHigh;
         changes.manual_contract_high = { old: existing.contract_high_since, new: manualHigh };
+        isNewHigh = true;
+        sendNewHighNotification = true;
       } else {
         console.log(`⚠️ Ignoring manual high ${manualHigh} - current high ${currentHigh} is already higher`);
       }
@@ -114,6 +128,14 @@ export async function POST(
       }
     }
 
+    if (entryPrice > 0) {
+      const highPrice = updates.contract_high_since || existing.contract_high_since || entryPrice;
+      const currentPrice = updates.current_contract || existing.current_contract || entryPrice;
+
+      updates.max_profit = (highPrice - entryPrice) * (existing.qty || 1);
+      updates.profit_from_entry = ((currentPrice - entryPrice) / entryPrice) * 100;
+    }
+
     const { data: trade, error: updateError } = await supabase
       .from('index_trades')
       .update(updates)
@@ -131,19 +153,90 @@ export async function POST(
 
     if (Object.keys(changes).length > 0) {
       await supabase
-        .from('trade_updates')
+        .from('index_trade_updates')
         .insert({
           trade_id: id,
-          author_id: user.id,
-          body: 'Manual price update (Outside RTH)',
+          update_type: 'manual_price',
+          title: 'Manual Price Update',
+          body: `Manual price update: ${marketStatus.isOpen ? 'During RTH' : 'Outside RTH'}`,
           changes,
         });
+    }
+
+    if (sendNewHighNotification && trade) {
+      try {
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+        const newHigh = updates.contract_high_since;
+        const gainPercent = entryPrice > 0 ? ((newHigh - entryPrice) / entryPrice) * 100 : 0;
+
+        console.log(`📸 Generating snapshot for new high: $${newHigh} (+${gainPercent.toFixed(2)}%)`);
+
+        const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${serviceRoleKey}`,
+          },
+          body: JSON.stringify({
+            tradeId: id,
+            isNewHigh: true,
+            newHighPrice: newHigh,
+          }),
+        });
+
+        let snapshotUrl = null;
+        if (snapshotResponse.ok) {
+          const snapshotResult = await snapshotResponse.json();
+          snapshotUrl = snapshotResult.imageUrl;
+          console.log(`✅ Snapshot generated: ${snapshotUrl}`);
+
+          await supabase
+            .from('index_trades')
+            .update({ contract_url: snapshotUrl })
+            .eq('id', id);
+
+          trade.contract_url = snapshotUrl;
+        }
+
+        const channelId = existing.telegram_channel_id || existing.analysis?.telegram_channel_id;
+        if (channelId && existing.telegram_send_enabled !== false) {
+          const { data: channel } = await supabase
+            .from('telegram_channels')
+            .select('channel_id')
+            .eq('id', channelId)
+            .single();
+
+          const actualChannelId = channel?.channel_id || channelId;
+
+          await supabase.from('telegram_outbox').insert({
+            message_type: 'new_high',
+            payload: {
+              tradeId: id,
+              highPrice: newHigh,
+              gainPercent,
+              snapshotUrl,
+              trade: { ...existing, ...updates, contract_url: snapshotUrl },
+            },
+            channel_id: actualChannelId,
+            status: 'pending',
+            priority: 5,
+            next_retry_at: new Date().toISOString(),
+          });
+
+          console.log(`📤 Queued new high notification to channel ${actualChannelId}`);
+        }
+      } catch (notifError) {
+        console.error('Error sending new high notification:', notifError);
+      }
     }
 
     return NextResponse.json({
       trade,
       message: 'Manual prices updated successfully',
-      marketStatus: marketStatus.status
+      marketStatus: marketStatus.status,
+      newHighDetected: sendNewHighNotification
     });
   } catch (error: any) {
     console.error('Error in POST /api/indices/trades/[id]/manual-price:', error);

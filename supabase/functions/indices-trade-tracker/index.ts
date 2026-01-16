@@ -83,6 +83,12 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        if (trade.is_using_manual_price) {
+          console.log(`⚠️  Trade ${trade.id} is using manual price override - skipping automatic price updates`);
+          results.updated++;
+          continue;
+        }
+
         const now = new Date();
         if (trade.expiry) {
           const expiryDate = new Date(trade.expiry + "T21:00:00Z");

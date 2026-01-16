@@ -125,6 +125,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   useEffect(() => {
     if (formData.underlying_index_symbol) {
       fetchIndexPrice(formData.underlying_index_symbol)
+
+      // Auto-refresh index price every 10 seconds for live updates
+      const priceInterval = setInterval(() => {
+        fetchIndexPrice(formData.underlying_index_symbol)
+      }, 10000)
+
+      return () => clearInterval(priceInterval)
     }
   }, [formData.underlying_index_symbol])
 
@@ -249,7 +256,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          cacheTTL: '10',
+          cacheTTL: '5',
         })
 
         const putParams = new URLSearchParams({
@@ -260,7 +267,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          cacheTTL: '10',
+          cacheTTL: '5',
         })
 
         const [callResponse, putResponse] = await Promise.all([
@@ -328,7 +335,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          cacheTTL: '10',
+          cacheTTL: '5',
         })
 
         const response = await fetch(`/api/indices/contracts?${params}`)

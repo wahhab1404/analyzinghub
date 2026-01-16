@@ -16,6 +16,7 @@ import { SubscriptionPlans } from '@/components/subscriptions/SubscriptionPlans'
 import { SubscriptionStatusBadge } from '@/components/subscriptions/SubscriptionStatusBadge'
 import { PlanManagement } from '@/components/settings/PlanManagement'
 import { ProfileTradesList } from '@/components/profile/ProfileTradesList'
+import { FollowersList } from '@/components/profile/FollowersList'
 import { ProfileStats } from '@/components/rankings/ProfileStats'
 import { Loader as Loader2, TrendingUp, Target, Activity, Users, UserPlus, FileText, MessageCircle, Repeat2, Package, Settings2, BarChart3 } from 'lucide-react'
 import { useLanguage } from '@/lib/i18n/language-context'
@@ -360,6 +361,13 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   <Badge variant="secondary" className="ml-1">{replies.length}</Badge>
                 )}
               </TabsTrigger>
+              <TabsTrigger value="followers" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Followers
+                {stats.followers_count > 0 && (
+                  <Badge variant="secondary" className="ml-1">{stats.followers_count}</Badge>
+                )}
+              </TabsTrigger>
               {isOwnProfile && profile.roles?.name === 'Analyzer' && (
                 <TabsTrigger value="plans" className="flex items-center gap-2">
                   <Settings2 className="h-4 w-4" />
@@ -485,6 +493,10 @@ export default function ProfilePage({ params }: ProfilePageProps) {
                   </CardContent>
                 </Card>
               )}
+            </TabsContent>
+
+            <TabsContent value="followers" className="space-y-4">
+              <FollowersList profileId={params.id} isOwnProfile={isOwnProfile} />
             </TabsContent>
 
             {isOwnProfile && profile.roles?.name === 'Analyzer' && (

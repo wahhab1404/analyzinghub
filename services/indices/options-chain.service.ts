@@ -26,7 +26,7 @@ const DEFAULT_CONFIG = {
   includeOneITM: true, // Include 1 ITM strike
   minVolume: 0, // Minimum volume
   minOpenInterest: 0, // Minimum OI
-  cacheTTL: 60, // Cache TTL in seconds (1 minute for live)
+  cacheTTL: 5, // Cache TTL in seconds (5 seconds for live updates)
 };
 
 export interface OptionsChainConfig {
@@ -119,14 +119,14 @@ class OptionsChainService {
   }
 
   /**
-   * Get underlying price from index snapshot
+   * Get underlying price from index snapshot (LIVE/REAL-TIME)
    */
   private async getUnderlyingPrice(underlying: string): Promise<number> {
-    // Try to get from previous day's aggregates (most reliable for indices)
+    // Use REAL-TIME snapshot endpoint for live prices
     const indexTicker = underlying.startsWith('I:') ? underlying : `I:${underlying}`;
-    const url = `${POLYGON_BASE_URL}/v2/aggs/ticker/${indexTicker}/prev?adjusted=true&apiKey=${POLYGON_API_KEY}`;
+    const url = `${POLYGON_BASE_URL}/v3/snapshot?ticker.any_of=${indexTicker}&apiKey=${POLYGON_API_KEY}`;
 
-    console.log('[OptionsChain] Fetching underlying price for:', underlying);
+    console.log('[OptionsChain] Fetching LIVE underlying price for:', underlying);
 
     try {
       const data = await this.fetchWithRetry(url);
@@ -135,8 +135,16 @@ class OptionsChainService {
         throw new Error(`No price data for ${underlying}`);
       }
 
-      const price = data.results[0].c; // Close price
-      console.log('[OptionsChain] Underlying price:', price);
+      const result = data.results[0];
+      // Use current value (live), fallback to session close, then previous close
+      const price = result.value || result.session?.close || result.session?.previous_close;
+
+      if (!price) {
+        throw new Error(`No valid price found in snapshot for ${underlying}`);
+      }
+
+      console.log('[OptionsChain] LIVE Underlying price:', price);
+      console.log('[OptionsChain] Price timestamp:', result.updated);
       return price;
     } catch (error) {
       console.error('[OptionsChain] Error fetching underlying price:', error);
@@ -229,7 +237,8 @@ class OptionsChainService {
 
   /**
    * Select strikes based on direction and ATM anchoring
-   * ALWAYS shows nearest strikes to current price first
+   * For CALLS: Prioritize OTM strikes (above current price)
+   * For PUTS: Prioritize OTM strikes (below current price)
    */
   private selectStrikes(
     contracts: any[],
@@ -238,17 +247,58 @@ class OptionsChainService {
     config: OptionsChainConfig
   ): StrikeContract[] {
     const strikesCount = config.strikesPerExpiration || DEFAULT_CONFIG.strikesPerExpiration;
+    const includeOneITM = config.includeOneITM ?? DEFAULT_CONFIG.includeOneITM;
 
-    // Sort ALL contracts by distance from ATM (nearest first)
-    const sortedByDistance = [...contracts].sort((a, b) => {
+    // Separate ITM and OTM contracts
+    const itm: any[] = [];
+    const otm: any[] = [];
+
+    for (const contract of contracts) {
+      const strike = contract.details.strike_price;
+
+      if (contractType === 'call') {
+        // For calls: ITM = strike < price, OTM = strike > price
+        if (strike < underlyingPrice) {
+          itm.push(contract);
+        } else {
+          otm.push(contract);
+        }
+      } else {
+        // For puts: ITM = strike > price, OTM = strike < price
+        if (strike > underlyingPrice) {
+          itm.push(contract);
+        } else {
+          otm.push(contract);
+        }
+      }
+    }
+
+    // Sort ITM by distance from ATM (nearest first)
+    itm.sort((a, b) => {
       const distA = Math.abs(a.details.strike_price - underlyingPrice);
       const distB = Math.abs(b.details.strike_price - underlyingPrice);
       return distA - distB;
     });
 
-    // Take the closest N strikes regardless of ITM/OTM
-    // This ensures we always show contracts near the current price
-    const selected = sortedByDistance.slice(0, strikesCount);
+    // Sort OTM by distance from ATM (nearest first)
+    otm.sort((a, b) => {
+      const distA = Math.abs(a.details.strike_price - underlyingPrice);
+      const distB = Math.abs(b.details.strike_price - underlyingPrice);
+      return distA - distB;
+    });
+
+    // Build selection: prioritize OTM, include 1 ITM if requested
+    let selected: any[] = [];
+
+    if (includeOneITM && itm.length > 0) {
+      // Include closest ITM strike
+      selected.push(itm[0]);
+      // Fill rest with OTM
+      selected.push(...otm.slice(0, strikesCount - 1));
+    } else {
+      // All OTM strikes
+      selected = otm.slice(0, strikesCount);
+    }
 
     // Sort final selection by strike (ascending) for display
     selected.sort((a, b) => a.details.strike_price - b.details.strike_price);

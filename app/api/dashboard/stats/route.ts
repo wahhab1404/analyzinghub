@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const totalProfit = tradeStats?.reduce((sum, t) => {
       if (t.status === 'closed') {
-        const profit = t.final_profit ?? t.max_profit ?? 0;
+        const profit = t.max_profit ?? t.profit_from_entry ?? 0;
         return sum + parseFloat(profit.toString());
       }
       return sum;
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
         const closedDate = new Date(t.closed_at);
         const now = new Date();
         if (closedDate.getMonth() === now.getMonth() && closedDate.getFullYear() === now.getFullYear()) {
-          const profit = t.final_profit ?? t.max_profit ?? 0;
+          const profit = t.max_profit ?? t.profit_from_entry ?? 0;
           return sum + parseFloat(profit.toString());
         }
       }
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
       }) || [];
 
       const dayProfit = dayTrades.reduce((sum, t) => {
-        const profit = t.final_profit ?? t.max_profit ?? 0;
+        const profit = t.max_profit ?? t.profit_from_entry ?? 0;
         return sum + parseFloat(profit.toString());
       }, 0);
 
