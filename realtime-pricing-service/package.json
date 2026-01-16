@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node src/index.ts",
-    "websocket": "ts-node src/polygon-websocket.ts",
+    "websocket": "node dist/polygon-websocket.js",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "echo \"No tests yet\" && exit 0"
