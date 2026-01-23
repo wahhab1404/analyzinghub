@@ -29,6 +29,9 @@ import { optionsCacheService } from '@/services/indices/options-cache.service';
  * - minOpenInterest: minimum OI filter (default: 0)
  * - cacheTTL: cache TTL in seconds (default: 5)
  */
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(request: NextRequest) {
   try {
     const supabase = createServerClient();
@@ -152,7 +155,13 @@ export async function GET(request: NextRequest) {
 
         if (response) {
           console.log('[API /indices/contracts] Cache hit');
-          return NextResponse.json(response);
+          return NextResponse.json(response, {
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+            }
+          });
         }
       } else {
         console.log('[API /indices/contracts] Cache bypassed');
@@ -165,7 +174,13 @@ export async function GET(request: NextRequest) {
       // Cache the response
       await optionsCacheService.set(config, response, cacheTTL);
 
-      return NextResponse.json(response);
+      return NextResponse.json(response, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }
+      });
     } catch (error: any) {
       console.error('[API /indices/contracts] Error:', error);
       return NextResponse.json(

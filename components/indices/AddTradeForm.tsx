@@ -273,6 +273,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       const { minDTE, maxDTE } = getDTERange(datePreset)
 
       if (showBothSides && callsData.length > 0) {
+        const timestamp = Date.now()
         const callParams = new URLSearchParams({
           underlying: formData.underlying_index_symbol,
           direction: 'call',
@@ -281,7 +282,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          bypassCache: 'true', // Force fresh data
+          bypassCache: 'true',
+          _t: timestamp.toString(),
         })
 
         const putParams = new URLSearchParams({
@@ -292,12 +294,25 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          bypassCache: 'true', // Force fresh data
+          bypassCache: 'true',
+          _t: timestamp.toString(),
         })
 
         const [callResponse, putResponse] = await Promise.all([
-          fetch(`/api/indices/contracts?${callParams}`),
-          fetch(`/api/indices/contracts?${putParams}`)
+          fetch(`/api/indices/contracts?${callParams}`, {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            }
+          }),
+          fetch(`/api/indices/contracts?${putParams}`, {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            }
+          })
         ])
 
         if (callResponse.ok && putResponse.ok) {
@@ -330,6 +345,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           }
         }
       } else if (!showBothSides && expirationGroups.length > 0) {
+        const timestamp = Date.now()
         const params = new URLSearchParams({
           underlying: formData.underlying_index_symbol,
           direction: formData.option_type,
@@ -338,10 +354,17 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '20',
           percentBand: '0.15',
-          bypassCache: 'true', // Force fresh data
+          bypassCache: 'true',
+          _t: timestamp.toString(),
         })
 
-        const response = await fetch(`/api/indices/contracts?${params}`)
+        const response = await fetch(`/api/indices/contracts?${params}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          }
+        })
         if (response.ok) {
           const data = await response.json()
 
@@ -378,6 +401,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       if (showBothSides) {
         // Fetch both calls and puts
+        const timestamp = Date.now()
         const callParams = new URLSearchParams({
           underlying: formData.underlying_index_symbol,
           direction: 'call',
@@ -387,6 +411,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           strikesPerExpiration: '20',
           percentBand: '0.15',
           cacheTTL: '5',
+          _t: timestamp.toString(),
         })
 
         const putParams = new URLSearchParams({
@@ -398,11 +423,24 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           strikesPerExpiration: '20',
           percentBand: '0.15',
           cacheTTL: '5',
+          _t: timestamp.toString(),
         })
 
         const [callResponse, putResponse] = await Promise.all([
-          fetch(`/api/indices/contracts?${callParams}`),
-          fetch(`/api/indices/contracts?${putParams}`)
+          fetch(`/api/indices/contracts?${callParams}`, {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            }
+          }),
+          fetch(`/api/indices/contracts?${putParams}`, {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+            }
+          })
         ])
 
         if (callResponse.ok && putResponse.ok) {
@@ -459,6 +497,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         }
       } else {
         // Original single-side fetch
+        const timestamp = Date.now()
         const params = new URLSearchParams({
           underlying: formData.underlying_index_symbol,
           direction: formData.option_type,
@@ -468,9 +507,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           strikesPerExpiration: '20',
           percentBand: '0.15',
           cacheTTL: '5',
+          _t: timestamp.toString(),
         })
 
-        const response = await fetch(`/api/indices/contracts?${params}`)
+        const response = await fetch(`/api/indices/contracts?${params}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          }
+        })
         if (response.ok) {
           const data = await response.json()
 
