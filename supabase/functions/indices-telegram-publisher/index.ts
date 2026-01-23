@@ -5,6 +5,8 @@ import {
   formatTradeMessage,
   formatUpdateMessage,
   formatTradeResultMessage,
+  formatTradeClosedForNewEntryMessage,
+  formatTradeEntryAveragedMessage,
 } from './message-formatter.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -18,7 +20,7 @@ const corsHeaders = {
 };
 
 interface PublishRequest {
-  type: 'new_analysis' | 'new_trade' | 'trade_update' | 'trade_result' | 'analysis_update';
+  type: 'new_analysis' | 'new_trade' | 'trade_update' | 'trade_result' | 'analysis_update' | 'trade_closed_for_new_entry' | 'trade_entry_averaged';
   data: any;
   channelId?: string;
   isNewHigh?: boolean;
@@ -169,6 +171,12 @@ Deno.serve(async (req) => {
         break;
       case 'trade_result':
         message = formatTradeResultMessage(payload.data, BASE_URL);
+        break;
+      case 'trade_closed_for_new_entry':
+        message = formatTradeClosedForNewEntryMessage(payload.data, BASE_URL);
+        break;
+      case 'trade_entry_averaged':
+        message = formatTradeEntryAveragedMessage(payload.data, BASE_URL);
         break;
       case 'trade_update':
       case 'analysis_update':

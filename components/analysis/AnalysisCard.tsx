@@ -20,6 +20,7 @@ import { StarRating } from '@/components/ratings/StarRating'
 import { downloadImageWithWatermark, generatePostSnapshot } from '@/lib/image-utils'
 import { getTextDirection } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { getAnalysisStatusDisplay } from '@/lib/analysis-status-styles'
 
 interface AnalysisCardProps {
   analysis: {
@@ -386,8 +387,10 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
   const hitTargetNumber = validationEvent?.event_type === 'TARGET_HIT' ? validationEvent.target_number : null
   const stopLossHit = validationEvent?.event_type === 'STOP_LOSS_HIT'
 
+  const statusDisplay = getAnalysisStatusDisplay(analysis.status)
+
   return (
-    <Card className="relative overflow-hidden">
+    <Card className={`relative overflow-hidden ${statusDisplay.borderClass}`}>
       {(analysis.visibility === 'subscribers' || analysis.visibility === 'followers') && (
         <div className={`absolute top-0 left-0 right-0 h-1.5 shadow-sm ${
           analysis.visibility === 'subscribers'
@@ -479,9 +482,13 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
                     {isConditionMet ? 'Active' : 'Waiting Activation'}
                   </Badge>
                 ) : (
-                  <Badge variant="outline" className={statusConfig[status].className}>
-                    <span className="mr-1">{statusConfig[status].icon}</span>
-                    {statusConfig[status].label}
+                  <Badge variant={statusDisplay.badgeVariant}>
+                    <span className="mr-1">
+                      {status === 'SUCCESS' && <CheckCircle2 className="h-3 w-3" />}
+                      {status === 'FAILED' && <XCircle className="h-3 w-3" />}
+                      {status === 'IN_PROGRESS' && <Clock className="h-3 w-3" />}
+                    </span>
+                    {statusDisplay.badgeText}
                   </Badge>
                 )}
                 <Badge variant="outline" className={directionColors[analysis.direction]}>

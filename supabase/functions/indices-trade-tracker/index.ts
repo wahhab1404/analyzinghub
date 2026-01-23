@@ -66,12 +66,8 @@ Deno.serve(async (req) => {
       tracked: activeTrades.length,
       updated: 0,
       errors: 0,
-      newHighs: 0,
-      targets: 0,
-      stoploss: 0,
+      newWins: 0,
       expired: 0,
-      successDetected: 0,
-      afterCloseWins: 0,
     };
 
     for (const trade of activeTrades) {
@@ -93,186 +89,32 @@ Deno.serve(async (req) => {
         if (trade.expiry) {
           const expiryDate = new Date(trade.expiry + "T21:00:00Z");
           if (now > expiryDate) {
-            console.log(`⏰ Trade ${trade.id} expired, marking as such`);
+            console.log(`⏰ Trade ${trade.id} expired, finalizing with canonical logic`);
             await handleTradeExpiration(supabase, trade, supabaseUrl, supabaseKey);
             results.expired++;
             continue;
           }
         }
 
+        // Skip price checks after market close
         if (!marketIsOpen) {
-          const contractHigh = trade.contract_high_since || 0;
-          const entryContractSnapshot = trade.entry_contract_snapshot || {};
-          const entryContractPrice = entryContractSnapshot.mid || entryContractSnapshot.last || 0;
-
-          if (entryContractPrice > 0) {
-            const gainFromEntry = contractHigh - entryContractPrice;
-
-            if (gainFromEntry > 99 && !trade.win_100_announced) {
-              console.log(`🎉 After-market winning trade detected! Trade ${trade.id} - Gain: $${gainFromEntry.toFixed(2)} (High: $${contractHigh.toFixed(2)}, Entry: $${entryContractPrice.toFixed(2)})`);
-
-              const currentPrice = trade.current_contract || contractHigh;
-              const netPnl = (contractHigh - entryContractPrice) * (trade.qty || 1);
-
-            await supabase
-              .from("index_trades")
-              .update({ win_100_announced: true })
-              .eq("id", trade.id);
-
-              await supabase.from("index_trade_updates").insert({
-                trade_id: trade.id,
-                update_type: "milestone",
-                title: "$99+ Profit Reached (After Hours)",
-                body: `🎉 Winning Trade! Profit: $${gainFromEntry.toFixed(2)} (High: $${contractHigh.toFixed(2)}, Entry: $${entryContractPrice.toFixed(2)}) - صفقة رابحة`,
-                changes: { type: "winning_trade_after_close", gain: gainFromEntry, high: contractHigh, entry: entryContractPrice },
-              });
-
-              let winningSnapshotUrl = null;
-              try {
-                const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${supabaseKey}`,
-                  },
-                  body: JSON.stringify({
-                    tradeId: trade.id,
-                    isNewHigh: false,
-                  }),
-                });
-
-                if (snapshotResponse.ok) {
-                  const snapshotResult = await snapshotResponse.json();
-                  winningSnapshotUrl = snapshotResult.imageUrl;
-                  console.log(`✅ Snapshot generated for after-close winning trade: ${winningSnapshotUrl}`);
-
-                  await supabase
-                    .from("index_trades")
-                    .update({ contract_url: winningSnapshotUrl })
-                    .eq("id", trade.id);
-
-                  console.log(`✅ Updated trade ${trade.id} with after-close winning snapshot URL in database`);
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                }
-              } catch (snapshotError) {
-                console.error('Failed to generate snapshot for after-close winning trade:', snapshotError);
-              }
-
-              const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-              if (channelId && trade.telegram_send_enabled !== false) {
-                await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
-                  tradeId: trade.id,
-                  pnl: netPnl,
-                  entryPrice: entryContractPrice,
-                  currentPrice: contractHigh,
-                  highPrice: contractHigh,
-                  gain: gainFromEntry,
-                  snapshotUrl: winningSnapshotUrl,
-                  afterClose: true,
-                });
-              }
-
-              results.afterCloseWins++;
-            }
-          }
-        }
-
-        const underlyingPrice = await fetchUnderlyingPrice(trade.underlying_index_symbol, Deno.env.get("POLYGON_API_KEY")!);
-        if (!underlyingPrice) {
-          console.log(`⚠️  No underlying price for ${trade.underlying_index_symbol}, using previous value`);
-        } else {
-          console.log(`📊 Underlying ${trade.underlying_index_symbol}: $${underlyingPrice.toFixed(2)}`);
+          console.log(`⏭️  Market closed - skipping price updates for trade ${trade.id}`);
+          continue;
         }
 
         const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
-        const shouldCheckPrice = marketIsOpen && (!lastQuoteAt || timeSinceLastQuote > 45000);
+        const shouldCheckPrice = !lastQuoteAt || timeSinceLastQuote > 45000;
 
         if (!shouldCheckPrice) {
-          if (!marketIsOpen) {
-            console.log(`⏭️  Market closed - updating underlying price only`);
-
-            if (underlyingPrice) {
-              const updates: any = {
-                current_underlying: underlyingPrice,
-                last_quote_at: new Date().toISOString(),
-              };
-
-              const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
-              const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
-
-              let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
-              let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
-
-              if (underlyingPrice > newUnderlyingHigh) {
-                newUnderlyingHigh = underlyingPrice;
-                updates.underlying_high_since = newUnderlyingHigh;
-              }
-
-              if (underlyingPrice < newUnderlyingLow) {
-                newUnderlyingLow = underlyingPrice;
-                updates.underlying_low_since = newUnderlyingLow;
-              }
-
-              const { error: updateError } = await supabase
-                .from("index_trades")
-                .update(updates)
-                .eq("id", trade.id);
-
-              if (updateError) {
-                console.error(`❌ Failed to update underlying for trade ${trade.id}:`, updateError);
-                results.errors++;
-              } else {
-                console.log(`✅ Updated underlying price for trade ${trade.id}`);
-                results.updated++;
-              }
-            }
-          } else {
-            console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
-          }
+          console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
           continue;
         }
 
         const quote = await fetchPolygonQuote(trade.polygon_option_ticker, Deno.env.get("POLYGON_API_KEY")!);
 
         if (!quote) {
-          console.log(`⚠️  No quote data for ${trade.polygon_option_ticker}, updating underlying only`);
-
-          if (underlyingPrice) {
-            const updates: any = {
-              current_underlying: underlyingPrice,
-              last_quote_at: new Date().toISOString(),
-            };
-
-            const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
-            const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
-
-            let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
-            let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
-
-            if (underlyingPrice > newUnderlyingHigh) {
-              newUnderlyingHigh = underlyingPrice;
-              updates.underlying_high_since = newUnderlyingHigh;
-            }
-
-            if (underlyingPrice < newUnderlyingLow) {
-              newUnderlyingLow = underlyingPrice;
-              updates.underlying_low_since = newUnderlyingLow;
-            }
-
-            const { error: updateError } = await supabase
-              .from("index_trades")
-              .update(updates)
-              .eq("id", trade.id);
-
-            if (updateError) {
-              console.error(`❌ Failed to update underlying for trade ${trade.id}:`, updateError);
-              results.errors++;
-            } else {
-              console.log(`✅ Updated underlying price only for trade ${trade.id}`);
-              results.updated++;
-            }
-          }
+          console.log(`⚠️  No quote data for ${trade.polygon_option_ticker}`);
           continue;
         }
 
@@ -283,213 +125,57 @@ Deno.serve(async (req) => {
           mid: quote.mid,
         });
 
-        const entryContractSnapshot = trade.entry_contract_snapshot || {};
-        const entryContractPrice = entryContractSnapshot.mid || entryContractSnapshot.last || 0;
-
-        if (entryContractPrice === 0) {
-          console.log(`⚠️  Trade ${trade.id} has no valid entry price, skipping`);
+        const newContract = quote.mid || quote.last || 0;
+        if (newContract === 0) {
+          console.log(`⚠️  Invalid contract price for trade ${trade.id}`);
           continue;
         }
 
-        const newContract = quote.mid || quote.last || 0;
-        const updates: any = {
-          current_contract: newContract,
-          current_contract_snapshot: quote,
-          last_quote_at: new Date().toISOString(),
-        };
-
-        if (underlyingPrice) {
-          updates.current_underlying = underlyingPrice;
-
-          const entryUnderlyingSnapshot = trade.entry_underlying_snapshot || {};
-          const entryUnderlyingPrice = entryUnderlyingSnapshot.price || underlyingPrice;
-
-          let newUnderlyingHigh = trade.underlying_high_since || entryUnderlyingPrice;
-          let newUnderlyingLow = trade.underlying_low_since || entryUnderlyingPrice;
-
-          if (underlyingPrice > newUnderlyingHigh) {
-            newUnderlyingHigh = underlyingPrice;
-            updates.underlying_high_since = newUnderlyingHigh;
+        // Update using canonical high watermark function
+        const { data: updateResult, error: updateError } = await supabase.rpc(
+          'update_trade_high_watermark',
+          {
+            p_trade_id: trade.id,
+            p_current_price: newContract
           }
+        );
 
-          if (underlyingPrice < newUnderlyingLow) {
-            newUnderlyingLow = underlyingPrice;
-            updates.underlying_low_since = newUnderlyingLow;
-          }
+        if (updateError) {
+          console.error(`❌ Failed to update high watermark for trade ${trade.id}:`, updateError);
+          results.errors++;
+          continue;
         }
 
-        let newContractHigh = trade.contract_high_since || entryContractPrice;
-        let newContractLow = trade.contract_low_since || entryContractPrice;
-        let statusChanged = false;
-        let newStatus = trade.status;
+        console.log(`✅ High watermark update result:`, updateResult);
 
-        if (newContract > newContractHigh) {
-          newContractHigh = newContract;
-          updates.contract_high_since = newContractHigh;
-        }
+        // Update current price and quote snapshot
+        await supabase
+          .from("index_trades")
+          .update({
+            current_contract: newContract,
+            current_contract_snapshot: quote,
+            last_quote_at: new Date().toISOString(),
+          })
+          .eq("id", trade.id);
 
-        if (newContract < newContractLow) {
-          newContractLow = newContract;
-          updates.contract_low_since = newContractLow;
-        }
-
-        const netPnl = (newContract - entryContractPrice) * (trade.qty || 1);
-        const percentGain = ((newContractHigh - entryContractPrice) / entryContractPrice) * 100;
-        const percentChange = ((newContract - entryContractPrice) / entryContractPrice) * 100;
-
-        const prevHighPercent = trade.contract_high_since
-          ? ((trade.contract_high_since - entryContractPrice) / entryContractPrice) * 100
-          : 0;
-
-        const gainThreshold = 5;
-        const isSignificantNewHigh = percentGain >= gainThreshold && percentGain > prevHighPercent + 2;
-
-        console.log(`💰 Trade ${trade.id} P&L: $${netPnl.toFixed(2)} (${percentChange.toFixed(2)}%), High gain: ${percentGain.toFixed(2)}%`);
-
-        if (isSignificantNewHigh) {
-          if (!trade.win_100_announced && netPnl >= 100) {
-            console.log(`🎉 Trade ${trade.id} reached $100+ profit milestone!`);
-            updates.win_100_announced = true;
-
-            await supabase.from("index_trade_updates").insert({
-              trade_id: trade.id,
-              update_type: "milestone",
-              title: "$100 Profit Milestone",
-              body: `🎉 Winning Trade! Net profit reached $${netPnl.toFixed(2)} (Entry: $${entryContractPrice.toFixed(2)}, Current: $${newContract.toFixed(2)}) - صفقة رابحة`,
-              changes: { type: "winning_trade", pnl_usd: netPnl, entry: entryContractPrice, current: newContract },
-            });
-
-            let winningSnapshotUrl = null;
-            try {
-              const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${supabaseKey}`,
-                },
-                body: JSON.stringify({
-                  tradeId: trade.id,
-                  isNewHigh: false,
-                }),
-              });
-
-              if (snapshotResponse.ok) {
-                const snapshotResult = await snapshotResponse.json();
-                winningSnapshotUrl = snapshotResult.imageUrl;
-                console.log(`✅ Snapshot generated for winning trade: ${winningSnapshotUrl}`);
-
-                await supabase
-                  .from("index_trades")
-                  .update({ contract_url: winningSnapshotUrl })
-                  .eq("id", trade.id);
-
-                console.log(`✅ Updated trade ${trade.id} with winning snapshot URL in database`);
-                await new Promise(resolve => setTimeout(resolve, 500));
-              }
-            } catch (snapshotError) {
-              console.error('Failed to generate snapshot for winning trade:', snapshotError);
-            }
-
-            const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-            if (channelId && trade.telegram_send_enabled !== false) {
-              await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
-                tradeId: trade.id,
-                pnl: netPnl,
-                entryPrice: entryContractPrice,
-                currentPrice: newContract,
-                snapshotUrl: winningSnapshotUrl,
-              });
-            }
-
-            results.successDetected++;
-          }
-        }
-
-        const oldContractHigh = trade.contract_high_since || entryContractPrice;
-        const isNewHigh = newContractHigh > oldContractHigh;
-        const highIncrease = newContractHigh - oldContractHigh;
-        const highIncreasePercent = oldContractHigh > 0 ? (highIncrease / oldContractHigh) * 100 : 0;
-
-        if (isNewHigh && highIncreasePercent > 0.5) {
-          console.log(`🚀 NEW HIGH for trade ${trade.id}: ${newContractHigh.toFixed(4)} (+${percentGain.toFixed(2)}% from entry, +${highIncreasePercent.toFixed(2)}% from prev high)`);
-          results.newHighs++;
+        // If newly won, send notifications
+        if (updateResult.newly_won) {
+          console.log(`🎉 Trade ${trade.id} reached WIN status!`);
+          results.newWins++;
 
           await supabase.from("index_trade_updates").insert({
             trade_id: trade.id,
-            update_type: "new_high",
-            title: `New High: $${newContractHigh.toFixed(4)}`,
-            body: `New high! Contract price reached $${newContractHigh.toFixed(4)} (+${percentGain.toFixed(2)}% from entry)`,
-            changes: { type: "new_high", price: newContractHigh, gain_percent: percentGain, increase_percent: highIncreasePercent },
+            update_type: "milestone",
+            title: "$100 Profit Milestone",
+            body: `🎉 Winning Trade! Max profit reached $${updateResult.max_profit_dollars.toFixed(2)} - صفقة رابحة`,
+            changes: {
+              type: "winning_trade",
+              max_profit: updateResult.max_profit_dollars,
+              high_watermark: updateResult.new_high
+            },
           });
 
-          let snapshotUrl = null;
-          try {
-            const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
-              },
-              body: JSON.stringify({
-                tradeId: trade.id,
-                isNewHigh: true,
-                newHighPrice: newContractHigh,
-              }),
-            });
-
-            if (snapshotResponse.ok) {
-              const snapshotResult = await snapshotResponse.json();
-              snapshotUrl = snapshotResult.imageUrl;
-              console.log(`✅ Snapshot generated for new high: ${snapshotUrl}`);
-
-              await supabase
-                .from("index_trades")
-                .update({ contract_url: snapshotUrl })
-                .eq("id", trade.id);
-
-              console.log(`✅ Updated trade ${trade.id} with new high snapshot URL in database`);
-              await new Promise(resolve => setTimeout(resolve, 500));
-            }
-          } catch (snapshotError) {
-            console.error('Failed to generate snapshot for new high:', snapshotError);
-          }
-
-          const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-          if (channelId && trade.telegram_send_enabled !== false) {
-            await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
-              tradeId: trade.id,
-              highPrice: newContractHigh,
-              gainPercent: percentGain,
-              snapshotUrl,
-            });
-          }
-        }
-
-        if (statusChanged) {
-          updates.status = newStatus;
-
-          let outcome = "stopped";
-          let condition = "";
-
-          if (newStatus === "tp_hit") {
-            outcome = "succeed";
-            condition = "Target reached";
-          } else if (newStatus === "sl_hit") {
-            outcome = "loss";
-            condition = "Stop loss hit";
-          }
-
-          updates.outcome = outcome;
-
-          await supabase.from("index_trade_updates").insert({
-            trade_id: trade.id,
-            update_type: newStatus,
-            title: condition,
-            body: condition,
-            changes: { type: newStatus, outcome, pnl_usd: netPnl },
-          });
-
-          let resultSnapshotUrl = null;
+          let winningSnapshotUrl = null;
           try {
             const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
               method: 'POST',
@@ -505,45 +191,81 @@ Deno.serve(async (req) => {
 
             if (snapshotResponse.ok) {
               const snapshotResult = await snapshotResponse.json();
-              resultSnapshotUrl = snapshotResult.imageUrl;
-              console.log(`✅ Snapshot generated for trade result: ${resultSnapshotUrl}`);
+              winningSnapshotUrl = snapshotResult.imageUrl;
+              console.log(`✅ Snapshot generated for winning trade: ${winningSnapshotUrl}`);
 
               await supabase
                 .from("index_trades")
-                .update({ contract_url: resultSnapshotUrl })
+                .update({ contract_url: winningSnapshotUrl })
                 .eq("id", trade.id);
-
-              console.log(`✅ Updated trade ${trade.id} with result snapshot URL in database`);
-              await new Promise(resolve => setTimeout(resolve, 500));
             }
           } catch (snapshotError) {
-            console.error('Failed to generate snapshot for trade result:', snapshotError);
+            console.error('Failed to generate snapshot for winning trade:', snapshotError);
           }
 
           const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
           if (channelId && trade.telegram_send_enabled !== false) {
-            await queueTelegramMessage(supabase, "trade_result", trade.id, channelId, {
+            await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
               tradeId: trade.id,
-              outcome,
-              pnl: netPnl,
-              condition,
-              snapshotUrl: resultSnapshotUrl,
+              max_profit: updateResult.max_profit_dollars,
+              high_watermark: updateResult.new_high,
+              snapshotUrl: winningSnapshotUrl,
             });
           }
         }
 
-        const { error: updateError } = await supabase
-          .from("index_trades")
-          .update(updates)
-          .eq("id", trade.id);
+        // If new high, send notification
+        if (updateResult.is_new_high && !updateResult.newly_won) {
+          console.log(`🚀 NEW HIGH for trade ${trade.id}: ${updateResult.new_high.toFixed(4)}`);
 
-        if (updateError) {
-          console.error(`❌ Failed to update trade ${trade.id}:`, updateError);
-          results.errors++;
-        } else {
-          console.log(`✅ Updated trade ${trade.id}`);
-          results.updated++;
+          await supabase.from("index_trade_updates").insert({
+            trade_id: trade.id,
+            update_type: "new_high",
+            title: `New High: $${updateResult.new_high.toFixed(4)}`,
+            body: `New high! Contract price reached $${updateResult.new_high.toFixed(4)}`,
+            changes: { type: "new_high", price: updateResult.new_high },
+          });
+
+          let snapshotUrl = null;
+          try {
+            const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${supabaseKey}`,
+              },
+              body: JSON.stringify({
+                tradeId: trade.id,
+                isNewHigh: true,
+                newHighPrice: updateResult.new_high,
+              }),
+            });
+
+            if (snapshotResponse.ok) {
+              const snapshotResult = await snapshotResponse.json();
+              snapshotUrl = snapshotResult.imageUrl;
+              console.log(`✅ Snapshot generated for new high: ${snapshotUrl}`);
+
+              await supabase
+                .from("index_trades")
+                .update({ contract_url: snapshotUrl })
+                .eq("id", trade.id);
+            }
+          } catch (snapshotError) {
+            console.error('Failed to generate snapshot for new high:', snapshotError);
+          }
+
+          const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+          if (channelId && trade.telegram_send_enabled !== false) {
+            await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
+              tradeId: trade.id,
+              highPrice: updateResult.new_high,
+              snapshotUrl,
+            });
+          }
         }
+
+        results.updated++;
       } catch (tradeError) {
         console.error(`❌ Error processing trade ${trade.id}:`, tradeError);
         results.errors++;
@@ -566,45 +288,59 @@ Deno.serve(async (req) => {
 });
 
 async function handleTradeExpiration(supabase: any, trade: any, supabaseUrl: string, supabaseKey: string) {
-  const entryContractSnapshot = trade.entry_contract_snapshot || {};
-  const entryContractPrice = entryContractSnapshot.mid || entryContractSnapshot.last || 0;
-  const currentPrice = trade.current_contract || entryContractPrice;
-  const netPnl = (currentPrice - entryContractPrice) * (trade.qty || 1);
+  // Use canonical finalization
+  const { data: finalizationResult, error: finalizationError } = await supabase.rpc(
+    'finalize_trade_canonical',
+    {
+      p_trade_id: trade.id
+    }
+  );
 
-  const updates: any = {
-    status: "expired",
-    outcome: "expired",
-    pnl_usd: netPnl,
-  };
+  if (finalizationError) {
+    console.error(`Failed to finalize expired trade ${trade.id}:`, finalizationError);
+    return;
+  }
 
+  console.log(`✅ Finalized expired trade ${trade.id}:`, finalizationResult);
+
+  // Mark as expired
   const { error: updateError } = await supabase
     .from("index_trades")
-    .update(updates)
+    .update({
+      status: "expired",
+      closed_at: new Date().toISOString(),
+      closure_reason: "EXPIRED",
+    })
     .eq("id", trade.id);
 
   if (updateError) {
     console.error(`Failed to mark trade ${trade.id} as expired:`, updateError);
-  } else {
-    await supabase.from("index_trade_updates").insert({
-      trade_id: trade.id,
-      update_type: "expired",
-      title: "Trade Expired",
-      body: `Trade expired at contract price $${currentPrice.toFixed(2)} with P/L: $${netPnl.toFixed(2)}`,
-      changes: { type: "expired", pnl_usd: netPnl },
-    });
-
-    const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-    if (channelId && trade.telegram_send_enabled !== false) {
-      await queueTelegramMessage(supabase, "trade_result", trade.id, channelId, {
-        tradeId: trade.id,
-        outcome: updates.outcome,
-        pnl: netPnl,
-        condition: "Expired",
-      });
-    }
+    return;
   }
 
-  console.log(`⏰ Trade ${trade.id} marked as expired with P/L: $${netPnl.toFixed(2)}`);
+  await supabase.from("index_trade_updates").insert({
+    trade_id: trade.id,
+    update_type: "expired",
+    title: "Trade Expired",
+    body: `Trade expired with final P/L: $${finalizationResult.final_pnl.toFixed(2)} (${finalizationResult.outcome.toUpperCase()})`,
+    changes: {
+      type: "expired",
+      final_pnl: finalizationResult.final_pnl,
+      outcome: finalizationResult.outcome
+    },
+  });
+
+  const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+  if (channelId && trade.telegram_send_enabled !== false) {
+    await queueTelegramMessage(supabase, "trade_result", trade.id, channelId, {
+      tradeId: trade.id,
+      outcome: finalizationResult.outcome,
+      pnl: finalizationResult.final_pnl,
+      condition: "Expired",
+    });
+  }
+
+  console.log(`⏰ Trade ${trade.id} marked as expired with P/L: $${finalizationResult.final_pnl.toFixed(2)}`);
 }
 
 async function queueTelegramMessage(
@@ -633,9 +369,6 @@ async function queueTelegramMessage(
 
     if (payload.snapshotUrl) {
       fullTrade.contract_url = payload.snapshotUrl;
-      console.log(`✅ Updated fullTrade.contract_url to: ${payload.snapshotUrl}`);
-    } else {
-      console.log(`⚠️  No snapshotUrl in payload, contract_url is: ${fullTrade.contract_url || 'none'}`);
     }
 
     let actualChannelId = channelId;
@@ -660,7 +393,7 @@ async function queueTelegramMessage(
       next_retry_at: new Date().toISOString(),
     });
 
-    console.log(`📤 Queued ${messageType} message for channel ${actualChannelId} with contract_url: ${fullTrade.contract_url || 'none'}`);
+    console.log(`📤 Queued ${messageType} message for channel ${actualChannelId}`);
   } catch (error) {
     console.error("Error queuing telegram message:", error);
   }
@@ -732,38 +465,6 @@ async function fetchPolygonQuote(ticker: string, apiKey: string) {
     return null;
   } catch (error) {
     console.error('Error fetching Polygon quote:', error);
-    return null;
-  }
-}
-
-async function fetchUnderlyingPrice(symbol: string, apiKey: string): Promise<number | null> {
-  try {
-    const indexTicker = symbol.startsWith('I:') ? symbol : `I:${symbol}`;
-    const url = `https://api.polygon.io/v3/snapshot/indices?ticker.any_of=${indexTicker}&apiKey=${apiKey}`;
-
-    console.log(`📡 Fetching LIVE underlying price from Polygon: ${url}`);
-
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Polygon API error for underlying (${response.status}):`, errorText);
-      return null;
-    }
-
-    const data = await response.json();
-
-    if (data.status === 'OK' && data.results && data.results.length > 0) {
-      const result = data.results[0];
-      const price = result.value || result.session?.close || null;
-      console.log(`📊 LIVE ${symbol}: $${price} (timeframe: ${result.timeframe}, market: ${result.market_status})`);
-      return price;
-    }
-
-    console.log(`No underlying price data for ${symbol}`);
-    return null;
-  } catch (error) {
-    console.error(`Error fetching underlying price for ${symbol}:`, error);
     return null;
   }
 }

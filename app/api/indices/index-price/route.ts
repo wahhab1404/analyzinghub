@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export async function GET(request: NextRequest) {
   try {
@@ -26,7 +27,12 @@ export async function GET(request: NextRequest) {
     const indexTicker = symbol.startsWith('I:') ? symbol : `I:${symbol}`;
     const url = `https://api.polygon.io/v3/snapshot/indices?ticker.any_of=${indexTicker}&apiKey=${apiKey}`;
 
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      }
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -44,12 +50,21 @@ export async function GET(request: NextRequest) {
       const price = result.value || result.session?.close || null;
 
       if (price !== null) {
-        return NextResponse.json({
-          symbol,
-          price,
-          timestamp: result.session?.updated || new Date().toISOString(),
-          marketStatus: result.market_status || 'unknown',
-        });
+        return NextResponse.json(
+          {
+            symbol,
+            price,
+            timestamp: result.session?.updated || new Date().toISOString(),
+            marketStatus: result.market_status || 'unknown',
+          },
+          {
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+              'Pragma': 'no-cache',
+              'Expires': '0',
+            }
+          }
+        );
       }
     }
 

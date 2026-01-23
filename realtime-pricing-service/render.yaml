@@ -11,12 +11,10 @@ services:
     # IMPORTANT: Point to the subdirectory
     rootDir: realtime-pricing-service
 
-    buildCommand: npm install && npm run build
-    startCommand: npm run websocket
+    buildCommand: npm ci && npm run build
+    startCommand: NODE_ENV=production npm run websocket
 
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: POLYGON_API_KEY
         sync: false  # Set manually in Render dashboard
       - key: NEXT_PUBLIC_SUPABASE_URL

@@ -173,6 +173,10 @@ function formatMessage(message: any): { text?: string; photo?: string; caption?:
       return formatTradeMessage(payload, messageType === 'new_high' || messageType === 'winning_trade', messageType === 'winning_trade');
     case 'trade_result':
       return formatTradeResultMessage(payload);
+    case 'trade_closed_for_new_entry':
+      return formatTradeClosedForNewEntryMessage(payload);
+    case 'trade_entry_averaged':
+      return formatTradeEntryAveragedMessage(payload);
     case 'analysis_update':
     case 'trade_update':
       return formatUpdateMessage(payload, messageType);
@@ -327,6 +331,62 @@ function formatUpdateMessage(payload: any, type: string): { text: string } {
   }
 
   message += `<a href="${entityUrl}">View Details | عرض التفاصيل</a>`;
+
+  return { text: message };
+}
+
+function formatTradeClosedForNewEntryMessage(payload: any): { text: string } {
+  const trade = payload.trade || payload;
+  const reason = payload.reason || 'Closed for new entry';
+  const peakPrice = payload.peakPrice || trade.peak_price_after_entry || trade.contract_high_since || 0;
+
+  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const pnlPercent = ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2);
+
+  let message = "🔄 <b>TRADE CLOSED FOR NEW ENTRY | إغلاق الصفقة لإدخال جديد</b>\n\n";
+  message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
+  message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
+
+  if (trade.strike) {
+    message += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
+  }
+
+  message += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  message += `<b>Closed at Peak | الإغلاق عند القمة:</b> $${peakPrice.toFixed(2)}\n`;
+  message += `<b>Peak Profit | أعلى ربح:</b> +${pnlPercent}%\n\n`;
+  message += `<i>${reason}</i>\n`;
+
+  if (trade.author?.full_name) {
+    message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
+  }
+
+  return { text: message };
+}
+
+function formatTradeEntryAveragedMessage(payload: any): { text: string } {
+  const trade = payload.trade || payload;
+  const oldEntryPrice = payload.oldEntryPrice || 0;
+  const newEntryPrice = payload.newEntryPrice || 0;
+  const averagedEntryPrice = payload.averagedEntryPrice || ((oldEntryPrice + newEntryPrice) / 2);
+  const totalEntries = payload.totalEntries || 2;
+
+  let message = "📊 <b>ENTRY PRICE AVERAGED | متوسط سعر الدخول</b>\n\n";
+  message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
+  message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
+
+  if (trade.strike) {
+    message += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
+  }
+
+  message += `\n<b>Original Entry | الدخول الأصلي:</b> $${oldEntryPrice.toFixed(2)}\n`;
+  message += `<b>New Entry | الدخول الجديد:</b> $${newEntryPrice.toFixed(2)}\n`;
+  message += `<b>Averaged Entry | متوسط الدخول:</b> $${averagedEntryPrice.toFixed(2)}\n`;
+  message += `<b>Total Entries | إجمالي المداخل:</b> ${totalEntries}\n\n`;
+  message += `<i>Entry price has been averaged. Trade continues with new calculation. | تم حساب متوسط سعر الدخول. تستمر الصفقة بحساب جديد.</i>\n`;
+
+  if (trade.author?.full_name) {
+    message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
+  }
 
   return { text: message };
 }

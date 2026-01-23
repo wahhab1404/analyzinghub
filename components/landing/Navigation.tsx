@@ -10,15 +10,10 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Menu, X } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
-import { useTheme } from 'next-themes'
 
 export function Navigation() {
   const { t } = useTranslation()
-  const { theme, resolvedTheme } = useTheme()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  const currentTheme = resolvedTheme || theme
-  const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
 
   return (
     <motion.nav
@@ -27,14 +22,15 @@ export function Navigation() {
       className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/95 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60"
     >
       <div className="container mx-auto px-4 sm:px-6">
-        <div className="flex h-16 sm:h-18 items-center justify-between">
+        <div className="flex h-20 sm:h-24 items-center justify-between">
           <Link href="/" className="flex items-center gap-2 flex-shrink-0">
             <Image
-              src={logoSrc}
+              src="/analyzer-logo.png"
               alt="AnalyzingHub Logo"
-              width={180}
-              height={60}
-              className="h-10 w-auto sm:h-12"
+              width={240}
+              height={80}
+              className="h-16 w-auto sm:h-20"
+              priority
             />
           </Link>
 

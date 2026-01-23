@@ -24,7 +24,6 @@ import { useTranslation } from '@/lib/i18n/language-context'
 import { cn } from '@/lib/utils'
 import { usePathname } from 'next/navigation'
 import { navItems } from './Sidebar'
-import { useTheme } from 'next-themes'
 
 interface HeaderProps {
   user: SessionUser
@@ -34,12 +33,8 @@ export function Header({ user }: HeaderProps) {
   const router = useRouter()
   const pathname = usePathname()
   const { t } = useTranslation()
-  const { theme, resolvedTheme } = useTheme()
   const [loading, setLoading] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  const currentTheme = resolvedTheme || theme
-  const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
 
   const handleSignOut = async () => {
     setLoading(true)
@@ -76,7 +71,7 @@ export function Header({ user }: HeaderProps) {
 
   return (
     <header className="border-b bg-white dark:bg-slate-950 sticky top-0 z-40 w-full">
-      <div className="flex h-14 sm:h-16 items-center px-3 sm:px-6 w-full max-w-full">
+      <div className="flex h-16 sm:h-20 items-center px-3 sm:px-6 w-full max-w-full">
         <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
           <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
             <SheetTrigger asChild className="lg:hidden flex-shrink-0">
@@ -88,11 +83,11 @@ export function Header({ user }: HeaderProps) {
             <SheetContent side="left" className="w-[280px] sm:w-[320px] p-0 max-w-[85vw]">
               <div className="flex items-center gap-2 px-4 py-4 border-b">
                 <Image
-                  src={logoSrc}
+                  src="/analyzer-logo.png"
                   alt="AnalyzingHub Logo"
-                  width={160}
-                  height={53}
-                  className="h-10 w-auto max-w-full"
+                  width={200}
+                  height={67}
+                  className="h-12 w-auto max-w-full"
                 />
               </div>
               <nav className="space-y-1 p-4">
@@ -122,13 +117,16 @@ export function Header({ user }: HeaderProps) {
             </SheetContent>
           </Sheet>
 
-          <Image
-            src={logoSrc}
-            alt="AnalyzingHub Logo"
-            width={160}
-            height={53}
-            className="h-9 w-auto sm:h-11 max-w-[120px] sm:max-w-none flex-shrink-0"
-          />
+          <Link href="/dashboard" className="flex-shrink-0">
+            <Image
+              src="/analyzer-logo.png"
+              alt="AnalyzingHub Logo"
+              width={200}
+              height={67}
+              className="h-12 w-auto sm:h-16 max-w-[140px] sm:max-w-none"
+              priority
+            />
+          </Link>
         </div>
         <div className="flex items-center gap-1 sm:gap-2 md:gap-4 flex-shrink-0">
           <div className="hidden md:flex flex-col items-end mr-2">

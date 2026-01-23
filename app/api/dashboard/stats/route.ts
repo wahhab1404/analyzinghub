@@ -16,19 +16,25 @@ export async function GET(request: NextRequest) {
 
     const { data: tradeStats } = await supabase
       .from('index_trades')
-      .select('status, is_winning_trade, profit_from_entry, max_profit, final_profit, closed_at, trade_outcome')
+      .select('status, is_win, computed_profit_usd, peak_price_after_entry, contract_high_since, closed_at, entry_contract_snapshot, contract_multiplier, qty')
       .eq('author_id', user.id);
 
     const totalTrades = tradeStats?.length || 0;
     const activeTrades = tradeStats?.filter(t => t.status === 'active').length || 0;
     const closedTrades = tradeStats?.filter(t => t.status === 'closed').length || 0;
-    const winningTrades = tradeStats?.filter(t => t.is_winning_trade).length || 0;
+    const winningTrades = tradeStats?.filter(t => t.status === 'closed' && t.is_win === true).length || 0;
     const winRate = closedTrades > 0 ? ((winningTrades / closedTrades) * 100).toFixed(1) : '0';
 
     const totalProfit = tradeStats?.reduce((sum, t) => {
-      if (t.status === 'closed') {
-        const profit = t.max_profit ?? t.profit_from_entry ?? 0;
-        return sum + parseFloat(profit.toString());
+      if (t.status === 'closed' && t.computed_profit_usd != null) {
+        return sum + parseFloat(t.computed_profit_usd.toString());
+      }
+      if (t.status === 'closed' && t.is_win === false) {
+        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+        const multiplier = t.contract_multiplier || 100;
+        const qty = t.qty || 1;
+        const entryCost = entryPrice * multiplier * qty;
+        return sum - entryCost;
       }
       return sum;
     }, 0) || 0;
@@ -38,8 +44,16 @@ export async function GET(request: NextRequest) {
         const closedDate = new Date(t.closed_at);
         const now = new Date();
         if (closedDate.getMonth() === now.getMonth() && closedDate.getFullYear() === now.getFullYear()) {
-          const profit = t.max_profit ?? t.profit_from_entry ?? 0;
-          return sum + parseFloat(profit.toString());
+          if (t.computed_profit_usd != null) {
+            return sum + parseFloat(t.computed_profit_usd.toString());
+          }
+          if (t.is_win === false) {
+            const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+            const multiplier = t.contract_multiplier || 100;
+            const qty = t.qty || 1;
+            const entryCost = entryPrice * multiplier * qty;
+            return sum - entryCost;
+          }
         }
       }
       return sum;
@@ -56,11 +70,10 @@ export async function GET(request: NextRequest) {
         strike,
         expiry,
         option_type,
-        profit_from_entry,
-        max_profit,
-        final_profit,
-        is_winning_trade,
-        trade_outcome,
+        computed_profit_usd,
+        is_win,
+        peak_price_after_entry,
+        contract_high_since,
         closed_at,
         created_at,
         entry_contract_snapshot,
@@ -88,8 +101,17 @@ export async function GET(request: NextRequest) {
       }) || [];
 
       const dayProfit = dayTrades.reduce((sum, t) => {
-        const profit = t.max_profit ?? t.profit_from_entry ?? 0;
-        return sum + parseFloat(profit.toString());
+        if (t.computed_profit_usd != null) {
+          return sum + parseFloat(t.computed_profit_usd.toString());
+        }
+        if (t.is_win === false) {
+          const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+          const multiplier = t.contract_multiplier || 100;
+          const qty = t.qty || 1;
+          const entryCost = entryPrice * multiplier * qty;
+          return sum - entryCost;
+        }
+        return sum;
       }, 0);
 
       last7DaysData.push({

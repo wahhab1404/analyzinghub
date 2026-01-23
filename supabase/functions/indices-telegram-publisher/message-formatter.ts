@@ -437,3 +437,94 @@ export function formatTradeResultMessage(
 
   return { text: message };
 }
+
+export function formatTradeClosedForNewEntryMessage(
+  payload: { trade: IndexTrade; reason: string; peakPrice: number },
+  baseUrl: string
+): { text: string } {
+  const { trade, reason, peakPrice } = payload;
+
+  const entryPrice = trade.entry_contract_snapshot?.mark || trade.entry_contract_snapshot?.last || 0;
+  const pnlPercent = ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2);
+
+  const cleanSymbol = trade.polygon_option_ticker?.replace(/^O:/, '') || '';
+
+  let message = "🔄 <b>TRADE CLOSED FOR NEW ENTRY</b>\n\n";
+  message += `<b>Index:</b> ${trade.analysis?.index_symbol || 'N/A'}\n`;
+  message += `<b>Direction:</b> ${trade.direction === "call" ? "Call" : "Put"}\n`;
+
+  if (trade.polygon_option_ticker) {
+    message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
+  }
+
+  message += `<b>Entry Price:</b> ${entryPrice.toFixed(2)}\n`;
+  message += `<b>Closed at Peak:</b> ${peakPrice.toFixed(2)}\n`;
+  message += `<b>Peak Profit:</b> ${pnlPercent}%\n\n`;
+  message += `<i>${reason}</i>\n\n`;
+  message += `<b>Analyst:</b> ${trade.author.full_name}\n`;
+
+  message += "\n\n━━━━━━━━━━\n\n";
+
+  message += "🔄 <b>إغلاق الصفقة لإدخال جديد</b>\n\n";
+  message += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || 'N/A'}\n`;
+  message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
+
+  if (trade.polygon_option_ticker) {
+    message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
+  }
+
+  message += `<b>سعر الدخول:</b> ${entryPrice.toFixed(2)}\n`;
+  message += `<b>الإغلاق عند القمة:</b> ${peakPrice.toFixed(2)}\n`;
+  message += `<b>أعلى ربح:</b> ${pnlPercent}%\n\n`;
+  message += `<b>المحلل:</b> ${trade.author.full_name}\n`;
+
+  return { text: message };
+}
+
+export function formatTradeEntryAveragedMessage(
+  payload: {
+    trade: IndexTrade;
+    oldEntryPrice: number;
+    newEntryPrice: number;
+    averagedEntryPrice: number;
+    totalEntries: number;
+  },
+  baseUrl: string
+): { text: string } {
+  const { trade, oldEntryPrice, newEntryPrice, averagedEntryPrice, totalEntries } = payload;
+
+  const cleanSymbol = trade.polygon_option_ticker?.replace(/^O:/, '') || '';
+
+  let message = "📊 <b>ENTRY PRICE AVERAGED</b>\n\n";
+  message += `<b>Index:</b> ${trade.analysis?.index_symbol || 'N/A'}\n`;
+  message += `<b>Direction:</b> ${trade.direction === "call" ? "Call" : "Put"}\n`;
+
+  if (trade.polygon_option_ticker) {
+    message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
+  }
+
+  message += `\n<b>Original Entry:</b> ${oldEntryPrice.toFixed(2)}\n`;
+  message += `<b>New Entry:</b> ${newEntryPrice.toFixed(2)}\n`;
+  message += `<b>Averaged Entry:</b> ${averagedEntryPrice.toFixed(2)}\n`;
+  message += `<b>Total Entries:</b> ${totalEntries}\n\n`;
+  message += `<i>Entry price has been averaged. Trade continues with new averaged calculation.</i>\n\n`;
+  message += `<b>Analyst:</b> ${trade.author.full_name}\n`;
+
+  message += "\n\n━━━━━━━━━━\n\n";
+
+  message += "📊 <b>متوسط سعر الدخول</b>\n\n";
+  message += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || 'N/A'}\n`;
+  message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
+
+  if (trade.polygon_option_ticker) {
+    message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
+  }
+
+  message += `\n<b>الدخول الأصلي:</b> ${oldEntryPrice.toFixed(2)}\n`;
+  message += `<b>الدخول الجديد:</b> ${newEntryPrice.toFixed(2)}\n`;
+  message += `<b>متوسط الدخول:</b> ${averagedEntryPrice.toFixed(2)}\n`;
+  message += `<b>إجمالي المداخل:</b> ${totalEntries}\n\n`;
+  message += `<b>المحلل:</b> ${trade.author.full_name}\n`;
+
+  return { text: message };
+}

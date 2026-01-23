@@ -3,6 +3,7 @@ import { createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { polygonService } from '@/services/indices/polygon.service';
 import { CreateTradeRequest } from '@/services/indices/types';
+import { tradeOutcomeService } from '@/services/indices/trade-outcome.service';
 
 /**
  * GET /api/indices/trades
@@ -235,6 +236,157 @@ export async function POST(request: NextRequest) {
     const initialHigh = Math.max(entryContract, currentContractPrice);
     const initialLow = Math.min(entryContract, currentContractPrice);
 
+    // Generate idempotency key
+    const idempotencyKey = body.idempotency_key ||
+      `${user.id}_${body.polygon_option_ticker || `${body.strike}_${body.expiry}`}_${Date.now()}`;
+
+    // Check for exact same contract re-entry
+    if (body.instrument_type === 'options' && !body.reentry_decision) {
+      const { data: activeTradeCheck, error: checkError } = await supabase.rpc(
+        'check_active_trade_for_contract',
+        {
+          p_author_id: user.id,
+          p_polygon_option_ticker: body.polygon_option_ticker || null,
+          p_strike: body.strike || null,
+          p_expiry: body.expiry || null,
+          p_option_type: body.option_type || null,
+          p_underlying_symbol: body.underlying_index_symbol
+        }
+      );
+
+      if (!checkError && activeTradeCheck && activeTradeCheck.length > 0) {
+        const existingTrade = activeTradeCheck[0];
+
+        return NextResponse.json(
+          {
+            action_required: 'REENTRY_DECISION',
+            message: 'An active trade already exists for this exact contract',
+            existing_trade: {
+              trade_id: existingTrade.trade_id,
+              entry_price: existingTrade.entry_price,
+              qty: existingTrade.qty,
+              entry_cost_usd: existingTrade.entry_cost_usd,
+              max_profit: existingTrade.max_profit,
+              max_contract_price: existingTrade.max_contract_price,
+            },
+            new_trade: {
+              entry_price: entryContract,
+              qty: body.qty || 1,
+              entry_cost_usd: entryContract * (body.qty || 1) * 100,
+            },
+            idempotency_key: idempotencyKey,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Handle re-entry decision
+    if (body.reentry_decision) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!supabaseUrl || !serviceRoleKey) {
+        return NextResponse.json(
+          { error: 'Server configuration error' },
+          { status: 500 }
+        );
+      }
+
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+
+      if (body.reentry_decision === 'NEW_ENTRY') {
+        // Close previous and create new
+        const newTradeData = {
+          author_id: user.id,
+          analysis_id: null,
+          status: 'active',
+          instrument_type: body.instrument_type,
+          direction: body.direction,
+          underlying_index_symbol: body.underlying_index_symbol,
+          polygon_underlying_index_ticker: polygonIndexTicker,
+          polygon_option_ticker: body.polygon_option_ticker || null,
+          strike: body.strike?.toString() || null,
+          expiry: body.expiry || null,
+          option_type: body.option_type || null,
+          contract_multiplier: '100',
+          entry_underlying_snapshot: underlyingSnapshot,
+          entry_contract_snapshot: contractSnapshot,
+          entry_cost_usd: (entryContract * (body.qty || 1) * 100).toString(),
+          qty: (body.qty || 1).toString(),
+          trade_price_basis: body.trade_price_basis || 'OPTION_PREMIUM',
+          telegram_channel_id: body.telegram_channel_id || null,
+          telegram_send_enabled: 'true',
+        };
+
+        const { data: result, error: processError } = await adminClient.rpc(
+          'process_trade_new_entry',
+          {
+            p_existing_trade_id: body.existing_trade_id,
+            p_new_trade_data: newTradeData,
+            p_idempotency_key: idempotencyKey,
+          }
+        );
+
+        if (processError) {
+          console.error('Error processing NEW_ENTRY:', processError);
+          return NextResponse.json({ error: processError.message }, { status: 500 });
+        }
+
+        // Fetch the new trade with author data
+        const { data: newTrade } = await supabase
+          .from('index_trades')
+          .select(`
+            *,
+            author:profiles!author_id(id, full_name, avatar_url)
+          `)
+          .eq('id', result.new_trade_id)
+          .single();
+
+        return NextResponse.json({
+          trade: newTrade,
+          reentry_result: result
+        }, { status: 201 });
+
+      } else if (body.reentry_decision === 'AVERAGE_ADJUSTMENT') {
+        // Average the entry
+        const { data: result, error: processError } = await adminClient.rpc(
+          'process_trade_average_adjustment',
+          {
+            p_existing_trade_id: body.existing_trade_id,
+            p_new_entry_price: entryContract,
+            p_new_qty: body.qty || 1,
+            p_idempotency_key: idempotencyKey,
+          }
+        );
+
+        if (processError) {
+          console.error('Error processing AVERAGE_ADJUSTMENT:', processError);
+          return NextResponse.json({ error: processError.message }, { status: 500 });
+        }
+
+        // Fetch the updated trade with author data
+        const { data: updatedTrade } = await supabase
+          .from('index_trades')
+          .select(`
+            *,
+            author:profiles!author_id(id, full_name, avatar_url)
+          `)
+          .eq('id', result.trade_id)
+          .single();
+
+        return NextResponse.json({
+          trade: updatedTrade,
+          reentry_result: result
+        }, { status: 200 });
+      } else {
+        return NextResponse.json(
+          { error: 'Invalid reentry_decision. Must be NEW_ENTRY or AVERAGE_ADJUSTMENT' },
+          { status: 400 }
+        );
+      }
+    }
+
     const { data: trade, error: insertError } = await supabase
       .from('index_trades')
       .insert({
@@ -271,6 +423,11 @@ export async function POST(request: NextRequest) {
         last_quote_at: new Date().toISOString(),
         published_at: new Date().toISOString(),
         qty: body.qty || 1,
+        idempotency_key: idempotencyKey,
+        original_entry_price: entryContract,
+        entry_cost_usd: entryContract * (body.qty || 1) * 100,
+        max_contract_price: currentContractPrice,
+        max_profit: 0,
       })
       .select(`
         *,

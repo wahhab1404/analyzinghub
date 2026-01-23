@@ -13,6 +13,7 @@ import { Loader as Loader2, Plus, Trash2, Search, Calendar, TrendingUp } from 'l
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
+import { TradeReentryDialog } from './TradeReentryDialog'
 
 interface AddTradeFormProps {
   analysisId?: string | null
@@ -89,6 +90,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const [indexPrice, setIndexPrice] = useState<number | null>(null)
   const [loadingIndexPrice, setLoadingIndexPrice] = useState(false)
   const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null)
+  const [reentryDialogOpen, setReentryDialogOpen] = useState(false)
+  const [reentryData, setReentryData] = useState<{
+    existing_trade: any
+    new_trade: any
+    idempotency_key: string
+  } | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<any>(null)
   const [formData, setFormData] = useState({
     instrument_type: 'options' as 'options' | 'futures',
     direction: 'call' as 'call' | 'put' | 'long' | 'short',
@@ -206,11 +214,22 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const fetchIndexPrice = async (symbol: string) => {
     setLoadingIndexPrice(true)
     try {
-      const response = await fetch(`/api/indices/index-price?symbol=${symbol}`)
+      const timestamp = Date.now()
+      const response = await fetch(
+        `/api/indices/index-price?symbol=${symbol}&_t=${timestamp}`,
+        {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+          }
+        }
+      )
 
       if (response.ok) {
         const data = await response.json()
         setIndexPrice(data.price)
+        setLastPriceUpdate(new Date())
       } else {
         setIndexPrice(null)
       }
@@ -630,6 +649,20 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           toast.success('Published to Telegram!')
         }
         onComplete()
+      } else if (response.status === 409) {
+        const errorData = await response.json()
+
+        if (errorData.action_required === 'REENTRY_DECISION') {
+          setPendingPayload(payload)
+          setReentryData({
+            existing_trade: errorData.existing_trade,
+            new_trade: errorData.new_trade,
+            idempotency_key: errorData.idempotency_key,
+          })
+          setReentryDialogOpen(true)
+        } else {
+          toast.error(errorData.error || 'Failed to add trade')
+        }
       } else {
         const error = await response.json()
         toast.error(error.error || 'Failed to add trade')
@@ -642,7 +675,63 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     }
   }
 
+  const handleReentryDecision = async (decision: 'NEW_ENTRY' | 'AVERAGE_ADJUSTMENT') => {
+    if (!reentryData || !pendingPayload) {
+      toast.error('Missing reentry data')
+      return
+    }
+
+    setLoading(true)
+    setReentryDialogOpen(false)
+
+    try {
+      const apiUrl = standalone || !analysisId
+        ? '/api/indices/trades'
+        : `/api/indices/analyses/${analysisId}/trades`
+
+      const payload = {
+        ...pendingPayload,
+        reentry_decision: decision,
+        existing_trade_id: reentryData.existing_trade.trade_id,
+        idempotency_key: reentryData.idempotency_key,
+      }
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+
+        if (decision === 'NEW_ENTRY') {
+          toast.success('Previous trade closed and new trade created!')
+        } else {
+          toast.success('Entry averaged into existing position!')
+        }
+
+        if (formData.auto_publish_telegram) {
+          toast.success('Published to Telegram!')
+        }
+
+        onComplete()
+      } else {
+        const error = await response.json()
+        toast.error(error.error || 'Failed to process reentry')
+      }
+    } catch (error) {
+      console.error('Error processing reentry:', error)
+      toast.error('Failed to process reentry')
+    } finally {
+      setLoading(false)
+      setReentryData(null)
+      setPendingPayload(null)
+    }
+  }
+
   return (
+    <>
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-4">
         <h3 className="font-semibold text-lg">Trade Details</h3>
@@ -1407,5 +1496,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         </Button>
       </div>
     </form>
+
+      {/* Re-Entry Decision Dialog */}
+      {reentryData && (
+        <TradeReentryDialog
+          open={reentryDialogOpen}
+          onOpenChange={setReentryDialogOpen}
+          existingTrade={reentryData.existing_trade}
+          newTrade={reentryData.new_trade}
+          onDecision={handleReentryDecision}
+          isProcessing={loading}
+        />
+      )}
+    </>
   )
 }

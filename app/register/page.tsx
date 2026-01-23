@@ -6,14 +6,9 @@ import { LanguageSwitcher } from '@/components/ui/language-switcher'
 import { ThemeToggle } from '@/components/ui/theme-toggle'
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useTheme } from 'next-themes'
 
 export default function RegisterPage() {
   const router = useRouter()
-  const { theme, resolvedTheme } = useTheme()
-
-  const currentTheme = resolvedTheme || theme
-  const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' })
@@ -35,11 +30,12 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8 flex flex-col items-center">
           <Image
-            src={logoSrc}
+            src="/analyzer-logo.png"
             alt="AnalyzingHub Logo"
-            width={80}
-            height={80}
-            className="mb-4"
+            width={280}
+            height={93}
+            className="mb-6 h-24 w-auto"
+            priority
           />
           <h1 className="text-4xl font-bold text-slate-900 dark:text-slate-50 mb-2">
             AnalyzingHub

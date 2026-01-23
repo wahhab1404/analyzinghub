@@ -82,13 +82,14 @@ Deno.serve(async (req: Request) => {
         const qty = trade.qty || 1;
         const multiplier = 100;
 
-        let finalProfit = maxProfit;
-        let tradeOutcome = 'small_loss';
-        let isWinningTrade = false;
-        let closingPrice = 0;
+        let finalProfit: number;
+        let tradeOutcome: string;
+        let isWinningTrade: boolean;
+        let closingPrice: number;
 
         if (maxProfit >= 100) {
           isWinningTrade = true;
+          finalProfit = maxProfit;
 
           if (maxProfit >= 500) {
             tradeOutcome = 'big_win';
@@ -97,13 +98,10 @@ Deno.serve(async (req: Request) => {
           }
 
           closingPrice = entryPrice + (maxProfit / (qty * multiplier));
-          finalProfit = maxProfit;
         } else {
           isWinningTrade = false;
-
           const totalInvestment = entryPrice * qty * multiplier;
           finalProfit = -totalInvestment;
-
           closingPrice = 0;
 
           if (totalInvestment >= 500) {

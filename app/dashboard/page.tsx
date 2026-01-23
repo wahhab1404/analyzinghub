@@ -28,15 +28,16 @@ interface RecentTrade {
   strike?: number
   expiry?: string
   option_type?: string
-  profit_from_entry?: number
-  max_profit?: number
-  final_profit?: number
-  is_winning_trade?: boolean
-  trade_outcome?: string
+  computed_profit_usd?: number
+  is_win?: boolean
+  peak_price_after_entry?: number
+  contract_high_since?: number
   closed_at?: string
   created_at: string
   entry_contract_snapshot?: any
   current_contract?: number
+  qty?: number
+  contract_multiplier?: number
 }
 
 interface ChartDataPoint {
@@ -127,26 +128,19 @@ export default function DashboardPage() {
     }).format(value)
   }
 
-  const getTradeOutcomeColor = (outcome?: string) => {
-    switch (outcome) {
-      case 'big_win': return 'text-green-600 dark:text-green-400'
-      case 'small_win': return 'text-green-500 dark:text-green-500'
-      case 'breakeven': return 'text-gray-600 dark:text-gray-400'
-      case 'small_loss': return 'text-red-500 dark:text-red-500'
-      case 'big_loss': return 'text-red-600 dark:text-red-400'
-      default: return 'text-gray-500'
+  const getTradeOutcomeBadge = (isWin?: boolean) => {
+    if (isWin === true) {
+      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+    } else if (isWin === false) {
+      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
     }
+    return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-200'
   }
 
-  const getTradeOutcomeBadge = (outcome?: string) => {
-    switch (outcome) {
-      case 'big_win': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'small_win': return 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300'
-      case 'breakeven': return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
-      case 'small_loss': return 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'
-      case 'big_loss': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return 'bg-gray-100 text-gray-600'
-    }
+  const getTradeOutcomeLabel = (isWin?: boolean) => {
+    if (isWin === true) return 'WIN'
+    if (isWin === false) return 'LOSS'
+    return 'CLOSED'
   }
 
   const statCards = [
@@ -368,14 +362,17 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {recentTrades.map((trade) => {
                 const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
-                const qty = (trade as any).qty || 1
-                const multiplier = (trade as any).contract_multiplier || 100
-
-                const profit = trade.status === 'closed'
-                  ? (trade.final_profit ?? trade.max_profit ?? 0)
-                  : (trade.max_profit ?? 0)
-
+                const qty = trade.qty || 1
+                const multiplier = trade.contract_multiplier || 100
                 const entryCost = entryPrice * qty * multiplier
+
+                let profit = 0
+                if (trade.computed_profit_usd != null) {
+                  profit = trade.computed_profit_usd
+                } else if (trade.is_win === false) {
+                  profit = -entryCost
+                }
+
                 const profitPercent = entryCost > 0 ? ((profit / entryCost) * 100).toFixed(1) : '0'
 
                 return (
@@ -386,8 +383,8 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center justify-between p-4 rounded-lg border-2 hover:border-primary/50 transition-all hover:shadow-md bg-slate-50 dark:bg-slate-900/50">
                       <div className="flex items-center gap-4 flex-1">
-                        <div className={`h-12 w-12 rounded-full flex items-center justify-center ${trade.direction === 'bullish' ? 'bg-green-100 dark:bg-green-950' : 'bg-red-100 dark:bg-red-950'}`}>
-                          {trade.direction === 'bullish' ? (
+                        <div className={`h-12 w-12 rounded-full flex items-center justify-center ${trade.direction === 'call' || trade.direction === 'bullish' ? 'bg-green-100 dark:bg-green-950' : 'bg-red-100 dark:bg-red-950'}`}>
+                          {trade.direction === 'call' || trade.direction === 'bullish' ? (
                             <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
                           ) : (
                             <TrendingDown className="h-6 w-6 text-red-600 dark:text-red-400" />
@@ -398,8 +395,8 @@ export default function DashboardPage() {
                             <h4 className="font-semibold text-slate-900 dark:text-slate-50">
                               {trade.underlying_index_symbol}
                             </h4>
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${getTradeOutcomeBadge(trade.trade_outcome)}`}>
-                              {trade.trade_outcome?.replace('_', ' ').toUpperCase() || 'CLOSED'}
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${getTradeOutcomeBadge(trade.is_win)}`}>
+                              {getTradeOutcomeLabel(trade.is_win)}
                             </span>
                           </div>
                           <p className="text-sm text-muted-foreground">

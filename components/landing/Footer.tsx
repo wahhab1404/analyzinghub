@@ -4,14 +4,9 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Twitter, Github, Linkedin, Mail } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
-import { useTheme } from 'next-themes'
 
 export function Footer() {
   const { t } = useTranslation()
-  const { theme, resolvedTheme } = useTheme()
-
-  const currentTheme = resolvedTheme || theme
-  const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
 
   return (
     <footer className="border-t border-border bg-background py-12">
@@ -20,11 +15,11 @@ export function Footer() {
           <div>
             <Link href="/" className="mb-4 flex items-center gap-2">
               <Image
-                src={logoSrc}
+                src="/analyzer-logo.png"
                 alt="AnalyzingHub Logo"
-                width={160}
-                height={53}
-                className="h-10 w-auto"
+                width={200}
+                height={67}
+                className="h-14 w-auto"
               />
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">

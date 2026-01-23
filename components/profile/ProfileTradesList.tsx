@@ -29,17 +29,16 @@ interface Trade {
   expiry: string
   created_at: string
   closed_at: string | null
-  profit_from_entry: number
-  max_profit: number
-  final_profit: number | null
-  is_winning_trade: boolean
-  trade_outcome: string
+  computed_profit_usd: number | null
+  is_win: boolean | null
+  peak_price_after_entry: number | null
   entry_contract_snapshot: any
   current_contract: number
-  max_contract_price: number | null
   contract_high_since: number | null
   contract_low_since: number | null
   analysis_id: string | null
+  qty: number
+  contract_multiplier: number
 }
 
 interface ProfileTradesListProps {
@@ -60,12 +59,17 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
 
   const fetchTrades = async () => {
     try {
-      const response = await fetch(`/api/profiles/${profileId}/trades`)
+      const response = await fetch(`/api/profiles/${profileId}/trades`, {
+        credentials: 'include',
+        cache: 'no-store'
+      })
       if (response.ok) {
         const data = await response.json()
         setTrades(data.trades || [])
         setStats(data.stats || null)
         setShowLocked(!isOwnProfile && !hasSubscription && data.hasActiveTrades)
+      } else if (response.status === 401) {
+        console.error('Unauthorized - user not logged in')
       }
     } catch (error) {
       console.error('Failed to fetch trades:', error)
@@ -90,21 +94,26 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     )
   }
 
-  const getOutcomeBadge = (outcome: string) => {
-    const variants: Record<string, { color: string; label: string; icon: any }> = {
-      big_win: { color: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200', label: 'Big Win', icon: TrendingUp },
-      small_win: { color: 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300', label: 'Small Win', icon: TrendingUp },
-      breakeven: { color: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200', label: 'Breakeven', icon: Target },
-      small_loss: { color: 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300', label: 'Small Loss', icon: TrendingDown },
-      big_loss: { color: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200', label: 'Big Loss', icon: TrendingDown },
-      pending: { color: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200', label: 'Pending', icon: Clock }
+  const getOutcomeBadge = (isWin?: boolean | null) => {
+    if (isWin === true) {
+      return (
+        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 gap-1">
+          <TrendingUp className="h-3 w-3" />
+          WIN
+        </Badge>
+      )
+    } else if (isWin === false) {
+      return (
+        <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 gap-1">
+          <TrendingDown className="h-3 w-3" />
+          LOSS
+        </Badge>
+      )
     }
-    const variant = variants[outcome] || variants.pending
-    const Icon = variant.icon
     return (
-      <Badge className={`${variant.color} gap-1`}>
-        <Icon className="h-3 w-3" />
-        {variant.label}
+      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 gap-1">
+        <Clock className="h-3 w-3" />
+        Pending
       </Badge>
     )
   }
@@ -114,17 +123,36 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     return `${sign}$${value.toFixed(2)}`
   }
 
+  const calculateProfit = (trade: Trade) => {
+    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
+    const multiplier = trade.contract_multiplier || 100
+    const qty = trade.qty || 1
+    const entryCost = entryPrice * multiplier * qty
+
+    if (trade.status === 'closed') {
+      if (trade.computed_profit_usd != null) {
+        return parseFloat(trade.computed_profit_usd.toString())
+      } else if (trade.is_win === false) {
+        return -entryCost
+      }
+      return 0
+    } else {
+      const peakPrice = trade.peak_price_after_entry || trade.contract_high_since || entryPrice
+      return (peakPrice - entryPrice) * multiplier * qty
+    }
+  }
+
   const calculatePercentageReturn = (trade: Trade) => {
     if (!trade.entry_contract_snapshot?.mid && !trade.entry_contract_snapshot?.last) return null
     const entryPrice = trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last
     if (entryPrice === 0) return null
 
-    // Use final_profit for closed trades, max_profit for active trades (best profit achieved)
-    const profitValue = trade.status === 'closed'
-      ? (trade.final_profit ?? trade.max_profit ?? 0)
-      : (trade.max_profit ?? 0)
+    const multiplier = trade.contract_multiplier || 100
+    const qty = trade.qty || 1
+    const entryCost = entryPrice * multiplier * qty
 
-    const percentReturn = (profitValue / (entryPrice * 100)) * 100
+    const profitValue = calculateProfit(trade)
+    const percentReturn = (profitValue / entryCost) * 100
     return percentReturn
   }
 
@@ -229,7 +257,7 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
       <div className="space-y-3">
         {trades.map((trade) => {
           const percentReturn = calculatePercentageReturn(trade)
-          const isWin = trade.is_winning_trade
+          const profitValue = calculateProfit(trade)
           const isActive = trade.status === 'active'
 
           return (
@@ -242,7 +270,7 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                         {trade.underlying_index_symbol} {trade.strike}{trade.option_type?.toUpperCase()}
                       </h3>
                       {getStatusBadge(trade.status)}
-                      {trade.status === 'closed' && getOutcomeBadge(trade.trade_outcome)}
+                      {trade.status === 'closed' && getOutcomeBadge(trade.is_win)}
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -268,37 +296,32 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                         </span>
                       </div>
 
-                      {isActive ? (
-                        <div>
-                          <p className="text-muted-foreground mb-1">Highest Price</p>
-                          <span className="font-medium">
-                            ${(trade.contract_high_since || trade.current_contract || 0).toFixed(2)}
+                      <div>
+                        <p className="text-muted-foreground mb-1">Highest Price</p>
+                        <span className="font-medium">
+                          ${(trade.peak_price_after_entry || trade.contract_high_since || trade.current_contract || 0).toFixed(2)}
+                        </span>
+                        {trade.peak_price_after_entry && trade.entry_contract_snapshot && (
+                          <span className={`text-xs ml-1 ${
+                            trade.peak_price_after_entry >= (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last)
+                              ? 'text-green-600'
+                              : 'text-red-600'
+                          }`}>
+                            {trade.peak_price_after_entry >= (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last) ? '+' : ''}
+                            ${(trade.peak_price_after_entry - (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last)).toFixed(2)}
                           </span>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-muted-foreground mb-1">Highest Price</p>
-                          <span className="font-medium">
-                            ${(trade.contract_high_since || trade.max_contract_price || trade.current_contract || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   </div>
 
                   <div className="text-right">
                     <div className={`text-2xl font-bold ${
                       isActive
-                        ? (trade.max_profit ?? 0) >= 0 ? 'text-blue-600' : 'text-orange-600'
-                        : (trade.final_profit ?? trade.max_profit ?? 0) >= 0
-                          ? 'text-green-600'
-                          : 'text-red-600'
+                        ? profitValue >= 0 ? 'text-blue-600' : 'text-orange-600'
+                        : profitValue >= 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {formatCurrency(
-                        isActive
-                          ? (trade.max_profit ?? 0)
-                          : (trade.final_profit ?? trade.max_profit ?? 0)
-                      )}
+                      {formatCurrency(profitValue)}
                     </div>
                     {percentReturn !== null && (
                       <p className={`text-sm ${percentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>

@@ -162,21 +162,6 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
               </div>
             </div>
 
-            <div className="space-y-3 p-4 rounded-lg bg-muted/50">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-muted-foreground">{t.profileStats.successBreakdown}</span>
-                <span className="text-sm font-semibold">
-                  <span className="text-green-600">{tradingStats.winning_trades} {t.profileStats.wins}</span>
-                  <span className="text-muted-foreground mx-1">/</span>
-                  <span className="text-red-600">{tradingStats.losing_trades} {t.profileStats.losses}</span>
-                </span>
-              </div>
-              <SimpleProgress
-                value={tradingStats.win_rate}
-                className="h-3"
-              />
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-start gap-2 p-2 rounded-lg bg-green-50 dark:bg-green-950/20">
                 <TrendingUp className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
@@ -252,20 +237,6 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
                 <div className="text-2xl font-bold">{data.analyst.closedAnalyses}</div>
               </div>
             </div>
-
-            {data.analyst.closedAnalyses > 0 && (
-              <div className="space-y-3 p-4 rounded-lg bg-muted/50">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">{t.profileStats.successBreakdown}</span>
-                  <span className="text-sm font-semibold">
-                    <span className="text-green-600">{data.analyst.wins} {t.profileStats.wins}</span>
-                    <span className="text-muted-foreground mx-1">/</span>
-                    <span className="text-red-600">{data.analyst.losses} {t.profileStats.losses}</span>
-                  </span>
-                </div>
-                <SimpleProgress value={data.analyst.winRate} className="h-3" />
-              </div>
-            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-start gap-2 p-2 rounded-lg border bg-card">

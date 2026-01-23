@@ -57,18 +57,17 @@ export async function GET(
         expiry,
         created_at,
         closed_at,
-        profit_from_entry,
-        max_profit,
-        final_profit,
-        is_winning_trade,
-        trade_outcome,
+        computed_profit_usd,
+        is_win,
+        peak_price_after_entry,
         entry_contract_snapshot,
         current_contract,
-        max_contract_price,
         contract_high_since,
         contract_low_since,
         analysis_id,
-        instrument_type
+        instrument_type,
+        qty,
+        contract_multiplier
       `)
       .eq('author_id', profileId)
       .order('created_at', { ascending: false })
@@ -98,14 +97,14 @@ export async function GET(
     // Calculate statistics
     const { data: statsData } = await supabase
       .from('index_trades')
-      .select('status, is_winning_trade, profit_from_entry, max_profit, final_profit')
+      .select('status, is_win, computed_profit_usd, entry_contract_snapshot, qty, contract_multiplier')
       .eq('author_id', profileId)
 
     const stats = {
       total_trades: statsData?.length || 0,
       active_trades: statsData?.filter(t => t.status === 'active').length || 0,
       closed_trades: statsData?.filter(t => t.status === 'closed').length || 0,
-      winning_trades: statsData?.filter(t => t.is_winning_trade && t.status === 'closed').length || 0,
+      winning_trades: statsData?.filter(t => t.is_win === true && t.status === 'closed').length || 0,
       win_rate: 0,
       total_pnl: 0,
       avg_win: 0,
@@ -115,14 +114,40 @@ export async function GET(
     const closedTrades = statsData?.filter(t => t.status === 'closed') || []
     if (closedTrades.length > 0) {
       stats.win_rate = Math.round((stats.winning_trades / closedTrades.length) * 100)
-      // Use final_profit for closed trades, fall back to max_profit if not available
-      stats.total_pnl = closedTrades.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0)
 
-      const wins = closedTrades.filter(t => t.is_winning_trade)
-      const losses = closedTrades.filter(t => !t.is_winning_trade)
+      stats.total_pnl = closedTrades.reduce((sum, t) => {
+        if (t.computed_profit_usd != null) {
+          return sum + parseFloat(t.computed_profit_usd.toString())
+        } else if (t.is_win === false) {
+          const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0
+          const multiplier = t.contract_multiplier || 100
+          const qty = t.qty || 1
+          const entryCost = entryPrice * multiplier * qty
+          return sum - entryCost
+        }
+        return sum
+      }, 0)
 
-      stats.avg_win = wins.length > 0 ? wins.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / wins.length : 0
-      stats.avg_loss = losses.length > 0 ? losses.reduce((sum, t) => sum + (t.final_profit ?? t.profit_from_entry ?? 0), 0) / losses.length : 0
+      const wins = closedTrades.filter(t => t.is_win === true)
+      const losses = closedTrades.filter(t => t.is_win === false)
+
+      stats.avg_win = wins.length > 0
+        ? wins.reduce((sum, t) => sum + (parseFloat(t.computed_profit_usd?.toString() || '0')), 0) / wins.length
+        : 0
+
+      stats.avg_loss = losses.length > 0
+        ? losses.reduce((sum, t) => {
+            if (t.computed_profit_usd != null) {
+              return sum + parseFloat(t.computed_profit_usd.toString())
+            } else {
+              const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0
+              const multiplier = t.contract_multiplier || 100
+              const qty = t.qty || 1
+              const entryCost = entryPrice * multiplier * qty
+              return sum - entryCost
+            }
+          }, 0) / losses.length
+        : 0
     }
 
     return NextResponse.json({
