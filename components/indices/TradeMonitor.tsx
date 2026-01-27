@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
+import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
 
 interface Trade {
   id: string
@@ -101,7 +102,18 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
 
   const fetchTrade = async () => {
     try {
-      const response = await fetch(`/api/indices/trades/${tradeId}`)
+      const response = await fetch(`/api/indices/trades/${tradeId}`, {
+        credentials: 'include',
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      })
+
+      if (response.status === 401) {
+        toast.error('Session expired. Please refresh the page.')
+        return
+      }
+
       if (response.ok) {
         const data = await response.json()
         setTrade(data.trade)
@@ -111,10 +123,13 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
           setPriceHistory(prev => [...prev.slice(-29), data.trade.current_contract])
         }
       } else {
-        toast.error('Failed to load trade')
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Failed to load trade:', errorData)
+        toast.error(errorData.error || 'Failed to load trade')
       }
     } catch (error) {
       console.error('Error fetching trade:', error)
+      toast.error('Network error while loading trade')
     } finally {
       setLoading(false)
     }
@@ -261,7 +276,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
             <div className="space-y-4">
               <div className="text-center">
                 <div className="text-4xl font-bold flex items-center justify-center gap-2">
-                  ${trade.current_contract.toFixed(4)}
+                  {formatCurrencySimple(trade.current_contract, 4)}
                   {priceChange !== 0 && (
                     <span className={`text-xl ${priceChange > 0 ? 'text-green-500' : 'text-red-500'}`}>
                       {priceChange > 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
@@ -295,7 +310,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                 <div className="space-y-1">
                   <div className="text-sm text-muted-foreground">Entry</div>
                   <div className="text-lg font-semibold">
-                    ${trade.entry_contract_snapshot.mid.toFixed(4)}
+                    {formatCurrencySimple(trade.entry_contract_snapshot.mid, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -303,7 +318,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     P&L
                   </div>
                   <div className={`text-lg font-semibold ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
-                    {pnl.percentage > 0 ? '+' : ''}{pnl.percentage.toFixed(2)}%
+                    {pnl.percentage > 0 ? '+' : ''}{formatNumber(pnl.percentage, 2)}%
                   </div>
                 </div>
               </div>
@@ -315,7 +330,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     High
                   </div>
                   <div className="text-lg font-semibold text-green-600">
-                    ${trade.contract_high_since.toFixed(4)}
+                    {formatCurrencySimple(trade.contract_high_since, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -324,7 +339,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     Low
                   </div>
                   <div className="text-lg font-semibold text-red-600">
-                    ${trade.contract_low_since.toFixed(4)}
+                    {formatCurrencySimple(trade.contract_low_since, 4)}
                   </div>
                 </div>
               </div>
@@ -346,7 +361,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                   {trade.underlying_index_symbol}
                 </div>
                 <div className="text-4xl font-bold flex items-center justify-center gap-2">
-                  ${trade.current_underlying.toFixed(2)}
+                  {formatCurrencySimple(trade.current_underlying, 2)}
                   {underlyingChange.percentage !== 0 && (
                     <span className={`text-xl ${underlyingChange.isPositive ? 'text-green-500' : 'text-red-500'}`}>
                       {underlyingChange.isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
@@ -354,7 +369,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                   )}
                 </div>
                 <div className={`text-sm mt-1 ${underlyingChange.isPositive ? 'text-green-500' : 'text-red-500'}`}>
-                  {underlyingChange.percentage > 0 ? '+' : ''}{underlyingChange.percentage.toFixed(2)}% since entry
+                  {underlyingChange.percentage > 0 ? '+' : ''}{formatNumber(underlyingChange.percentage, 2)}% since entry
                 </div>
               </div>
 
@@ -365,7 +380,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     High
                   </div>
                   <div className="text-lg font-semibold text-green-600">
-                    ${trade.underlying_high_since.toFixed(2)}
+                    {formatCurrencySimple(trade.underlying_high_since, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -374,7 +389,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     Low
                   </div>
                   <div className="text-lg font-semibold text-red-600">
-                    ${trade.underlying_low_since.toFixed(2)}
+                    {formatCurrencySimple(trade.underlying_low_since, 2)}
                   </div>
                 </div>
               </div>
@@ -429,7 +444,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                         TP{index + 1}
                       </Badge>
                       <div>
-                        <div className="font-semibold">${target.price.toFixed(4)}</div>
+                        <div className="font-semibold">{formatCurrencySimple(target.price, 4)}</div>
                         <div className="text-xs text-muted-foreground">
                           Target: {target.percentage}%
                         </div>
@@ -437,7 +452,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     </div>
                     <div className={`text-right ${adjustedDistance > 0 ? 'text-muted-foreground' : 'text-green-500'}`}>
                       <div className="font-semibold">
-                        {adjustedDistance > 0 ? `${adjustedDistance.toFixed(2)}% away` : 'HIT'}
+                        {adjustedDistance > 0 ? `${formatNumber(adjustedDistance, 2)}% away` : 'HIT'}
                       </div>
                     </div>
                   </div>
@@ -459,14 +474,14 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
           <CardContent>
             <div className="flex items-center justify-between p-3 border border-red-200 rounded-lg bg-red-50">
               <div>
-                <div className="font-semibold text-red-600">${trade.stoploss.price.toFixed(4)}</div>
+                <div className="font-semibold text-red-600">{formatCurrencySimple(trade.stoploss.price, 4)}</div>
                 <div className="text-xs text-muted-foreground">
                   Stop: {trade.stoploss.percentage}%
                 </div>
               </div>
               <div className="text-right">
                 <div className="font-semibold text-muted-foreground">
-                  {Math.abs(((trade.stoploss.price - trade.current_contract) / trade.current_contract) * 100).toFixed(2)}% away
+                  {formatNumber(Math.abs(((trade.stoploss.price - trade.current_contract) / trade.current_contract) * 100), 2)}% away
                 </div>
               </div>
             </div>

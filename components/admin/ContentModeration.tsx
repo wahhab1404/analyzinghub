@@ -25,10 +25,13 @@ import Link from 'next/link'
 
 interface Analysis {
   id: string
-  symbol: string
+  symbol: {
+    symbol: string
+  }
   direction: string
   content: string
-  author: {
+  analyzer: {
+    id: string
     full_name: string
     email: string
   }
@@ -149,7 +152,7 @@ export default function ContentModeration() {
                 analyses.map((analysis) => (
                   <TableRow key={analysis.id}>
                     <TableCell className="font-medium">
-                      {analysis.symbol}
+                      {analysis.symbol?.symbol || 'N/A'}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -160,9 +163,9 @@ export default function ContentModeration() {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{analysis.author?.full_name}</div>
+                        <div className="font-medium">{analysis.analyzer?.full_name}</div>
                         <div className="text-sm text-muted-foreground">
-                          {analysis.author?.email}
+                          {analysis.analyzer?.email}
                         </div>
                       </div>
                     </TableCell>

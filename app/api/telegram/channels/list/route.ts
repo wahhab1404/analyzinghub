@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
       .eq('id', user.id)
       .maybeSingle()
 
-    if (!profile || profile.roles?.name !== 'Analyzer') {
+    const allowedRoles = ['Analyzer', 'SuperAdmin']
+    if (!profile || !allowedRoles.includes(profile.roles?.name)) {
       return NextResponse.json({ ok: false, error: 'Only analyzers can access channels' }, { status: 403 })
     }
 

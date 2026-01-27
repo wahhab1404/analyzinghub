@@ -31,7 +31,17 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('daily_trade_reports')
       .select(`
-        *,
+        id,
+        report_date,
+        language_mode,
+        status,
+        file_url,
+        created_at,
+        period_type,
+        start_date,
+        end_date,
+        html_content,
+        summary,
         deliveries:report_deliveries(*)
       `, { count: 'exact' })
       .order('report_date', { ascending: false })

@@ -1,0 +1,135 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@/lib/supabase/server';
+import { isMarketOpen, getWeekTradingDays, getMonthTradingDays, formatDateForReport } from '@/lib/market-calendar';
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createServerClient();
+
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role:roles(name)')
+      .eq('id', user.id)
+      .single();
+
+    const roleName = profile?.role?.name;
+    if (roleName !== 'Analyzer' && roleName !== 'SuperAdmin') {
+      return NextResponse.json(
+        { error: 'Only analyzers can generate reports' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+    const {
+      period_type,
+      start_date,
+      end_date,
+      language_mode = 'dual',
+      dry_run = false,
+      week_offset = 0,
+      month_offset = 0,
+    } = body;
+
+    let finalStartDate: string;
+    let finalEndDate: string;
+
+    if (period_type === 'weekly') {
+      const weekData = getWeekTradingDays(week_offset);
+      finalStartDate = formatDateForReport(weekData.start);
+      finalEndDate = formatDateForReport(weekData.end);
+    } else if (period_type === 'monthly') {
+      const monthData = getMonthTradingDays(month_offset);
+      finalStartDate = formatDateForReport(monthData.start);
+      finalEndDate = formatDateForReport(monthData.end);
+    } else if (period_type === 'custom') {
+      if (!start_date || !end_date) {
+        return NextResponse.json(
+          { error: 'start_date and end_date are required for custom periods' },
+          { status: 400 }
+        );
+      }
+      finalStartDate = start_date;
+      finalEndDate = end_date;
+    } else if (period_type === 'daily') {
+      const today = new Date();
+      if (!isMarketOpen(today)) {
+        return NextResponse.json(
+          {
+            error: 'Market is closed today (weekend or holiday)',
+            suggestion: 'Use the last trading day or generate a weekly/monthly report instead',
+          },
+          { status: 400 }
+        );
+      }
+      finalStartDate = formatDateForReport(today);
+      finalEndDate = formatDateForReport(today);
+    } else {
+      return NextResponse.json(
+        { error: 'Invalid period_type. Must be: daily, weekly, monthly, or custom' },
+        { status: 400 }
+      );
+    }
+
+    console.log(`Generating ${period_type} report from ${finalStartDate} to ${finalEndDate}`);
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceRoleKey) {
+      return NextResponse.json(
+        { error: 'Missing Supabase configuration' },
+        { status: 500 }
+      );
+    }
+
+    const response = await fetch(
+      `${supabaseUrl}/functions/v1/generate-period-report`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        body: JSON.stringify({
+          start_date: finalStartDate,
+          end_date: finalEndDate,
+          analyst_id: user.id,
+          language_mode,
+          period_type,
+          dry_run,
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to generate period report');
+    }
+
+    const result = await response.json();
+
+    return NextResponse.json({
+      success: true,
+      period_type,
+      start_date: finalStartDate,
+      end_date: finalEndDate,
+      ...result,
+    });
+  } catch (error: any) {
+    console.error('Error generating period report:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

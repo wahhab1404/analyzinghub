@@ -28,19 +28,16 @@ export async function GET(request: NextRequest) {
       .from('analyses')
       .select(`
         id,
-        symbol,
+        symbol_id,
         direction,
         content,
         created_at,
-        likes_count,
-        comments_count,
-        author:profiles!analyses_author_id_fkey(full_name, email)
+        analyzer:profiles!analyses_analyzer_id_fkey(id, full_name, email),
+        symbol:symbols!analyses_symbol_id_fkey(symbol)
       `)
 
     if (filter === 'recent') {
       query = query.order('created_at', { ascending: false }).limit(50)
-    } else if (filter === 'popular') {
-      query = query.order('likes_count', { ascending: false }).limit(50)
     } else {
       query = query.order('created_at', { ascending: false }).limit(100)
     }
@@ -49,7 +46,27 @@ export async function GET(request: NextRequest) {
 
     if (error) throw error
 
-    return NextResponse.json({ analyses })
+    const analysesWithCounts = await Promise.all(
+      (analyses || []).map(async (analysis) => {
+        const { count: likesCount } = await supabase
+          .from('likes')
+          .select('*', { count: 'exact', head: true })
+          .eq('analysis_id', analysis.id)
+
+        const { count: commentsCount } = await supabase
+          .from('comments')
+          .select('*', { count: 'exact', head: true })
+          .eq('analysis_id', analysis.id)
+
+        return {
+          ...analysis,
+          likes_count: likesCount || 0,
+          comments_count: commentsCount || 0,
+        }
+      })
+    )
+
+    return NextResponse.json({ analyses: analysesWithCounts })
   } catch (error) {
     console.error('Admin content error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

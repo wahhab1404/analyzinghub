@@ -21,8 +21,9 @@ export async function GET(
       error: authError,
     } = await supabase.auth.getUser();
 
-    if (authError) {
+    if (authError || !user) {
       console.error('Auth error in GET /api/indices/trades/[id]:', authError);
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Fetch trade
@@ -239,10 +240,14 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const params = await context.params;
+  const { id } = params;
+
+  console.log('=== DELETE Trade Start ===');
+  console.log('Trade ID:', id);
+
   try {
     const supabase = createServerClient();
-    const params = await context.params;
-    const { id } = params;
 
     // Check authentication
     const {
@@ -250,19 +255,34 @@ export async function DELETE(
       error: authError,
     } = await supabase.auth.getUser();
 
+    console.log('Auth check:', { hasUser: !!user, authError: authError?.message });
+
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Check if user is admin
-    const { data: profile } = await supabase
+    console.log('Fetching user profile...');
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('role_id, roles(name)')
+      .select('role_id, role:roles!inner(name)')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    const roleName = (profile as any)?.roles?.name;
-    if (!roleName || roleName !== 'SuperAdmin') {
+    console.log('Profile result:', { profile, profileError });
+
+    if (profileError) {
+      console.error('Error fetching profile for delete:', profileError);
+      return NextResponse.json({
+        error: 'Failed to verify permissions',
+        details: profileError.message
+      }, { status: 500 });
+    }
+
+    const roleName = (profile as any)?.role?.name;
+    console.log('User role:', roleName);
+
+    if (!profile || !roleName || roleName !== 'SuperAdmin') {
       return NextResponse.json(
         { error: 'Only admins can delete trades' },
         { status: 403 }
@@ -270,35 +290,71 @@ export async function DELETE(
     }
 
     // Check if trade exists
+    console.log('Checking if trade exists...');
     const { data: existing, error: fetchError } = await supabase
       .from('index_trades')
       .select('id, polygon_option_ticker, strike, direction')
       .eq('id', id)
-      .single();
+      .maybeSingle();
 
-    if (fetchError || !existing) {
+    console.log('Trade fetch result:', { existing, fetchError });
+
+    if (fetchError) {
+      console.error('Error fetching trade for delete:', fetchError);
+      return NextResponse.json({
+        error: 'Failed to fetch trade',
+        details: fetchError.message
+      }, { status: 500 });
+    }
+
+    if (!existing) {
       return NextResponse.json({ error: 'Trade not found' }, { status: 404 });
     }
 
-    // Delete
-    const { error: deleteError } = await supabase
+    // Delete using the authenticated client
+    console.log('Attempting delete...');
+    const { error: deleteError, data: deleteData, status: deleteStatus, statusText } = await supabase
       .from('index_trades')
       .delete()
       .eq('id', id);
 
+    console.log('Delete result:', {
+      deleteError,
+      deleteData,
+      deleteStatus,
+      statusText,
+      hasError: !!deleteError
+    });
+
     if (deleteError) {
-      console.error('Error deleting trade:', deleteError);
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      console.error('Delete failed:', deleteError);
+      return NextResponse.json({
+        error: 'Delete failed',
+        message: deleteError.message,
+        details: deleteError,
+        tradeId: id
+      }, { status: 500 });
     }
 
+    console.log('=== DELETE Trade Success ===');
     return NextResponse.json({
       success: true,
       message: `Trade ${existing.direction} ${existing.polygon_option_ticker} deleted successfully`
-    });
+    }, { status: 200 });
   } catch (error: any) {
-    console.error('Error in DELETE /api/indices/trades/[id]:', error);
+    console.error('=== DELETE Trade Exception ===');
+    console.error('Error:', error);
+    console.error('Type:', typeof error);
+    console.error('Message:', error?.message);
+    console.error('Stack:', error?.stack);
+
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      {
+        error: 'Internal server error',
+        message: error?.message || 'Unknown error',
+        type: error?.name || typeof error,
+        tradeId: id
+      },
       { status: 500 }
     );
   }

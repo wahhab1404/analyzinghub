@@ -30,9 +30,14 @@ export async function POST(request: NextRequest) {
       .from('daily_trade_reports')
       .select('*')
       .eq('id', report_id)
-      .single()
+      .maybeSingle()
 
-    if (reportError || !report) {
+    if (reportError) {
+      console.error('Error fetching report:', reportError)
+      return NextResponse.json({ error: 'Failed to fetch report' }, { status: 500 })
+    }
+
+    if (!report) {
       return NextResponse.json({ error: 'Report not found' }, { status: 404 })
     }
 

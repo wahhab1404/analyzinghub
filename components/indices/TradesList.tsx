@@ -5,9 +5,21 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info } from 'lucide-react'
+import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info, Edit, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
+import { ManualHighUpdateDialog } from './ManualHighUpdateDialog'
+import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface Trade {
   id: string
@@ -46,6 +58,12 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
   const [marketStatus, setMarketStatus] = useState(getMarketStatus())
+  const [manualUpdateDialogOpen, setManualUpdateDialogOpen] = useState(false)
+  const [selectedTradeForUpdate, setSelectedTradeForUpdate] = useState<Trade | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [tradeToDelete, setTradeToDelete] = useState<Trade | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchTrades()
@@ -62,6 +80,22 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    checkAdminStatus()
+  }, [])
+
+  const checkAdminStatus = async () => {
+    try {
+      const response = await fetch('/api/admin/check-auth')
+      if (response.ok) {
+        const data = await response.json()
+        setIsAdmin(data.isAdmin)
+      }
+    } catch (error) {
+      console.error('Error checking admin status:', error)
+    }
+  }
+
   const fetchTrades = async () => {
     try {
       const apiUrl = standalone
@@ -77,6 +111,38 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
       console.error('Error fetching trades:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDeleteTrade = async () => {
+    if (!tradeToDelete) return
+
+    try {
+      setDeleting(true)
+      const response = await fetch(`/api/indices/trades/${tradeToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      const data = await response.json().catch(() => null)
+
+      if (response.ok) {
+        toast.success('Trade deleted successfully')
+        setDeleteDialogOpen(false)
+        setTradeToDelete(null)
+        await fetchTrades()
+      } else {
+        console.error('Delete failed:', {
+          status: response.status,
+          data
+        })
+        toast.error(data?.error || data?.message || 'Failed to delete trade')
+      }
+    } catch (error) {
+      console.error('Error deleting trade:', error)
+      toast.error('Network error: Failed to delete trade')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -198,7 +264,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     ) : (
                       <TrendingDown className="h-5 w-5" />
                     )}
-                    {pnl.percentage > 0 ? '+' : ''}{pnl.percentage.toFixed(2)}%
+                    {pnl.percentage > 0 ? '+' : ''}{formatNumber(pnl.percentage, 2)}%
                   </div>
                   <div className="text-xs text-muted-foreground">P&L</div>
                 </div>
@@ -212,7 +278,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Entry
                   </div>
                   <div className="text-lg font-semibold">
-                    ${trade.entry_contract_snapshot.mid.toFixed(4)}
+                    {formatCurrencySimple(trade.entry_contract_snapshot.mid, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -221,7 +287,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Current
                   </div>
                   <div className="text-lg font-semibold">
-                    ${trade.current_contract.toFixed(4)}
+                    {formatCurrencySimple(trade.current_contract, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -230,7 +296,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     High
                   </div>
                   <div className="text-lg font-semibold text-green-600">
-                    ${trade.contract_high_since.toFixed(4)}
+                    {formatCurrencySimple(trade.contract_high_since, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -239,7 +305,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Low
                   </div>
                   <div className="text-lg font-semibold text-red-600">
-                    ${trade.contract_low_since.toFixed(4)}
+                    {formatCurrencySimple(trade.contract_low_since, 4)}
                   </div>
                 </div>
               </div>
@@ -257,7 +323,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                         variant={target.hit ? 'default' : 'outline'}
                         className={target.hit ? 'bg-green-500' : ''}
                       >
-                        TP{index + 1}: ${target.price.toFixed(2)} ({target.percentage}%)
+                        TP{index + 1}: {formatCurrencySimple(target.price, 2)} ({target.percentage}%)
                       </Badge>
                     ))}
                   </div>
@@ -268,7 +334,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                 <div className="space-y-2">
                   <div className="text-sm font-medium">Stop Loss</div>
                   <Badge variant="destructive">
-                    SL: ${trade.stoploss.price.toFixed(2)} ({trade.stoploss.percentage}%)
+                    SL: {formatCurrencySimple(trade.stoploss.price, 2)} ({trade.stoploss.percentage}%)
                   </Badge>
                 </div>
               )}
@@ -291,19 +357,107 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                 </div>
               </div>
 
-              {trade.status === 'active' && (
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  onClick={() => onSelectTrade(trade.id)}
-                >
-                  View Live Monitoring
-                </Button>
-              )}
+              <div className="flex gap-2">
+                {trade.status === 'active' && (
+                  <>
+                    <Button
+                      className="flex-1"
+                      variant="outline"
+                      onClick={() => onSelectTrade(trade.id)}
+                    >
+                      View Live Monitoring
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => {
+                        setSelectedTradeForUpdate(trade)
+                        setManualUpdateDialogOpen(true)
+                      }}
+                      title="Manual Price Update"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </>
+                )}
+                {isAdmin && (
+                  <Button
+                    variant="destructive"
+                    size="icon"
+                    onClick={() => {
+                      setTradeToDelete(trade)
+                      setDeleteDialogOpen(true)
+                    }}
+                    title="Delete Trade (Admin)"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         )
       })}
+
+      {selectedTradeForUpdate && (
+        <ManualHighUpdateDialog
+          open={manualUpdateDialogOpen}
+          onOpenChange={setManualUpdateDialogOpen}
+          trade={selectedTradeForUpdate}
+          onSuccess={() => {
+            toast.success('Prices updated successfully')
+            fetchTrades()
+          }}
+        />
+      )}
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Trade</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this trade? This action cannot be undone.
+              {tradeToDelete && (
+                <div className="mt-2 p-3 bg-muted rounded-md">
+                  <div className="font-medium">
+                    {tradeToDelete.instrument_type === 'options' ? (
+                      <>
+                        {tradeToDelete.underlying_index_symbol} ${tradeToDelete.strike} {tradeToDelete.option_type?.toUpperCase()}
+                      </>
+                    ) : (
+                      <>
+                        {tradeToDelete.underlying_index_symbol} {tradeToDelete.direction.toUpperCase()}
+                      </>
+                    )}
+                  </div>
+                  {tradeToDelete.polygon_option_ticker && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {tradeToDelete.polygon_option_ticker}
+                    </div>
+                  )}
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteTrade}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Trade'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

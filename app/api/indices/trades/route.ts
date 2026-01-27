@@ -7,7 +7,7 @@ import { tradeOutcomeService } from '@/services/indices/trade-outcome.service';
 
 /**
  * GET /api/indices/trades
- * Fetch all standalone trades (trades without analysis)
+ * Fetch all standalone trades (trades without analysis) or all trades for admin
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,19 +23,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const status = searchParams.get('status') || 'active';
-    const limit = parseInt(searchParams.get('limit') || '20');
+    const status = searchParams.get('status');
+    const limit = parseInt(searchParams.get('limit') || '100');
     const offset = parseInt(searchParams.get('offset') || '0');
+    const includeAll = searchParams.get('all') === 'true';
 
     let query = supabase
       .from('index_trades')
       .select(`
         *,
-        author:profiles!author_id(id, full_name, avatar_url)
+        author:profiles!author_id(id, full_name, avatar_url),
+        analysis:index_analyses(id, title)
       `)
-      .is('analysis_id', null)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+
+    if (!includeAll) {
+      query = query.is('analysis_id', null);
+    }
 
     if (status) {
       query = query.eq('status', status);
@@ -44,7 +49,7 @@ export async function GET(request: NextRequest) {
     const { data: trades, error: tradesError } = await query;
 
     if (tradesError) {
-      console.error('Error fetching standalone trades:', tradesError);
+      console.error('Error fetching trades:', tradesError);
       return NextResponse.json({ error: tradesError.message }, { status: 500 });
     }
 

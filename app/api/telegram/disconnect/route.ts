@@ -37,29 +37,60 @@ export async function POST(request: NextRequest) {
     }
 
     // Revoke the account (soft delete)
-    const { error: updateError } = await supabase
-      .from('telegram_accounts')
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('id', account.id);
+    let updateSuccess = false;
+    let retryCount = 0;
+    const maxRetries = 3;
 
-    if (updateError) {
-      console.error('Error revoking Telegram account:', updateError);
-      return NextResponse.json(
-        { ok: false, error: 'Failed to disconnect account' },
-        { status: 500 }
-      );
+    while (!updateSuccess && retryCount < maxRetries) {
+      try {
+        const { error: updateError } = await supabase
+          .from('telegram_accounts')
+          .update({ revoked_at: new Date().toISOString() })
+          .eq('id', account.id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        updateSuccess = true;
+      } catch (error: any) {
+        retryCount++;
+        console.error(`Error revoking Telegram account (attempt ${retryCount}/${maxRetries}):`, error);
+
+        // If it's a network error and we have retries left, wait and try again
+        if (retryCount < maxRetries && (error.message?.includes('fetch failed') || error.message?.includes('network'))) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        } else {
+          // Final failure or non-network error
+          return NextResponse.json(
+            {
+              ok: false,
+              error: 'Failed to disconnect account',
+              details: error.message || 'Network error - please try again'
+            },
+            { status: 500 }
+          );
+        }
+      }
     }
 
-    // Disable Telegram notifications
-    await supabase
-      .from('notification_preferences')
-      .update({ telegram_enabled: false })
-      .eq('user_id', user.id);
+    // Disable Telegram notifications (non-critical, continue even if it fails)
+    try {
+      await supabase
+        .from('notification_preferences')
+        .update({ telegram_enabled: false })
+        .eq('user_id', user.id);
+    } catch (error) {
+      console.error('Error disabling notifications (non-critical):', error);
+    }
 
-    // Send goodbye message to user
+    // Send goodbye message to user (non-critical, continue even if it fails)
     const botToken = process.env.TELEGRAM_BOT_TOKEN;
     if (botToken) {
       try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: 'POST',
           headers: {
@@ -76,9 +107,12 @@ export async function POST(request: NextRequest) {
               'استخدم /start <الرمز> للربط مرة أخرى في أي وقت.',
             parse_mode: 'HTML',
           }),
+          signal: controller.signal,
         });
+
+        clearTimeout(timeout);
       } catch (error) {
-        console.error('Error sending disconnect message:', error);
+        console.error('Error sending disconnect message (non-critical):', error);
       }
     }
 

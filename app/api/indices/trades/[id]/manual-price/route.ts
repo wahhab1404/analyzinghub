@@ -65,6 +65,7 @@ export async function POST(
     let newContractPrice = existing.current_contract;
     let isNewHigh = false;
     let sendNewHighNotification = false;
+    let newlyWon = false;
 
     if (manualPrice !== undefined) {
       if (typeof manualPrice !== 'number' || manualPrice <= 0) {
@@ -80,12 +81,26 @@ export async function POST(
       updates.is_using_manual_price = true;
       changes.manual_contract_price = { old: existing.current_contract, new: manualPrice };
 
-      const currentHigh = existing.contract_high_since || entryPrice;
-      if (manualPrice > currentHigh) {
-        updates.contract_high_since = manualPrice;
-        updates.max_contract_price = manualPrice;
-        isNewHigh = true;
-        sendNewHighNotification = true;
+      const { data: highUpdateResult, error: highUpdateError } = await supabase.rpc(
+        'update_trade_high_watermark',
+        {
+          p_trade_id: id,
+          p_current_price: manualPrice,
+        }
+      );
+
+      if (highUpdateError) {
+        console.error('Error calling update_trade_high_watermark:', highUpdateError);
+      } else if (highUpdateResult) {
+        console.log('High watermark update result:', highUpdateResult);
+        isNewHigh = highUpdateResult.is_new_high || false;
+        newlyWon = highUpdateResult.newly_won || false;
+        sendNewHighNotification = isNewHigh || newlyWon;
+
+        if (highUpdateResult.new_high) {
+          updates.contract_high_since = highUpdateResult.new_high;
+          updates.max_contract_price = highUpdateResult.new_high;
+        }
       }
     }
 
@@ -97,16 +112,30 @@ export async function POST(
         );
       }
 
-      const currentHigh = existing.contract_high_since || entryPrice;
-      if (manualHigh > currentHigh) {
-        updates.manual_contract_high = manualHigh;
-        updates.contract_high_since = manualHigh;
-        updates.max_contract_price = manualHigh;
-        changes.manual_contract_high = { old: existing.contract_high_since, new: manualHigh };
-        isNewHigh = true;
-        sendNewHighNotification = true;
-      } else {
-        console.log(`⚠️ Ignoring manual high ${manualHigh} - current high ${currentHigh} is already higher`);
+      const { data: highUpdateResult, error: highUpdateError } = await supabase.rpc(
+        'update_trade_high_watermark',
+        {
+          p_trade_id: id,
+          p_current_price: manualHigh,
+        }
+      );
+
+      if (highUpdateError) {
+        console.error('Error calling update_trade_high_watermark:', highUpdateError);
+      } else if (highUpdateResult) {
+        console.log('Manual high update result:', highUpdateResult);
+
+        if (highUpdateResult.is_new_high) {
+          updates.manual_contract_high = manualHigh;
+          updates.contract_high_since = highUpdateResult.new_high;
+          updates.max_contract_price = highUpdateResult.new_high;
+          changes.manual_contract_high = { old: existing.contract_high_since, new: highUpdateResult.new_high };
+          isNewHigh = true;
+          newlyWon = highUpdateResult.newly_won || false;
+          sendNewHighNotification = true;
+        } else {
+          console.log(`⚠️ Ignoring manual high ${manualHigh} - current high is already higher`);
+        }
       }
     }
 
@@ -211,17 +240,19 @@ export async function POST(
           const actualChannelId = channel?.channel_id || channelId;
 
           await supabase.from('telegram_outbox').insert({
-            message_type: 'new_high',
+            message_type: newlyWon ? 'milestone' : 'new_high',
             payload: {
               tradeId: id,
               highPrice: newHigh,
               gainPercent,
               snapshotUrl,
+              isWinningTrade: newlyWon,
+              milestoneType: newlyWon ? '$100_profit' : undefined,
               trade: { ...existing, ...updates, contract_url: snapshotUrl },
             },
             channel_id: actualChannelId,
             status: 'pending',
-            priority: 5,
+            priority: newlyWon ? 10 : 5,
             next_retry_at: new Date().toISOString(),
           });
 
@@ -236,7 +267,8 @@ export async function POST(
       trade,
       message: 'Manual prices updated successfully',
       marketStatus: marketStatus.status,
-      newHighDetected: sendNewHighNotification
+      newHighDetected: sendNewHighNotification,
+      isWinningTrade: newlyWon
     });
   } catch (error: any) {
     console.error('Error in POST /api/indices/trades/[id]/manual-price:', error);

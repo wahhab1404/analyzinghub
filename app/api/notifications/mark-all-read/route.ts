@@ -22,6 +22,7 @@ export async function PATCH(request: NextRequest) {
       .update({ is_read: true })
       .eq('user_id', user.id)
       .eq('is_read', false)
+      .select('id', { count: 'exact', head: true })
 
     if (error) {
       console.error('Mark all notifications read error:', {

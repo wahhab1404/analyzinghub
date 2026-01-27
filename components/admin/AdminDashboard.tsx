@@ -3,11 +3,12 @@
 import { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Users, TrendingUp, FileText, Settings, Shield, BarChart3, Activity } from 'lucide-react'
+import { Users, TrendingUp, FileText, Settings, Shield, BarChart3, Activity, LineChart } from 'lucide-react'
 import UserManagement from './UserManagement'
 import SystemSettings from './SystemSettings'
 import AnalyticsOverview from './AnalyticsOverview'
 import ContentModeration from './ContentModeration'
+import TradesManagement from './TradesManagement'
 import { useTranslation } from '@/lib/i18n/language-context'
 
 export default function AdminDashboard() {
@@ -101,6 +102,10 @@ export default function AdminDashboard() {
             <FileText className="h-4 w-4 mr-2" />
             {t.adminDashboard.content}
           </TabsTrigger>
+          <TabsTrigger value="trades">
+            <LineChart className="h-4 w-4 mr-2" />
+            Trades
+          </TabsTrigger>
           <TabsTrigger value="analytics">
             <BarChart3 className="h-4 w-4 mr-2" />
             {t.adminDashboard.analytics}
@@ -117,6 +122,10 @@ export default function AdminDashboard() {
 
         <TabsContent value="content" className="space-y-4">
           <ContentModeration />
+        </TabsContent>
+
+        <TabsContent value="trades" className="space-y-4">
+          <TradesManagement />
         </TabsContent>
 
         <TabsContent value="analytics" className="space-y-4">

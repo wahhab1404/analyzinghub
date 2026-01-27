@@ -117,9 +117,15 @@ Deno.serve(async (req: Request) => {
             status: 'closed',
             closed_at: now.toISOString(),
             profit_from_entry: finalProfit,
+            pnl_usd: finalProfit,
+            final_profit: finalProfit,
+            computed_profit_usd: finalProfit,
             current_contract: closingPrice,
             is_winning_trade: isWinningTrade,
+            is_win: isWinningTrade,
             trade_outcome: tradeOutcome,
+            outcome: isWinningTrade ? 'succeed' : 'loss',
+            counted_in_stats: true,
             notes: trade.notes
               ? `${trade.notes}\n\n[AUTO-CLOSED] Expired on ${trade.expiry}. Max profit: $${maxProfit.toFixed(2)}`
               : `[AUTO-CLOSED] Expired on ${trade.expiry}. Max profit: $${maxProfit.toFixed(2)}`

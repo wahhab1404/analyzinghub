@@ -551,25 +551,25 @@ export default function IndicesHubPage() {
                                     <p className="text-muted-foreground">
                                       {language === 'ar' ? 'الإجمالي' : 'Total'}
                                     </p>
-                                    <p className="font-semibold">{report.summary.total_trades}</p>
+                                    <p className="font-semibold">{report.summary.total_trades ?? 0}</p>
                                   </div>
                                   <div>
                                     <p className="text-muted-foreground">
                                       {language === 'ar' ? 'نشطة' : 'Active'}
                                     </p>
-                                    <p className="font-semibold">{report.summary.active_trades}</p>
+                                    <p className="font-semibold">{report.summary.active_trades ?? 0}</p>
                                   </div>
                                   <div>
                                     <p className="text-muted-foreground">
                                       {language === 'ar' ? 'معدل الفوز' : 'Win Rate'}
                                     </p>
-                                    <p className="font-semibold">{report.summary.win_rate.toFixed(1)}%</p>
+                                    <p className="font-semibold">{report.summary.win_rate?.toFixed(1) ?? '0.0'}%</p>
                                   </div>
                                   <div>
                                     <p className="text-muted-foreground">
                                       {language === 'ar' ? 'أقصى ربح' : 'Max Profit'}
                                     </p>
-                                    <p className="font-semibold">+{report.summary.max_profit_percent.toFixed(1)}%</p>
+                                    <p className="font-semibold">+{report.summary.max_profit_percent?.toFixed(1) ?? '0.0'}%</p>
                                   </div>
                                 </div>
                               )}

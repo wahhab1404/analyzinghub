@@ -5,6 +5,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 async function resetWebhook() {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
   const webhookUrl = `${process.env.APP_BASE_URL}/api/telegram/webhook`;
 
   if (!botToken) {
@@ -12,7 +13,13 @@ async function resetWebhook() {
     process.exit(1);
   }
 
-  console.log('🔄 Resetting webhook...\n');
+  if (!webhookSecret) {
+    console.error('❌ TELEGRAM_WEBHOOK_SECRET not found');
+    process.exit(1);
+  }
+
+  console.log('🔄 Resetting webhook with secret token...\n');
+  console.log('🔐 Secret:', webhookSecret);
 
   try {
     // Step 1: Delete existing webhook
@@ -39,6 +46,7 @@ async function resetWebhook() {
         },
         body: JSON.stringify({
           url: webhookUrl,
+          secret_token: webhookSecret,
           allowed_updates: ['message', 'callback_query'],
           drop_pending_updates: true,
           max_connections: 40,

@@ -21,7 +21,7 @@ export default function DashboardLayout({
   const [showTutorial, setShowTutorial] = useState(false)
 
   const currentTheme = resolvedTheme || theme
-  const logoSrc = currentTheme === 'dark' ? '/chatgpt_image_dec_28,_2025,_02_14_09_pm_(1).png' : '/new_project_(6).png'
+  const logoSrc = '/analyzer-logo.png'
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' })
