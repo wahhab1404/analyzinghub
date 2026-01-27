@@ -554,25 +554,25 @@ export default function ReportsPage() {
                             <p className="text-xs text-muted-foreground">
                               {language === 'ar' ? 'إجمالي الصفقات' : 'Total Trades'}
                             </p>
-                            <p className="text-lg font-semibold">{report.summary.total_trades}</p>
+                            <p className="text-lg font-semibold">{report.summary.total_trades || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">
                               {language === 'ar' ? 'نشطة' : 'Active'}
                             </p>
-                            <p className="text-lg font-semibold text-blue-600">{report.summary.active_trades}</p>
+                            <p className="text-lg font-semibold text-blue-600">{report.summary.active_trades || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">
                               {language === 'ar' ? 'مغلقة' : 'Closed'}
                             </p>
-                            <p className="text-lg font-semibold text-green-600">{report.summary.closed_trades}</p>
+                            <p className="text-lg font-semibold text-green-600">{report.summary.closed_trades || 0}</p>
                           </div>
                           <div>
                             <p className="text-xs text-muted-foreground">
                               {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
                             </p>
-                            <p className="text-lg font-semibold">{report.summary.win_rate.toFixed(1)}%</p>
+                            <p className="text-lg font-semibold">{(report.summary.win_rate || 0).toFixed(1)}%</p>
                           </div>
                         </div>
                       )}
