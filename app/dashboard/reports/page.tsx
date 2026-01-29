@@ -6,15 +6,21 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, CheckCircle2, XCircle, Clock, Download, Send, RefreshCw, FileText, CalendarIcon, Settings, ShieldAlert, Eye } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Loader2, CheckCircle2, XCircle, Clock, Download, Send, RefreshCw, FileText, CalendarIcon, Settings, ShieldAlert, Eye, Save } from 'lucide-react'
 import { format } from 'date-fns'
-import Link from 'next/link'
 import { useLanguage } from '@/lib/i18n/language-context'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 interface Report {
   id: string
@@ -44,13 +50,29 @@ interface Report {
   }>
 }
 
+interface ReportSettings {
+  id: string
+  enabled: boolean
+  language_mode: 'en' | 'ar' | 'dual'
+  schedule_time: string
+  timezone: string
+  default_channel_id?: string
+  extra_channel_ids?: string[]
+}
+
 export default function ReportsPage() {
   const router = useRouter()
   const { language } = useLanguage()
+  const [mounted, setMounted] = useState(false)
   const [initComplete, setInitComplete] = useState(false)
+  const [activeTab, setActiveTab] = useState('generate')
+
+  // Manual generation
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
   const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+
+  // Reports history
   const [reports, setReports] = useState<Report[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -61,6 +83,11 @@ export default function ReportsPage() {
   const [previewReport, setPreviewReport] = useState<Report | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [sendingToTelegram, setSendingToTelegram] = useState<string | null>(null)
+
+  // Automated settings
+  const [settings, setSettings] = useState<ReportSettings | null>(null)
+  const [loadingSettings, setLoadingSettings] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
 
   const checkAccess = useCallback(async () => {
     try {
@@ -83,6 +110,7 @@ export default function ReportsPage() {
     setLoading(true)
     setError(null)
     try {
+      console.log('[Reports Page] Loading reports...')
       const response = await fetch('/api/reports?t=' + Date.now(), {
         cache: 'no-store',
         headers: {
@@ -90,26 +118,62 @@ export default function ReportsPage() {
           'Pragma': 'no-cache'
         }
       })
-      if (!response.ok) throw new Error('Failed to load reports')
+
+      console.log('[Reports Page] Response status:', response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[Reports Page] Error response:', errorText)
+        throw new Error('Failed to load reports')
+      }
+
       const data = await response.json()
+      console.log('[Reports Page] Received data:', {
+        reportsCount: data.reports?.length || 0,
+        total: data.total,
+        reports: data.reports
+      })
+
       setReports(data.reports || [])
     } catch (err) {
+      console.error('[Reports Page] Load error:', err)
       setError(err instanceof Error ? err.message : 'Failed to load reports')
     } finally {
       setLoading(false)
     }
   }, [])
 
+  const loadSettings = useCallback(async () => {
+    setLoadingSettings(true)
+    try {
+      const response = await fetch('/api/reports/settings')
+      if (!response.ok) throw new Error('Failed to load settings')
+      const data = await response.json()
+      setSettings(data)
+    } catch (err) {
+      console.error('Error loading settings:', err)
+    } finally {
+      setLoadingSettings(false)
+    }
+  }, [])
+
   useEffect(() => {
-    let mounted = true
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+
+    let isActive = true
 
     const init = async () => {
-      if (!mounted) return
+      if (!isActive) return
 
       await checkAccess()
       await loadReports()
+      await loadSettings()
 
-      if (mounted) {
+      if (isActive) {
         setInitComplete(true)
         router.refresh()
       }
@@ -118,32 +182,9 @@ export default function ReportsPage() {
     init()
 
     return () => {
-      mounted = false
+      isActive = false
     }
-  }, [checkAccess, loadReports, router])
-
-  useEffect(() => {
-    if (!initComplete) return
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        loadReports()
-      }
-    }
-
-    const handleFocus = () => {
-      loadReports()
-      router.refresh()
-    }
-
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('focus', handleFocus)
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('focus', handleFocus)
-    }
-  }, [initComplete, loadReports, router])
+  }, [mounted, checkAccess, loadReports, loadSettings, router])
 
   const generateReport = async () => {
     setGenerating(true)
@@ -185,11 +226,40 @@ export default function ReportsPage() {
 
       setTimeout(() => {
         loadReports()
+        setActiveTab('history')
       }, 500)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate report')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const saveSettings = async () => {
+    if (!settings) return
+
+    setSavingSettings(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const response = await fetch('/api/reports/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to save settings')
+      }
+
+      setSuccess('Settings saved successfully!')
+      await loadSettings()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings')
+    } finally {
+      setSavingSettings(false)
     }
   }
 
@@ -211,26 +281,37 @@ export default function ReportsPage() {
         throw new Error('Report not found. Please refresh and try again.')
       }
 
+      console.log('[Reports Page] Sending report to Telegram:', {
+        reportId,
+        languageMode: currentReport.language_mode,
+        hasSummary: !!currentReport.summary
+      })
+
       const response = await fetch('/api/reports/send-telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           report_id: reportId,
-          summary: currentReport.summary
+          language_mode: currentReport.language_mode || 'dual'
         })
       })
 
       if (!response.ok) {
         const errorData = await response.json()
+        console.error('[Reports Page] Telegram send error:', errorData)
         throw new Error(errorData.error || 'Failed to send to Telegram')
       }
 
-      setSuccess('Report sent to Telegram successfully!')
+      const result = await response.json()
+      console.log('[Reports Page] Telegram send result:', result)
+
+      setSuccess(`Report sent successfully to ${result.sent_to || 0} channel(s)!`)
 
       setTimeout(() => {
         loadReports()
       }, 500)
     } catch (err) {
+      console.error('[Reports Page] Error:', err)
       setError(err instanceof Error ? err.message : 'Failed to send to Telegram')
     } finally {
       setSendingToTelegram(null)
@@ -251,6 +332,10 @@ export default function ReportsPage() {
       default:
         return <Badge variant="outline">{status}</Badge>
     }
+  }
+
+  if (!mounted) {
+    return null
   }
 
   if (hasAccess === null || !initComplete) {
@@ -299,43 +384,6 @@ export default function ReportsPage() {
             </div>
           </AlertDescription>
         </Alert>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {language === 'ar' ? 'حول التقارير' : 'About Reports'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm text-muted-foreground">
-            <p>
-              {language === 'ar'
-                ? 'ميزة التقارير تسمح للمحللين بـ:'
-                : 'The Reports feature allows analyzers to:'}
-            </p>
-            <ul className="list-disc list-inside space-y-1">
-              <li>
-                {language === 'ar'
-                  ? 'إنشاء تقارير تداول يومية وأسبوعية وشهرية'
-                  : 'Generate daily, weekly, and monthly trading reports'}
-              </li>
-              <li>
-                {language === 'ar'
-                  ? 'تتبع أداء التداول وإحصائيات الربح'
-                  : 'Track trading performance and profit statistics'}
-              </li>
-              <li>
-                {language === 'ar'
-                  ? 'إرسال التقارير تلقائياً إلى قنوات تيليجرام'
-                  : 'Automatically send reports to Telegram channels'}
-              </li>
-              <li>
-                {language === 'ar'
-                  ? 'عرض تقارير بصيغة PDF واجهات جذابة'
-                  : 'View reports in PDF format with beautiful layouts'}
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
       </div>
     )
   }
@@ -353,23 +401,18 @@ export default function ReportsPage() {
               : 'Generate and manage trading reports'}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={loadReports}
-            disabled={loading}
-            title={language === 'ar' ? 'تحديث' : 'Refresh'}
-          >
-            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
-          </Button>
-          <Link href="/dashboard/reports/settings">
-            <Button variant="outline">
-              <Settings className="w-4 h-4 mr-2" />
-              {language === 'ar' ? 'الإعدادات' : 'Settings'}
-            </Button>
-          </Link>
-        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            loadReports()
+            loadSettings()
+          }}
+          disabled={loading || loadingSettings}
+          title={language === 'ar' ? 'تحديث' : 'Refresh'}
+        >
+          <RefreshCw className={cn("w-4 h-4", (loading || loadingSettings) && "animate-spin")} />
+        </Button>
       </div>
 
       {error && (
@@ -384,256 +427,412 @@ export default function ReportsPage() {
         </Alert>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {language === 'ar' ? 'إنشاء تقرير جديد' : 'Generate New Report'}
-          </CardTitle>
-          <CardDescription>
-            {language === 'ar'
-              ? 'اختر نوع التقرير والإعدادات'
-              : 'Select report type and settings'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                {language === 'ar' ? 'نوع التقرير' : 'Report Type'}
-              </label>
-              <Select value={periodType} onValueChange={(v: any) => setPeriodType(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">
-                    {language === 'ar' ? 'يومي' : 'Daily'}
-                  </SelectItem>
-                  <SelectItem value="weekly">
-                    {language === 'ar' ? 'أسبوعي' : 'Weekly'}
-                  </SelectItem>
-                  <SelectItem value="monthly">
-                    {language === 'ar' ? 'شهري' : 'Monthly'}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="generate">
+            <FileText className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'إنشاء تقرير' : 'Generate'}
+          </TabsTrigger>
+          <TabsTrigger value="automated">
+            <Settings className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'تقارير تلقائية' : 'Automated'}
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <Clock className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'السجل' : 'History'}
+          </TabsTrigger>
+        </TabsList>
 
-            {periodType === 'daily' && (
-              <div>
-                <label className="text-sm font-medium mb-2 block">
-                  {language === 'ar' ? 'التاريخ' : 'Date'}
-                </label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        'w-full justify-start text-left font-normal',
-                        !selectedDate && 'text-muted-foreground'
-                      )}
-                    >
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <Calendar
-                      mode="single"
-                      selected={selectedDate}
-                      onSelect={(date) => date && setSelectedDate(date)}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            )}
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">
-                {language === 'ar' ? 'اللغة' : 'Language'}
-              </label>
-              <Select value={languageMode} onValueChange={(v: any) => setLanguageMode(v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="en">English</SelectItem>
-                  <SelectItem value="ar">العربية</SelectItem>
-                  <SelectItem value="dual">Both / كلاهما</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-end">
-              <Button
-                onClick={generateReport}
-                disabled={generating}
-                className="w-full"
-              >
-                {generating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    {language === 'ar' ? 'جاري الإنشاء...' : 'Generating...'}
-                  </>
-                ) : (
-                  <>
-                    <FileText className="w-4 h-4 mr-2" />
-                    {language === 'ar' ? 'إنشاء' : 'Generate'}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {periodType !== 'daily' && (
-            <Alert>
-              <AlertDescription className="text-sm">
+        <TabsContent value="generate" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {language === 'ar' ? 'إنشاء تقرير جديد' : 'Generate New Report'}
+              </CardTitle>
+              <CardDescription>
                 {language === 'ar'
-                  ? `سيتم إنشاء تقرير ${periodType === 'weekly' ? 'أسبوعي' : 'شهري'} للفترة الحالية`
-                  : `Will generate ${periodType} report for the current period`}
-              </AlertDescription>
-            </Alert>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {language === 'ar' ? 'التقارير السابقة' : 'Generated Reports'}
-          </CardTitle>
-          <CardDescription>
-            {language === 'ar'
-              ? 'سجل التقارير المُنشأة'
-              : 'History of generated reports'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          ) : reports.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              {language === 'ar'
-                ? 'لا توجد تقارير بعد. انقر "إنشاء" لإنشاء تقرير جديد.'
-                : 'No reports yet. Click "Generate" to create your first report.'}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {reports.map((report) => (
-                <div
-                  key={report.id}
-                  className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold">
-                          {report.period_type === 'daily'
-                            ? format(new Date(report.report_date), 'PPP')
-                            : `${report.period_type?.charAt(0).toUpperCase()}${report.period_type?.slice(1)} Report`
-                          }
-                        </h3>
-                        {getStatusBadge(report.status)}
-                        <Badge variant="secondary" className="text-xs">
-                          {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
-                        </Badge>
-                      </div>
-
-                      {report.start_date && report.end_date && (
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {format(new Date(report.start_date), 'MMM dd')} - {format(new Date(report.end_date), 'MMM dd, yyyy')}
-                        </p>
-                      )}
-
-                      {report.summary && (
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              {language === 'ar' ? 'إجمالي الصفقات' : 'Total Trades'}
-                            </p>
-                            <p className="text-lg font-semibold">{report.summary.total_trades || 0}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              {language === 'ar' ? 'نشطة' : 'Active'}
-                            </p>
-                            <p className="text-lg font-semibold text-blue-600">{report.summary.active_trades || 0}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              {language === 'ar' ? 'مغلقة' : 'Closed'}
-                            </p>
-                            <p className="text-lg font-semibold text-green-600">{report.summary.closed_trades || 0}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">
-                              {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
-                            </p>
-                            <p className="text-lg font-semibold">{(report.summary.win_rate || 0).toFixed(1)}%</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {report.deliveries && report.deliveries.length > 0 && (
-                        <div className="mt-3 pt-3 border-t">
-                          <p className="text-xs text-muted-foreground mb-2">
-                            {language === 'ar' ? 'الإرسال إلى تيليجرام:' : 'Telegram Deliveries:'}
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {report.deliveries.map((delivery) => (
-                              <Badge key={delivery.id} variant="outline" className="text-xs">
-                                {delivery.channel_name || 'Unknown'}: {delivery.status}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      {report.html_content && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handlePreview(report)}
-                        >
-                          <Eye className="w-4 h-4" />
-                        </Button>
-                      )}
-                      {report.file_url && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          asChild
-                        >
-                          <a href={report.file_url} target="_blank" rel="noopener noreferrer">
-                            <Download className="w-4 h-4" />
-                          </a>
-                        </Button>
-                      )}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => sendToTelegram(report.id)}
-                        disabled={sendingToTelegram === report.id}
-                      >
-                        {sendingToTelegram === report.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
+                  ? 'اختر نوع التقرير والإعدادات'
+                  : 'Select report type and settings'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    {language === 'ar' ? 'نوع التقرير' : 'Report Type'}
+                  </label>
+                  <Select value={periodType} onValueChange={(v: any) => setPeriodType(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">
+                        {language === 'ar' ? 'يومي' : 'Daily'}
+                      </SelectItem>
+                      <SelectItem value="weekly">
+                        {language === 'ar' ? 'أسبوعي' : 'Weekly'}
+                      </SelectItem>
+                      <SelectItem value="monthly">
+                        {language === 'ar' ? 'شهري' : 'Monthly'}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+
+                {periodType === 'daily' && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'التاريخ' : 'Date'}
+                    </label>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            'w-full justify-start text-left font-normal',
+                            !selectedDate && 'text-muted-foreground'
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0">
+                        <Calendar
+                          mode="single"
+                          selected={selectedDate}
+                          onSelect={(date) => date && setSelectedDate(date)}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-sm font-medium mb-2 block">
+                    {language === 'ar' ? 'اللغة' : 'Language'}
+                  </label>
+                  <Select value={languageMode} onValueChange={(v: any) => setLanguageMode(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="ar">العربية</SelectItem>
+                      <SelectItem value="dual">Both / كلاهما</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="flex items-end">
+                  <Button
+                    onClick={generateReport}
+                    disabled={generating}
+                    className="w-full"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {language === 'ar' ? 'جاري الإنشاء...' : 'Generating...'}
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'إنشاء' : 'Generate'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {periodType !== 'daily' && (
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? `سيتم إنشاء تقرير ${periodType === 'weekly' ? 'أسبوعي' : 'شهري'} للفترة الحالية`
+                      : `Will generate ${periodType} report for the current period`}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="automated" className="space-y-6">
+          {loadingSettings ? (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ) : settings ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {language === 'ar' ? 'إعدادات التقارير التلقائية' : 'Automated Report Settings'}
+                </CardTitle>
+                <CardDescription>
+                  {language === 'ar'
+                    ? 'تخصيص إعدادات التقارير اليومية التلقائية'
+                    : 'Customize automatic daily report settings'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="enabled">
+                      {language === 'ar' ? 'تفعيل التقارير التلقائية' : 'Enable Automatic Reports'}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {language === 'ar'
+                        ? 'إنشاء وإرسال تقارير يومية تلقائياً'
+                        : 'Automatically generate and send daily reports'}
+                    </p>
+                  </div>
+                  <Switch
+                    id="enabled"
+                    checked={settings.enabled}
+                    onCheckedChange={(checked) =>
+                      setSettings({ ...settings, enabled: checked })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="language_mode">
+                    {language === 'ar' ? 'لغة التقرير' : 'Report Language'}
+                  </Label>
+                  <Select
+                    value={settings.language_mode}
+                    onValueChange={(v: any) =>
+                      setSettings({ ...settings, language_mode: v })
+                    }
+                  >
+                    <SelectTrigger id="language_mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="ar">العربية (Arabic)</SelectItem>
+                      <SelectItem value="dual">Both / كلاهما</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="schedule_time">
+                    {language === 'ar' ? 'وقت الإنشاء' : 'Generation Time'}
+                  </Label>
+                  <Input
+                    id="schedule_time"
+                    type="time"
+                    value={settings.schedule_time}
+                    onChange={(e) =>
+                      setSettings({ ...settings, schedule_time: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {language === 'ar'
+                      ? 'الوقت اليومي لإنشاء التقرير (بتوقيت المنطقة المحددة)'
+                      : 'Daily time to generate the report (in selected timezone)'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="timezone">
+                    {language === 'ar' ? 'المنطقة الزمنية' : 'Timezone'}
+                  </Label>
+                  <Select
+                    value={settings.timezone}
+                    onValueChange={(v) => setSettings({ ...settings, timezone: v })}
+                  >
+                    <SelectTrigger id="timezone">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
+                      <SelectItem value="Asia/Riyadh">Asia/Riyadh</SelectItem>
+                      <SelectItem value="Asia/Dubai">Asia/Dubai</SelectItem>
+                      <SelectItem value="Europe/London">Europe/London</SelectItem>
+                      <SelectItem value="UTC">UTC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? 'ملاحظة: التقارير التلقائية يتم إنشاءها فقط في أيام التداول (الإثنين - الجمعة، باستثناء العطلات)'
+                      : 'Note: Automatic reports are only generated on trading days (Monday-Friday, excluding holidays)'}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="flex justify-end">
+                  <Button onClick={saveSettings} disabled={savingSettings}>
+                    {savingSettings ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'حفظ الإعدادات' : 'Save Settings'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {language === 'ar' ? 'التقارير السابقة' : 'Generated Reports'}
+              </CardTitle>
+              <CardDescription>
+                {language === 'ar'
+                  ? 'سجل التقارير المُنشأة'
+                  : 'History of generated reports'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : !reports || reports.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="text-muted-foreground mb-4">
+                    {language === 'ar'
+                      ? 'لا توجد تقارير بعد. انتقل إلى تبويب "إنشاء تقرير" لإنشاء تقرير جديد.'
+                      : 'No reports yet. Go to the "Generate" tab to create your first report.'}
+                  </div>
+                  <Button onClick={loadReports} variant="outline">
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    {language === 'ar' ? 'تحديث' : 'Refresh'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reports.map((report) => (
+                    <div
+                      key={report.id}
+                      className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-semibold">
+                              {report.period_type === 'daily'
+                                ? format(new Date(report.report_date), 'PPP')
+                                : `${report.period_type?.charAt(0).toUpperCase()}${report.period_type?.slice(1)} Report`
+                              }
+                            </h3>
+                            {getStatusBadge(report.status)}
+                            <Badge variant="secondary" className="text-xs">
+                              {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
+                            </Badge>
+                          </div>
+
+                          {report.start_date && report.end_date && (
+                            <p className="text-sm text-muted-foreground mb-2">
+                              {format(new Date(report.start_date), 'MMM dd')} - {format(new Date(report.end_date), 'MMM dd, yyyy')}
+                            </p>
+                          )}
+
+                          {report.summary && (
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {language === 'ar' ? 'إجمالي الصفقات' : 'Total Trades'}
+                                </p>
+                                <p className="text-lg font-semibold">{report.summary.total_trades || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {language === 'ar' ? 'نشطة' : 'Active'}
+                                </p>
+                                <p className="text-lg font-semibold text-blue-600">{report.summary.active_trades || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {language === 'ar' ? 'مغلقة' : 'Closed'}
+                                </p>
+                                <p className="text-lg font-semibold text-green-600">{report.summary.closed_trades || 0}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">
+                                  {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
+                                </p>
+                                <p className="text-lg font-semibold">{(report.summary.win_rate || 0).toFixed(1)}%</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {report.deliveries && report.deliveries.length > 0 && (
+                            <div className="mt-3 pt-3 border-t">
+                              <p className="text-xs text-muted-foreground mb-2">
+                                {language === 'ar' ? 'الإرسال إلى تيليجرام:' : 'Telegram Deliveries:'}
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {report.deliveries.map((delivery) => (
+                                  <Badge key={delivery.id} variant="outline" className="text-xs">
+                                    {delivery.channel_name || 'Unknown'}: {delivery.status}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex gap-2">
+                          {report.html_content && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePreview(report)}
+                            >
+                              <Eye className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {report.file_url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
+                            >
+                              <a href={report.file_url} target="_blank" rel="noopener noreferrer">
+                                <Download className="w-4 h-4" />
+                              </a>
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => sendToTelegram(report.id)}
+                            disabled={sendingToTelegram === report.id}
+                          >
+                            {sendingToTelegram === report.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Send className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">

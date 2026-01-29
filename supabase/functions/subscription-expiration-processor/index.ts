@@ -40,55 +40,87 @@ Deno.serve(async (req: Request) => {
     
     console.log(`Expired: ${result?.expired_count || 0}, Kicked: ${result?.kicked_count || 0}`);
 
-    // Kick users from Telegram channels
+    // Kick users from Telegram channels and send notifications
     const kickResults = [];
     if (botToken && Array.isArray(details)) {
       for (const item of details) {
         if (item.action === 'kick_user' && item.telegram_username && item.telegram_username !== 'N/A') {
           try {
-            // Try to kick/ban user from channel
-            const kickResponse = await fetch(
-              `https://api.telegram.org/bot${botToken}/banChatMember`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: item.channel_id,
-                  user_id: `@${item.telegram_username}`,
-                  revoke_messages: false,
-                }),
-              }
-            );
+            // First, get the user's Telegram chat_id from telegram_accounts
+            const { data: telegramAccount } = await supabase
+              .from('telegram_accounts')
+              .select('chat_id')
+              .eq('user_id', item.subscription_id)
+              .is('revoked_at', null)
+              .maybeSingle();
 
-            const kickData = await kickResponse.json();
-            
-            // Send notification to user
-            const messageText = `Your subscription to ${item.analyst_name}'s channel has expired. You have been removed from the channel. Please renew your subscription to regain access.`;
-            
-            await fetch(
-              `https://api.telegram.org/bot${botToken}/sendMessage`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  chat_id: `@${item.telegram_username}`,
-                  text: messageText,
-                }),
+            let kicked = false;
+            let kickError = null;
+
+            // Try to kick user if we have their chat_id
+            if (telegramAccount?.chat_id) {
+              const kickResponse = await fetch(
+                `https://api.telegram.org/bot${botToken}/banChatMember`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: item.channel_id,
+                    user_id: parseInt(telegramAccount.chat_id),
+                    revoke_messages: false,
+                  }),
+                }
+              );
+
+              const kickData = await kickResponse.json();
+              kicked = kickData.ok;
+              kickError = kickData.description || null;
+
+              if (!kickData.ok) {
+                console.error('Telegram kick failed:', kickData);
               }
-            );
+            } else {
+              kickError = 'User chat_id not found';
+            }
+
+            // Send notification to user via username (DM)
+            const messageText = `⚠️ *Subscription Expired*\n\nYour subscription to ${item.analyst_name}'s channel has expired.\n\n${kicked ? 'You have been removed from the channel.' : ''}\n\n🔄 Renew your subscription to regain access to exclusive content and analysis.\n\nThank you for your previous support!`;
+
+            let notificationSent = false;
+            try {
+              const msgResponse = await fetch(
+                `https://api.telegram.org/bot${botToken}/sendMessage`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    chat_id: `@${item.telegram_username}`,
+                    text: messageText,
+                    parse_mode: 'Markdown',
+                  }),
+                }
+              );
+
+              const msgData = await msgResponse.json();
+              notificationSent = msgData.ok;
+            } catch (msgError) {
+              console.error('Failed to send notification:', msgError);
+            }
 
             kickResults.push({
               username: item.telegram_username,
               channel_id: item.channel_id,
-              kicked: kickData.ok,
-              error: kickData.description || null,
+              kicked: kicked,
+              notification_sent: notificationSent,
+              error: kickError,
             });
           } catch (telegramError) {
-            console.error('Telegram kick error:', telegramError);
+            console.error('Telegram processing error:', telegramError);
             kickResults.push({
               username: item.telegram_username,
               channel_id: item.channel_id,
               kicked: false,
+              notification_sent: false,
               error: String(telegramError),
             });
           }

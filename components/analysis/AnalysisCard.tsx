@@ -632,63 +632,67 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
             </div>
           )}
 
-          {postType === 'analysis' && analysis.stop_loss !== undefined && (
+          {postType === 'analysis' && (analysis.stop_loss !== undefined || sortedTargets.length > 0) && (
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t.analysisCard.stopLoss}</p>
-                <div className="flex items-center gap-2">
-                  <p className={`text-lg font-semibold ${stopLossHit ? 'text-red-600 line-through' : 'text-red-600'}`}>
-                    ${analysis.stop_loss.toFixed(2)}
-                  </p>
-                  {stopLossHit && (
-                    <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
-                      <XCircle className="h-3 w-3 mr-1" />
-                      {t.analysisCard.hit}
-                    </Badge>
+              {analysis.stop_loss !== undefined && (
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t.analysisCard.stopLoss}</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-lg font-semibold ${stopLossHit ? 'text-red-600 line-through' : 'text-red-600'}`}>
+                      ${analysis.stop_loss.toFixed(2)}
+                    </p>
+                    {stopLossHit && (
+                      <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300">
+                        <XCircle className="h-3 w-3 mr-1" />
+                        {t.analysisCard.hit}
+                      </Badge>
+                    )}
+                  </div>
+                  {stopLossHit && validationEvent && (
+                    <p className="text-xs text-muted-foreground">
+                      Hit at ${validationEvent.price_at_hit.toFixed(2)} • {formatDistanceToNow(new Date(validationEvent.hit_at), { addSuffix: true })}
+                    </p>
                   )}
                 </div>
-                {stopLossHit && validationEvent && (
-                  <p className="text-xs text-muted-foreground">
-                    Hit at ${validationEvent.price_at_hit.toFixed(2)} • {formatDistanceToNow(new Date(validationEvent.hit_at), { addSuffix: true })}
-                  </p>
-                )}
-              </div>
+              )}
 
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t.analysisCard.targets}</p>
+              {sortedTargets.length > 0 && (
                 <div className="space-y-1">
-                  {sortedTargets.map((target, index) => {
-                    const targetNum = index + 1
-                    const isHit = hitTargetNumber === targetNum
-                    return (
-                      <div key={index} className="space-y-0.5">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-xs text-muted-foreground">TP{targetNum}:</span>
-                          <span className={`text-sm font-semibold ${isHit ? 'text-green-600 line-through' : 'text-green-600'}`}>
-                            ${target.price.toFixed(2)}
-                          </span>
-                          {isHit && (
-                            <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              {t.analysisCard.hit}
-                            </Badge>
-                          )}
-                          {!isHit && (
-                            <span className="text-xs text-muted-foreground">
-                              ({formatDistanceToNow(new Date(target.expected_time))})
+                  <p className="text-sm text-muted-foreground">{t.analysisCard.targets}</p>
+                  <div className="space-y-1">
+                    {sortedTargets.map((target, index) => {
+                      const targetNum = index + 1
+                      const isHit = hitTargetNumber === targetNum
+                      return (
+                        <div key={index} className="space-y-0.5">
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-xs text-muted-foreground">TP{targetNum}:</span>
+                            <span className={`text-sm font-semibold ${isHit ? 'text-green-600 line-through' : 'text-green-600'}`}>
+                              ${target.price.toFixed(2)}
                             </span>
+                            {isHit && (
+                              <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                {t.analysisCard.hit}
+                              </Badge>
+                            )}
+                            {!isHit && (
+                              <span className="text-xs text-muted-foreground">
+                                ({formatDistanceToNow(new Date(target.expected_time))})
+                              </span>
+                            )}
+                          </div>
+                          {isHit && validationEvent && (
+                            <p className="text-xs text-muted-foreground ml-10">
+                              Hit at ${validationEvent.price_at_hit.toFixed(2)} • {formatDistanceToNow(new Date(validationEvent.hit_at), { addSuffix: true })}
+                            </p>
                           )}
                         </div>
-                        {isHit && validationEvent && (
-                          <p className="text-xs text-muted-foreground ml-10">
-                            Hit at ${validationEvent.price_at_hit.toFixed(2)} • {formatDistanceToNow(new Date(validationEvent.hit_at), { addSuffix: true })}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
         </Link>

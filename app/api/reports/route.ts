@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    console.log('[Reports API] Fetching reports for user:', user.id)
+
     const url = new URL(request.url)
     const limit = parseInt(url.searchParams.get('limit') || '20')
     const offset = parseInt(url.searchParams.get('offset') || '0')
@@ -27,6 +29,7 @@ export async function GET(request: NextRequest) {
 
     const roleName = (profile as any)?.role?.name
     const isAdmin = roleName === 'SuperAdmin'
+    console.log('[Reports API] User role:', roleName, 'isAdmin:', isAdmin)
 
     let query = supabase
       .from('daily_trade_reports')
@@ -40,11 +43,9 @@ export async function GET(request: NextRequest) {
         period_type,
         start_date,
         end_date,
-        html_content,
-        summary,
-        deliveries:report_deliveries(*)
+        summary
       `, { count: 'exact' })
-      .order('report_date', { ascending: false })
+      .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
     if (!isAdmin) {
@@ -61,16 +62,21 @@ export async function GET(request: NextRequest) {
 
     const { data: reports, error, count } = await query
 
-    if (error) throw error
+    if (error) {
+      console.error('[Reports API] Query error:', error)
+      throw error
+    }
+
+    console.log('[Reports API] Found', reports?.length || 0, 'reports out of', count, 'total')
 
     return NextResponse.json({
-      reports,
-      total: count,
+      reports: reports || [],
+      total: count || 0,
       limit,
       offset
     })
   } catch (error) {
-    console.error('Error fetching reports:', error)
+    console.error('[Reports API] Error fetching reports:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }

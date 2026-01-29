@@ -94,6 +94,7 @@ export function getTradingDaysInRange(startDate: Date, endDate: Date): Date[] {
 
 export function getWeekTradingDays(weekOffset: number = 0): { start: Date; end: Date; days: Date[] } {
   const now = new Date();
+  now.setHours(0, 0, 0, 0);
 
   const monday = new Date(now);
   monday.setDate(now.getDate() - now.getDay() + 1 + weekOffset * 7);
@@ -101,16 +102,22 @@ export function getWeekTradingDays(weekOffset: number = 0): { start: Date; end: 
 
   const friday = new Date(monday);
   friday.setDate(monday.getDate() + 4);
+  friday.setHours(23, 59, 59, 999);
+
+  // Don't include future dates - cap at today
+  const endDate = friday > now ? now : friday;
 
   return {
     start: monday,
-    end: friday,
-    days: getTradingDaysInRange(monday, friday),
+    end: endDate,
+    days: getTradingDaysInRange(monday, endDate),
   };
 }
 
 export function getMonthTradingDays(monthOffset: number = 0): { start: Date; end: Date; days: Date[] } {
   const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
   const targetDate = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
 
   const start = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
@@ -119,10 +126,13 @@ export function getMonthTradingDays(monthOffset: number = 0): { start: Date; end
   const end = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
   end.setHours(23, 59, 59, 999);
 
+  // Don't include future dates for current month - cap at today
+  const endDate = monthOffset === 0 && end > now ? now : end;
+
   return {
     start,
-    end,
-    days: getTradingDaysInRange(start, end),
+    end: endDate,
+    days: getTradingDaysInRange(start, endDate),
   };
 }
 

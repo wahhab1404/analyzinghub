@@ -28,6 +28,7 @@ interface GenerateReportRequest {
   date?: string;
   analyst_id: string;
   language_mode?: 'en' | 'ar' | 'dual';
+  period_type?: 'daily' | 'weekly' | 'monthly';
   dry_run?: boolean;
 }
 
@@ -41,38 +42,64 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const { date, analyst_id, language_mode = 'dual', dry_run = false }: GenerateReportRequest = await req.json();
+    const { date, analyst_id, language_mode = 'dual', period_type = 'daily', dry_run = false }: GenerateReportRequest = await req.json();
 
     const reportDate = date || new Date().toISOString().split('T')[0];
-    console.log(`[Report Generator] Starting for date: ${reportDate}, analyst: ${analyst_id}, language: ${language_mode}`);
+    console.log(`[Report Generator] Starting for date: ${reportDate}, analyst: ${analyst_id}, language: ${language_mode}, period: ${period_type}`);
 
-    const startOfDay = new Date(reportDate + 'T00:00:00.000Z');
-    const endOfDay = new Date(reportDate + 'T23:59:59.999Z');
+    let startOfDay: Date;
+    let endOfDay: Date;
+
+    if (period_type === 'weekly') {
+      const refDate = new Date(reportDate + 'T00:00:00.000Z');
+      const dayOfWeek = refDate.getUTCDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startOfDay = new Date(refDate);
+      startOfDay.setUTCDate(refDate.getUTCDate() - diff);
+      startOfDay.setUTCHours(0, 0, 0, 0);
+
+      endOfDay = new Date(startOfDay);
+      endOfDay.setUTCDate(startOfDay.getUTCDate() + 6);
+      endOfDay.setUTCHours(23, 59, 59, 999);
+    } else if (period_type === 'monthly') {
+      const refDate = new Date(reportDate + 'T00:00:00.000Z');
+      startOfDay = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth(), 1, 0, 0, 0, 0));
+      endOfDay = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    } else {
+      startOfDay = new Date(reportDate + 'T00:00:00.000Z');
+      endOfDay = new Date(reportDate + 'T23:59:59.999Z');
+    }
 
     const { data: trades, error: tradesError } = await supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
-      .or(`created_at.gte.${startOfDay.toISOString()},closed_at.eq.${reportDate},expiry.eq.${reportDate}`)
+      .or(`created_at.lte.${endOfDay.toISOString()},closed_at.gte.${startOfDay.toISOString()},expiry.gte.${startOfDay.toISOString()}`)
       .order('created_at', { ascending: false });
 
     if (tradesError) throw tradesError;
 
-    const activeTrades = trades?.filter(t => 
-      t.status === 'active' && 
-      new Date(t.created_at) <= endOfDay
-    ) || [];
+    const activeTrades = trades?.filter(t => {
+      const createdAt = new Date(t.created_at);
+      return t.status === 'active' &&
+        createdAt >= startOfDay &&
+        createdAt <= endOfDay;
+    }) || [];
 
-    const closedTrades = trades?.filter(t => 
-      t.status === 'closed' && 
-      t.closed_at && 
-      new Date(t.closed_at).toISOString().split('T')[0] === reportDate
-    ) || [];
+    const closedTrades = trades?.filter(t => {
+      if (!t.closed_at) return false;
+      const closedAt = new Date(t.closed_at);
+      return t.status === 'closed' &&
+        closedAt >= startOfDay &&
+        closedAt <= endOfDay;
+    }) || [];
 
-    const expiredTrades = trades?.filter(t => 
-      t.expiry && 
-      new Date(t.expiry).toISOString().split('T')[0] === reportDate
-    ) || [];
+    const expiredTrades = trades?.filter(t => {
+      if (!t.expiry) return false;
+      const expiryDate = new Date(t.expiry);
+      return expiryDate >= startOfDay &&
+        expiryDate <= endOfDay;
+    }) || [];
 
     const enrichedExpiredTrades = expiredTrades.map(trade => {
       const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
@@ -249,12 +276,15 @@ Deno.serve(async (req) => {
         trade_count: totalTrades,
         summary: metrics,
         language_mode,
+        period_type,
+        start_date: startOfDay.toISOString().split('T')[0],
+        end_date: endOfDay.toISOString().split('T')[0],
         file_path: fileName,
         file_url: urlData?.signedUrl,
         file_size_bytes: html.length,
         status: 'generated'
       }, {
-        onConflict: 'report_date,author_id,language_mode',
+        onConflict: 'report_date,author_id,language_mode,period_type',
         returning: 'representation'
       })
       .select()

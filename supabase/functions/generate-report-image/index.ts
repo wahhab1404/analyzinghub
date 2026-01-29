@@ -35,6 +35,8 @@ Deno.serve(async (req) => {
       wait_until: 'page_loaded',
       delay: '2',
       fresh: 'true',
+      full_page: 'true',
+      scroll_page: 'true',
     });
 
     const screenshotUrl = `https://api.apiflash.com/v1/urltoimage?${screenshotParams.toString()}`;

@@ -31,6 +31,7 @@ interface Report {
   id: string
   report_date: string
   language_mode: 'en' | 'ar' | 'dual'
+  period_type?: 'daily' | 'weekly' | 'monthly'
   status: string
   file_url?: string
   created_at: string
@@ -73,6 +74,9 @@ export default function IndicesHubPage() {
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
+  const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [monthOffset, setMonthOffset] = useState(0)
   const [reports, setReports] = useState<Report[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -135,8 +139,11 @@ export default function IndicesHubPage() {
       const response = await fetch('/api/reports')
       if (!response.ok) throw new Error('Failed to load reports')
       const data = await response.json()
+      console.log('Reports loaded:', data.reports?.length || 0, 'reports')
+      console.log('First report:', data.reports?.[0])
       setReports(data.reports || [])
     } catch (err) {
+      console.error('Error loading reports:', err)
       setError(err instanceof Error ? err.message : 'Failed to load reports')
     } finally {
       setLoading(false)
@@ -162,14 +169,29 @@ export default function IndicesHubPage() {
     setSuccess(null)
 
     try {
-      const response = await fetch('/api/reports/generate', {
+      let endpoint = '/api/reports/generate'
+      let bodyData: any = {
+        language_mode: languageMode,
+        dry_run: dryRun
+      }
+
+      if (periodType === 'daily') {
+        bodyData.date = format(selectedDate, 'yyyy-MM-dd')
+        bodyData.period_type = 'daily'
+      } else if (periodType === 'weekly') {
+        endpoint = '/api/reports/generate-period'
+        bodyData.period_type = 'weekly'
+        bodyData.week_offset = weekOffset
+      } else if (periodType === 'monthly') {
+        endpoint = '/api/reports/generate-period'
+        bodyData.period_type = 'monthly'
+        bodyData.month_offset = monthOffset
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: format(selectedDate, 'yyyy-MM-dd'),
-          language_mode: languageMode,
-          dry_run: dryRun
-        })
+        body: JSON.stringify(bodyData)
       })
 
       if (!response.ok) {
@@ -184,7 +206,7 @@ export default function IndicesHubPage() {
         setShowPreview(true)
       } else {
         setSuccess('Report generated successfully!')
-        await loadReports()
+        setTimeout(() => loadReports(), 1000)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate report')
@@ -248,14 +270,29 @@ export default function IndicesHubPage() {
     setError(null)
 
     try {
-      const response = await fetch('/api/reports/generate', {
+      let endpoint = '/api/reports/generate'
+      let bodyData: any = {
+        language_mode: languageMode,
+        dry_run: false
+      }
+
+      if (periodType === 'daily') {
+        bodyData.date = format(selectedDate, 'yyyy-MM-dd')
+        bodyData.period_type = 'daily'
+      } else if (periodType === 'weekly') {
+        endpoint = '/api/reports/generate-period'
+        bodyData.period_type = 'weekly'
+        bodyData.week_offset = weekOffset
+      } else if (periodType === 'monthly') {
+        endpoint = '/api/reports/generate-period'
+        bodyData.period_type = 'monthly'
+        bodyData.month_offset = monthOffset
+      }
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          date: format(selectedDate, 'yyyy-MM-dd'),
-          language_mode: languageMode,
-          dry_run: false
-        })
+        body: JSON.stringify(bodyData)
       })
 
       if (!response.ok) {
@@ -287,7 +324,7 @@ export default function IndicesHubPage() {
         setShowChannelSelector(false)
         setReportToSend(null)
         setPreviewData(null)
-        await loadReports()
+        setTimeout(() => loadReports(), 1000)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send report')
@@ -394,33 +431,44 @@ export default function IndicesHubPage() {
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h3 className="text-lg font-semibold">
-                    {language === 'ar' ? 'تقارير التداول اليومية' : 'Daily Trading Reports'}
+                    {language === 'ar' ? 'تقارير تداول المؤشرات' : 'Index Trading Reports'}
                   </h3>
                   <p className="text-sm text-muted-foreground">
                     {language === 'ar'
-                      ? 'إنشاء وإدارة تقارير التداول اليومية'
-                      : 'Generate and manage daily trading reports'}
+                      ? 'إنشاء وإدارة تقارير تداول المؤشرات'
+                      : 'Generate and manage index trading reports'}
                   </p>
                 </div>
-                <Link href="/dashboard/reports/settings">
-                  <Button variant="outline" size="sm">
-                    <Settings className="w-4 h-4 mr-2" />
-                    {language === 'ar' ? 'الإعدادات' : 'Settings'}
-                  </Button>
-                </Link>
               </div>
 
-              {error && (
-                <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
-                </Alert>
-              )}
+              <Tabs defaultValue="generate" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 mb-6">
+                  <TabsTrigger value="generate" className="flex items-center gap-2">
+                    <FileText className="w-4 h-4" />
+                    {language === 'ar' ? 'إنشاء تقرير' : 'Generate'}
+                  </TabsTrigger>
+                  <TabsTrigger value="automated" className="flex items-center gap-2">
+                    <Settings className="w-4 h-4" />
+                    {language === 'ar' ? 'تقارير تلقائية' : 'Automated'}
+                  </TabsTrigger>
+                  <TabsTrigger value="history" className="flex items-center gap-2">
+                    <Clock className="w-4 h-4" />
+                    {language === 'ar' ? 'السجل' : 'History'}
+                  </TabsTrigger>
+                </TabsList>
 
-              {success && (
-                <Alert>
-                  <AlertDescription>{success}</AlertDescription>
-                </Alert>
-              )}
+                <TabsContent value="generate" className="space-y-4">
+                  {error && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {success && (
+                    <Alert>
+                      <AlertDescription>{success}</AlertDescription>
+                    </Alert>
+                  )}
 
               <Card>
                 <CardHeader>
@@ -429,39 +477,133 @@ export default function IndicesHubPage() {
                   </CardTitle>
                   <CardDescription>
                     {language === 'ar'
-                      ? 'اختر التاريخ واللغة لإنشاء تقرير شامل'
-                      : 'Select date and language to generate a comprehensive report'}
+                      ? 'اختر الفترة والتاريخ واللغة لإنشاء تقرير شامل'
+                      : 'Select period, date and language to generate a comprehensive report'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div>
                       <label className="text-sm font-medium mb-2 block">
-                        {language === 'ar' ? 'التاريخ' : 'Date'}
+                        {language === 'ar' ? 'الفترة' : 'Period'}
                       </label>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className={cn(
-                              'w-full justify-start text-left font-normal',
-                              !selectedDate && 'text-muted-foreground'
-                            )}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0">
-                          <Calendar
-                            mode="single"
-                            selected={selectedDate}
-                            onSelect={(date) => date && setSelectedDate(date)}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
+                      <Select value={periodType} onValueChange={(v: any) => {
+                        setPeriodType(v)
+                        if (v === 'weekly') setWeekOffset(0)
+                        if (v === 'monthly') setMonthOffset(0)
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="daily">
+                            {language === 'ar' ? 'يومي' : 'Daily'}
+                          </SelectItem>
+                          <SelectItem value="weekly">
+                            {language === 'ar' ? 'أسبوعي' : 'Weekly'}
+                          </SelectItem>
+                          <SelectItem value="monthly">
+                            {language === 'ar' ? 'شهري' : 'Monthly'}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+
+                    {periodType === 'daily' && (
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">
+                          {language === 'ar' ? 'التاريخ' : 'Date'}
+                        </label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="outline"
+                              className={cn(
+                                'w-full justify-start text-left font-normal',
+                                !selectedDate && 'text-muted-foreground'
+                              )}
+                            >
+                              <CalendarIcon className="mr-2 h-4 w-4" />
+                              {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0">
+                            <Calendar
+                              mode="single"
+                              selected={selectedDate}
+                              onSelect={(date) => date && setSelectedDate(date)}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    )}
+
+                    {periodType === 'weekly' && (
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">
+                          {language === 'ar' ? 'الأسبوع' : 'Week'}
+                        </label>
+                        <Select value={weekOffset.toString()} onValueChange={(v) => setWeekOffset(parseInt(v))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">
+                              {language === 'ar' ? 'الأسبوع الحالي' : 'Current Week'}
+                            </SelectItem>
+                            <SelectItem value="-1">
+                              {language === 'ar' ? 'الأسبوع الماضي' : 'Last Week'}
+                            </SelectItem>
+                            <SelectItem value="-2">
+                              {language === 'ar' ? 'قبل أسبوعين' : '2 Weeks Ago'}
+                            </SelectItem>
+                            <SelectItem value="-3">
+                              {language === 'ar' ? 'قبل 3 أسابيع' : '3 Weeks Ago'}
+                            </SelectItem>
+                            <SelectItem value="-4">
+                              {language === 'ar' ? 'قبل 4 أسابيع' : '4 Weeks Ago'}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {periodType === 'monthly' && (
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">
+                          {language === 'ar' ? 'الشهر' : 'Month'}
+                        </label>
+                        <Select value={monthOffset.toString()} onValueChange={(v) => setMonthOffset(parseInt(v))}>
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">
+                              {language === 'ar' ? 'الشهر الحالي' : 'Current Month'}
+                            </SelectItem>
+                            <SelectItem value="-1">
+                              {language === 'ar' ? 'الشهر الماضي' : 'Last Month'}
+                            </SelectItem>
+                            <SelectItem value="-2">
+                              {language === 'ar' ? 'قبل شهرين' : '2 Months Ago'}
+                            </SelectItem>
+                            <SelectItem value="-3">
+                              {language === 'ar' ? 'قبل 3 أشهر' : '3 Months Ago'}
+                            </SelectItem>
+                            <SelectItem value="-4">
+                              {language === 'ar' ? 'قبل 4 أشهر' : '4 Months Ago'}
+                            </SelectItem>
+                            <SelectItem value="-5">
+                              {language === 'ar' ? 'قبل 5 أشهر' : '5 Months Ago'}
+                            </SelectItem>
+                            <SelectItem value="-6">
+                              {language === 'ar' ? 'قبل 6 أشهر' : '6 Months Ago'}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
 
                     <div>
                       <label className="text-sm font-medium mb-2 block">
@@ -505,110 +647,191 @@ export default function IndicesHubPage() {
                   </div>
                 </CardContent>
               </Card>
+                </TabsContent>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    {language === 'ar' ? 'التقارير السابقة' : 'Generated Reports'}
-                  </CardTitle>
-                  <CardDescription>
-                    {language === 'ar'
-                      ? 'سجل التقارير المُنشأة وحالة الإرسال'
-                      : 'History of generated reports and delivery status'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {loading ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      {language === 'ar' ? 'جاري التحميل...' : 'Loading...'}
-                    </div>
-                  ) : reports.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      {language === 'ar' ? 'لا توجد تقارير بعد. انقر "إنشاء" لإنشاء تقرير جديد.' : 'No reports yet. Click "Generate" to create your first report.'}
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {reports.map((report) => (
-                        <div
-                          key={report.id}
-                          className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold">
-                                  {format(new Date(report.report_date), 'MMMM d, yyyy')}
-                                </h3>
-                                {getStatusBadge(report.status)}
-                                <Badge variant="secondary" className="text-xs">
-                                  {report.language_mode === 'dual' ? 'EN + AR' : report.language_mode.toUpperCase()}
-                                </Badge>
-                              </div>
-
-                              {report.summary && (
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mt-3">
-                                  <div>
-                                    <p className="text-muted-foreground">
-                                      {language === 'ar' ? 'الإجمالي' : 'Total'}
-                                    </p>
-                                    <p className="font-semibold">{report.summary.total_trades ?? 0}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-muted-foreground">
-                                      {language === 'ar' ? 'نشطة' : 'Active'}
-                                    </p>
-                                    <p className="font-semibold">{report.summary.active_trades ?? 0}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-muted-foreground">
-                                      {language === 'ar' ? 'معدل الفوز' : 'Win Rate'}
-                                    </p>
-                                    <p className="font-semibold">{report.summary.win_rate?.toFixed(1) ?? '0.0'}%</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-muted-foreground">
-                                      {language === 'ar' ? 'أقصى ربح' : 'Max Profit'}
-                                    </p>
-                                    <p className="font-semibold">+{report.summary.max_profit_percent?.toFixed(1) ?? '0.0'}%</p>
-                                  </div>
-                                </div>
-                              )}
-
-                              {report.deliveries && report.deliveries.length > 0 && (
-                                <div className="mt-3 text-sm text-muted-foreground">
-                                  {language === 'ar' ? 'تم الإرسال إلى' : 'Sent to'} {report.deliveries.length} {language === 'ar' ? 'قناة' : 'channel(s)'}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="flex gap-2">
-                              {report.file_url && (
-                                <Button variant="outline" size="sm" asChild>
-                                  <a href={report.file_url} target="_blank" rel="noopener noreferrer">
-                                    <Download className="w-4 h-4" />
-                                  </a>
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => sendReport(report.id)}
-                                disabled={sending === report.id}
-                              >
-                                {sending === report.id ? (
-                                  <RefreshCw className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <Send className="w-4 h-4" />
-                                )}
-                              </Button>
-                            </div>
+                <TabsContent value="automated" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>
+                        {language === 'ar' ? 'التقارير التلقائية' : 'Automated Reports'}
+                      </CardTitle>
+                      <CardDescription>
+                        {language === 'ar'
+                          ? 'قم بإعداد التقارير التلقائية اليومية والأسبوعية والشهرية'
+                          : 'Set up automatic daily, weekly, and monthly reports'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-6">
+                        <div className="flex items-center justify-between p-4 border rounded-lg">
+                          <div>
+                            <h4 className="font-medium">
+                              {language === 'ar' ? 'التقارير اليومية التلقائية' : 'Daily Auto Reports'}
+                            </h4>
+                            <p className="text-sm text-muted-foreground">
+                              {language === 'ar'
+                                ? 'إرسال تقرير يومي تلقائياً في الساعة 5 مساءً بتوقيت EST'
+                                : 'Automatically send daily reports at 5 PM EST'}
+                            </p>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {language === 'ar' ? 'نشط' : 'Active'}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+
+                        <Alert>
+                          <AlertDescription>
+                            {language === 'ar'
+                              ? 'يتم إنشاء التقارير اليومية تلقائياً وإرسالها إلى قنوات تيليجرام المفعّلة. يمكنك إدارة الإعدادات من صفحة الإعدادات.'
+                              : 'Daily reports are automatically generated and sent to enabled Telegram channels. You can manage settings from the Settings page.'}
+                          </AlertDescription>
+                        </Alert>
+
+                        <Link href="/dashboard/reports/settings">
+                          <Button variant="outline" className="w-full">
+                            <Settings className="w-4 h-4 mr-2" />
+                            {language === 'ar' ? 'إدارة الإعدادات' : 'Manage Settings'}
+                          </Button>
+                        </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="history" className="space-y-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>
+                        {language === 'ar' ? 'التقارير السابقة' : 'Generated Reports'}
+                      </CardTitle>
+                      <CardDescription>
+                        {language === 'ar'
+                          ? 'سجل التقارير المُنشأة وحالة الإرسال'
+                          : 'History of generated reports and delivery status'}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {loading ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          {language === 'ar' ? 'جاري التحميل...' : 'Loading...'}
+                        </div>
+                      ) : reports.length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground">
+                          {language === 'ar' ? 'لا توجد تقارير بعد. انقر "إنشاء" لإنشاء تقرير جديد.' : 'No reports yet. Click "Generate" to create your first report.'}
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {reports.map((report) => (
+                            <div
+                              key={report.id}
+                              className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
+                            >
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <h3 className="font-semibold">
+                                      {format(new Date(report.report_date), 'MMMM d, yyyy')}
+                                    </h3>
+                                    {getStatusBadge(report.status)}
+                                    <Badge variant="outline">
+                                      {report.language_mode === 'en' ? 'EN' : report.language_mode === 'ar' ? 'AR' : 'EN + AR'}
+                                    </Badge>
+                                    <Badge variant="secondary">
+                                      {report.period_type === 'weekly'
+                                        ? (language === 'ar' ? 'أسبوعي' : 'Weekly')
+                                        : report.period_type === 'monthly'
+                                        ? (language === 'ar' ? 'شهري' : 'Monthly')
+                                        : (language === 'ar' ? 'يومي' : 'Daily')}
+                                    </Badge>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mb-3">
+                                    {language === 'ar' ? 'تم الإنشاء:' : 'Generated:'} {format(new Date(report.created_at), 'PPp')}
+                                  </p>
+
+                                  {report.summary && (
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {language === 'ar' ? 'الإجمالي' : 'Total'}
+                                        </div>
+                                        <div className="font-semibold">{report.summary.total_trades}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {language === 'ar' ? 'النشطة' : 'Active'}
+                                        </div>
+                                        <div className="font-semibold">{report.summary.active_trades}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {language === 'ar' ? 'معدل الفوز' : 'Win Rate'}
+                                        </div>
+                                        <div className="font-semibold">{report.summary.win_rate}%</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-xs text-muted-foreground">
+                                          {language === 'ar' ? 'أقصى ربح' : 'Max Profit'}
+                                        </div>
+                                        <div className="font-semibold">+{report.summary.max_profit_percent}%</div>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {report.deliveries && report.deliveries.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t">
+                                      <div className="text-xs text-muted-foreground mb-2">
+                                        {language === 'ar' ? 'حالة الإرسال:' : 'Delivery Status:'}
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {report.deliveries.map((delivery) => (
+                                          <div key={delivery.id} className="flex items-center gap-1 text-xs">
+                                            {delivery.status === 'sent' ? (
+                                              <CheckCircle2 className="w-3 h-3 text-green-500" />
+                                            ) : delivery.status === 'failed' ? (
+                                              <XCircle className="w-3 h-3 text-red-500" />
+                                            ) : (
+                                              <Clock className="w-3 h-3 text-yellow-500" />
+                                            )}
+                                            <span>{delivery.channel_name || 'Unknown'}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex gap-2">
+                                  {report.file_url && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => window.open(report.file_url, '_blank')}
+                                    >
+                                      <Download className="w-4 h-4" />
+                                    </Button>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => sendReport(report.id)}
+                                    disabled={sending === report.id}
+                                  >
+                                    {sending === report.id ? (
+                                      <RefreshCw className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <Send className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
             <TabsContent value="archive" className="space-y-4">
@@ -688,6 +911,9 @@ export default function IndicesHubPage() {
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-6xl max-h-[95vh] p-0 gap-0 overflow-hidden">
+          <DialogTitle className="sr-only">
+            {language === 'ar' ? 'معاينة التقرير' : 'Report Preview'}
+          </DialogTitle>
           <ScrollArea className="max-h-[95vh]">
             {previewData && (
               <div className="relative">

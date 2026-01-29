@@ -520,7 +520,7 @@ export function ChannelSettings() {
                         Set as Platform Default
                       </Label>
                       <p className="text-xs text-muted-foreground">
-                        Platform default channels receive posts for all {selectedAudienceType === 'subscribers' ? 'subscribers' : selectedAudienceType}. Uncheck to create a channel for a specific plan.
+                        Platform default channels receive posts for all {selectedAudienceType}. Uncheck to create a channel for a specific plan.
                       </p>
                     </div>
                   </div>

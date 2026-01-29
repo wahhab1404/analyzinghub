@@ -96,13 +96,22 @@ Deno.serve(async (req) => {
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
-      .gte('created_at', startDate.toISOString())
-      .lte('created_at', endDate.toISOString())
       .order('created_at', { ascending: false });
 
     if (tradesError) throw tradesError;
 
-    const allTrades = trades || [];
+    const allTrades = (trades || []).filter(t => {
+      const createdAt = new Date(t.created_at);
+      const closedAt = t.closed_at ? new Date(t.closed_at) : null;
+      const expiryDate = t.expiry ? new Date(t.expiry) : null;
+
+      return (
+        (createdAt >= startDate && createdAt <= endDate) ||
+        (closedAt && closedAt >= startDate && closedAt <= endDate) ||
+        (expiryDate && expiryDate >= startDate && expiryDate <= endDate) ||
+        (t.status === 'active' && createdAt <= endDate)
+      );
+    });
     const activeTrades = allTrades.filter(t => t.status === 'active');
     const closedTrades = allTrades.filter(t => t.status === 'closed');
     const expiredTrades = allTrades.filter(t => t.status === 'expired');
@@ -233,7 +242,7 @@ Deno.serve(async (req) => {
         start_date,
         end_date
       }, {
-        onConflict: 'report_date,author_id,language_mode'
+        onConflict: 'report_date,author_id,language_mode,period_type'
       })
       .select()
       .single();

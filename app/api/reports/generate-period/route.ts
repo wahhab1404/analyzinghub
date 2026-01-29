@@ -61,18 +61,14 @@ export async function POST(request: NextRequest) {
       finalStartDate = start_date;
       finalEndDate = end_date;
     } else if (period_type === 'daily') {
-      const today = new Date();
-      if (!isMarketOpen(today)) {
-        return NextResponse.json(
-          {
-            error: 'Market is closed today (weekend or holiday)',
-            suggestion: 'Use the last trading day or generate a weekly/monthly report instead',
-          },
-          { status: 400 }
-        );
+      if (start_date) {
+        finalStartDate = start_date;
+        finalEndDate = start_date;
+      } else {
+        const today = new Date();
+        finalStartDate = formatDateForReport(today);
+        finalEndDate = formatDateForReport(today);
       }
-      finalStartDate = formatDateForReport(today);
-      finalEndDate = formatDateForReport(today);
     } else {
       return NextResponse.json(
         { error: 'Invalid period_type. Must be: daily, weekly, monthly, or custom' },

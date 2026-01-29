@@ -17,7 +17,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    const { report_id, channel_ids, language_mode = 'en' } = await req.json();
+    const { report_id, channel_ids, language_mode = 'ar' } = await req.json();
 
     if (!report_id) {
       return new Response(
@@ -39,17 +39,29 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    console.log('[Send Report to Telegram] Looking for channels:', {
+      author_id: report.author_id,
+      channel_ids,
+      has_channel_ids: !!(channel_ids && channel_ids.length > 0)
+    });
+
     const { data: channels, error: channelsError } = channel_ids && channel_ids.length > 0
       ? await supabase
           .from('telegram_channels')
           .select('*')
-          .eq('analyzer_id', report.analyst_id)
-          .in('id', channel_ids)
+          .eq('user_id', report.author_id)
+          .in('channel_id', channel_ids)
       : await supabase
           .from('telegram_channels')
           .select('*')
-          .eq('analyzer_id', report.analyst_id)
-          .eq('is_active', true);
+          .eq('user_id', report.author_id)
+          .eq('enabled', true);
+
+    console.log('[Send Report to Telegram] Channels found:', {
+      count: channels?.length || 0,
+      channels: channels?.map(c => ({ id: c.id, channel_id: c.channel_id, name: c.channel_name })),
+      error: channelsError
+    });
 
     if (channelsError || !channels || channels.length === 0) {
       return new Response(
@@ -194,24 +206,106 @@ Deno.serve(async (req: Request) => {
       message += `📄 [Download Full Report](${report.file_url})\n`;
     }
 
+    let imageUrl = report.image_url;
+
+    if (!imageUrl) {
+      console.log('[Send Report to Telegram] No image found, generating screenshot...');
+      try {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL');
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+        const imageResponse = await fetch(
+          `${supabaseUrl}/functions/v1/generate-report-image`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({ report_id: report.id }),
+          }
+        );
+
+        if (imageResponse.ok) {
+          const imageBlob = await imageResponse.blob();
+          const imageBuffer = await imageBlob.arrayBuffer();
+
+          const filename = `report-${report.id}-${Date.now()}.png`;
+          const filePath = `${report.author_id}/${filename}`;
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('daily-reports')
+            .upload(filePath, imageBuffer, {
+              contentType: 'image/png',
+              upsert: true
+            });
+
+          if (!uploadError && uploadData) {
+            const { data: urlData } = supabase.storage
+              .from('daily-reports')
+              .getPublicUrl(filePath);
+
+            imageUrl = urlData.publicUrl;
+
+            await supabase
+              .from('daily_trade_reports')
+              .update({ image_url: imageUrl })
+              .eq('id', report.id);
+
+            console.log('[Send Report to Telegram] Image generated and saved:', imageUrl);
+          }
+        }
+      } catch (error: any) {
+        console.error('[Send Report to Telegram] Failed to generate image:', error);
+      }
+    }
+
     const results = [];
 
     for (const channel of channels) {
       try {
-        const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
-
-        const response = await fetch(telegramUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: channel.telegram_channel_id,
-            text: message,
-            parse_mode: 'Markdown',
-            disable_web_page_preview: false
-          })
+        console.log('[Send Report to Telegram] Sending to channel:', {
+          channel_id: channel.channel_id,
+          channel_name: channel.channel_name,
+          has_image: !!imageUrl
         });
 
-        const result = await response.json();
+        let response;
+        let result;
+
+        if (imageUrl) {
+          const telegramUrl = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+          response = await fetch(telegramUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: channel.channel_id,
+              photo: imageUrl,
+              caption: message,
+              parse_mode: 'Markdown'
+            })
+          });
+        } else {
+          const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+          response = await fetch(telegramUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: channel.channel_id,
+              text: message,
+              parse_mode: 'Markdown',
+              disable_web_page_preview: false
+            })
+          });
+        }
+
+        result = await response.json();
+
+        console.log('[Send Report to Telegram] Telegram API response:', {
+          channel_id: channel.channel_id,
+          ok: result.ok,
+          error: result.description
+        });
 
         if (result.ok) {
           results.push({ channel_id: channel.id, success: true, message_id: result.result.message_id });
@@ -219,6 +313,7 @@ Deno.serve(async (req: Request) => {
           results.push({ channel_id: channel.id, success: false, error: result.description });
         }
       } catch (error: any) {
+        console.error('[Send Report to Telegram] Error sending to channel:', error);
         results.push({ channel_id: channel.id, success: false, error: error.message });
       }
     }

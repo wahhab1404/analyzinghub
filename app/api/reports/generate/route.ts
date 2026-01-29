@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 interface GenerateReportRequest {
   date?: string
   language_mode?: 'en' | 'ar' | 'dual'
+  period_type?: 'daily' | 'weekly' | 'monthly'
   dry_run?: boolean
 }
 
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     const body: GenerateReportRequest = await request.json()
     const date = body.date || new Date().toISOString().split('T')[0]
     const language_mode = body.language_mode || 'dual'
+    const period_type = body.period_type || 'daily'
     const dry_run = body.dry_run || false
 
     const edgeFunctionUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-advanced-daily-report`
@@ -47,6 +49,7 @@ export async function POST(request: NextRequest) {
         date,
         analyst_id: user.id,
         language_mode,
+        period_type,
         dry_run
       })
     })

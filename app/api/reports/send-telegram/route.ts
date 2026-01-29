@@ -53,23 +53,24 @@ export async function POST(request: NextRequest) {
     }
 
     if (!targetChannels || targetChannels.length === 0) {
-      const { data: plans } = await supabase
-        .from('analyzer_plans')
-        .select(`
-          id,
-          telegram_channel_id,
-          telegram_channels!telegram_channel_id(channel_id, channel_name)
-        `)
-        .eq('analyst_id', report.author_id)
-        .eq('is_active', true)
-        .not('telegram_channel_id', 'is', null);
+      const { data: channels, error: channelsError } = await supabase
+        .from('telegram_channels')
+        .select('channel_id')
+        .eq('user_id', report.author_id)
+        .eq('enabled', true);
 
-      if (plans && plans.length > 0) {
-        targetChannels = plans
-          .map((p: any) => p.telegram_channels?.channel_id)
-          .filter(Boolean);
+      console.log('[Send to Telegram API] Channels lookup:', {
+        author_id: report.author_id,
+        channels,
+        channelsError
+      });
+
+      if (channels && channels.length > 0) {
+        targetChannels = channels.map(c => c.channel_id).filter(Boolean);
       }
     }
+
+    console.log('[Send to Telegram API] Target channels:', targetChannels);
 
     if (!targetChannels || targetChannels.length === 0) {
       return NextResponse.json({ error: 'No Telegram channels configured. Please set up channels in Settings.' }, { status: 400 });

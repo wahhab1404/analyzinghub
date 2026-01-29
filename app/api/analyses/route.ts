@@ -461,17 +461,23 @@ export async function POST(req: NextRequest) {
 
     if (postType === 'analysis' && body.targets && body.targets.length > 0) {
       const targetsData = body.targets
-        .filter((target: any) => target.expectedTime && target.expectedTime.trim() !== '')
+        .filter((target: any) => target.price && target.price.trim() !== '')
         .map((target: any) => {
-          const expectedDate = new Date(target.expectedTime)
-          if (isNaN(expectedDate.getTime())) {
-            throw new Error(`Invalid date format for target: ${target.expectedTime}`)
-          }
-          return {
+          const targetData: any = {
             analysis_id: analysis.id,
             price: parseFloat(target.price),
-            expected_time: expectedDate.toISOString(),
           }
+
+          // Add expected_time only if provided
+          if (target.expectedTime && target.expectedTime.trim() !== '') {
+            const expectedDate = new Date(target.expectedTime)
+            if (isNaN(expectedDate.getTime())) {
+              throw new Error(`Invalid date format for target: ${target.expectedTime}`)
+            }
+            targetData.expected_time = expectedDate.toISOString()
+          }
+
+          return targetData
         })
 
       if (targetsData.length > 0) {
@@ -480,6 +486,7 @@ export async function POST(req: NextRequest) {
           .insert(targetsData)
 
         if (targetsError) {
+          console.error('Error inserting targets:', targetsError)
           return NextResponse.json({ error: targetsError.message }, { status: 400 })
         }
       }
@@ -504,15 +511,29 @@ export async function POST(req: NextRequest) {
     // Broadcast to Telegram channels
     const broadcastChannels = [];
 
+    console.log('TELEGRAM_BROADCAST_PREPARATION:', {
+      analysisId: analysis.id,
+      visibility: analysis.visibility,
+      userId: user.id,
+      hasPlanIds: !!(body.planIds && body.planIds.length > 0),
+      planIds: body.planIds
+    })
+
     // 1. Get plan-specific channels if plans are selected
     if (body.planIds && Array.isArray(body.planIds) && body.planIds.length > 0) {
-      const { data: planChannels } = await supabaseAdmin
+      const { data: planChannels, error: planChannelsError } = await supabaseAdmin
         .from('telegram_channels')
         .select('id, channel_id, channel_name, linked_plan_id')
         .eq('user_id', user.id)
         .in('linked_plan_id', body.planIds)
         .eq('enabled', true)
-        .eq('verified', true)
+        .not('verified_at', 'is', null)
+
+      console.log('PLAN_SPECIFIC_CHANNELS_QUERY:', {
+        found: planChannels?.length || 0,
+        channels: planChannels,
+        error: planChannelsError
+      })
 
       if (planChannels && planChannels.length > 0) {
         broadcastChannels.push(...planChannels.map(ch => ({
@@ -525,15 +546,27 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Always get the platform default channel for the analysis visibility
-    const { data: defaultChannel } = await supabaseAdmin
+    const { data: defaultChannel, error: defaultChannelError } = await supabaseAdmin
       .from('telegram_channels')
       .select('id, channel_id, channel_name, audience_type, is_platform_default')
       .eq('user_id', user.id)
       .eq('audience_type', analysis.visibility)
       .eq('is_platform_default', true)
       .eq('enabled', true)
-      .eq('verified', true)
+      .not('verified_at', 'is', null)
       .maybeSingle()
+
+    console.log('PLATFORM_DEFAULT_CHANNEL_QUERY:', {
+      found: !!defaultChannel,
+      channel: defaultChannel,
+      error: defaultChannelError,
+      searchCriteria: {
+        userId: user.id,
+        audienceType: analysis.visibility,
+        isPlatformDefault: true,
+        enabled: true
+      }
+    })
 
     if (defaultChannel) {
       // Check if we haven't already added this channel (avoid duplicates)
@@ -545,10 +578,22 @@ export async function POST(req: NextRequest) {
           plan_id: null,
           type: 'platform-default'
         })
+        console.log('ADDED_PLATFORM_DEFAULT_CHANNEL:', defaultChannel.channel_name)
+      } else {
+        console.log('SKIPPED_DUPLICATE_PLATFORM_DEFAULT_CHANNEL:', defaultChannel.channel_name)
       }
     }
 
     // 3. Broadcast to all collected channels
+    console.log('FINAL_BROADCAST_CHANNELS:', {
+      totalChannels: broadcastChannels.length,
+      channels: broadcastChannels.map(ch => ({
+        name: ch.telegram_channel_id,
+        type: ch.type,
+        planId: ch.plan_id
+      }))
+    })
+
     if (broadcastChannels.length > 0) {
       for (const channel of broadcastChannels) {
         try {

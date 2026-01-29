@@ -8,6 +8,7 @@ import { Check, Users, Calendar } from 'lucide-react'
 import { toast } from 'sonner'
 import { createClient } from '@/lib/supabase/client'
 import { useTranslation } from '@/lib/i18n/language-context'
+import { TelegramUsernameDialog } from './TelegramUsernameDialog'
 
 interface Plan {
   id: string
@@ -32,6 +33,8 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
   const [loading, setLoading] = useState(true)
   const [subscribing, setSubscribing] = useState<string | null>(null)
   const [currentSubscriptions, setCurrentSubscriptions] = useState<Set<string>>(new Set())
+  const [showTelegramDialog, setShowTelegramDialog] = useState(false)
+  const [pendingPlanId, setPendingPlanId] = useState<string | null>(null)
 
   useEffect(() => {
     loadPlans()
@@ -78,7 +81,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
     }
   }
 
-  const handleSubscribe = async (planId: string) => {
+  const handleSubscribe = async (planId: string, telegramUsername?: string) => {
     try {
       setSubscribing(planId)
 
@@ -87,6 +90,7 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
 
       if (!session) {
         toast.error(t.subscriptions.loginToSubscribe)
+        setSubscribing(null)
         return
       }
 
@@ -96,12 +100,47 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({
+          planId,
+          ...(telegramUsername && { telegramUsername })
+        }),
       })
 
       const data = await response.json()
 
       if (!response.ok) {
+        console.error('Subscription creation failed:', {
+          status: response.status,
+          data,
+          error: data.error,
+          details: data.details,
+          hint: data.hint
+        })
+
+        // Handle already subscribed case
+        if (data.error === 'Already subscribed to this plan') {
+          toast.error(data.message || 'You are already subscribed to this plan', {
+            duration: 5000
+          })
+          setSubscribing(null)
+          // Refresh the page to update subscription status
+          setTimeout(() => window.location.reload(), 2000)
+          return
+        }
+
+        if (data.requiresTelegramUsername) {
+          // Show the dialog (or keep it open if already shown)
+          setPendingPlanId(planId)
+          setShowTelegramDialog(true)
+
+          // If there's a specific error message (like username taken), show it
+          if (data.message && data.error !== 'Telegram username required') {
+            toast.error(data.message, { duration: 5000 })
+          }
+
+          setSubscribing(null)
+          return
+        }
         if (data.requiresTelegram) {
           toast.error(data.message || 'Please connect your Telegram account first', {
             duration: 5000,
@@ -110,24 +149,48 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
               onClick: () => window.location.href = '/dashboard/settings?tab=telegram'
             }
           })
+          setSubscribing(null)
           return
         }
         toast.error(data.error || t.subscriptions.failedToSubscribe)
+        setSubscribing(null)
         return
       }
 
-      toast.success(t.subscriptions.subscriptionActivated)
+      if (data.inviteSent && data.telegramUsername) {
+        toast.success(`${data.message || t.subscriptions.subscriptionActivated}\n\nChannel invite sent to @${data.telegramUsername} on Telegram!`, {
+          duration: 8000
+        })
+      } else if (data.inviteLink && data.channelName) {
+        toast.success(data.message || t.subscriptions.subscriptionActivated, {
+          duration: 3000
+        })
 
-      if (data.inviteLink && data.channelName) {
-        toast.success(`Join ${data.channelName} on Telegram!`, {
-          duration: 10000,
-          action: {
-            label: 'Join Channel',
-            onClick: () => window.open(data.inviteLink, '_blank')
+        // Show prominent toast with invite link
+        setTimeout(() => {
+          toast.success(`🎉 Your channel invite is ready!\n\nClick "Join Channel" to access ${data.channelName}`, {
+            duration: 30000,
+            action: {
+              label: 'Join Channel',
+              onClick: () => window.open(data.inviteLink, '_blank')
+            }
+          })
+        }, 500)
+
+        // Also show an alert dialog with the link
+        setTimeout(() => {
+          if (window.confirm(`✅ Subscription Activated!\n\n🔗 Click OK to join ${data.channelName} on Telegram\n\nLink: ${data.inviteLink}\n\n⏰ This link expires in 24 hours.`)) {
+            window.open(data.inviteLink, '_blank')
           }
+        }, 1000)
+      } else {
+        toast.success(data.message || t.subscriptions.subscriptionActivated, {
+          duration: 5000
         })
       }
 
+      setShowTelegramDialog(false)
+      setPendingPlanId(null)
       await checkSubscriptions()
       await loadPlans()
     } catch (error) {
@@ -135,6 +198,12 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
       toast.error(t.subscriptions.failedToSubscribe)
     } finally {
       setSubscribing(null)
+    }
+  }
+
+  const handleTelegramUsernameSubmit = (username: string) => {
+    if (pendingPlanId) {
+      handleSubscribe(pendingPlanId, username)
     }
   }
 
@@ -254,6 +323,13 @@ export function SubscriptionPlans({ analystId, analystName }: SubscriptionPlansP
           )
         })}
       </div>
+
+      <TelegramUsernameDialog
+        open={showTelegramDialog}
+        onOpenChange={setShowTelegramDialog}
+        onSubmit={handleTelegramUsernameSubmit}
+        isSubmitting={subscribing !== null}
+      />
     </div>
   )
 }

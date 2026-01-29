@@ -127,6 +127,41 @@ export async function POST(request: NextRequest) {
                   supabaseServiceKey
                 );
 
+                // Check for pending channel invites
+                const { data: pendingInvites } = await supabase
+                  .from('telegram_outbox')
+                  .select('*')
+                  .eq('message_type', 'channel_invite')
+                  .eq('status', 'pending')
+                  .or(`channel_id.eq.${chatId},channel_id.eq.${username}`)
+                  .order('created_at', { ascending: false })
+                  .limit(5);
+
+                if (pendingInvites && pendingInvites.length > 0) {
+                  for (const invite of pendingInvites) {
+                    try {
+                      await sendTelegramMessage(
+                        chatId,
+                        invite.payload.message || `🎉 ${invite.payload.channelName}\n\n${invite.payload.inviteLink}`,
+                        supabaseUrl,
+                        supabaseServiceKey
+                      );
+
+                      // Mark as sent
+                      await supabase
+                        .from('telegram_outbox')
+                        .update({
+                          status: 'sent',
+                          sent_at: new Date().toISOString(),
+                          channel_id: chatId
+                        })
+                        .eq('id', invite.id);
+                    } catch (err) {
+                      console.error('Failed to send pending invite:', err);
+                    }
+                  }
+                }
+
                 return NextResponse.json({ ok: true });
               }
             }
@@ -297,6 +332,41 @@ export async function POST(request: NextRequest) {
         supabaseUrl,
         supabaseServiceKey
       );
+
+      // Check for pending channel invites
+      const { data: pendingInvites } = await supabase
+        .from('telegram_outbox')
+        .select('*')
+        .eq('message_type', 'channel_invite')
+        .eq('status', 'pending')
+        .or(`channel_id.eq.${chatId},channel_id.eq.${username}`)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (pendingInvites && pendingInvites.length > 0) {
+        for (const invite of pendingInvites) {
+          try {
+            await sendTelegramMessage(
+              chatId,
+              invite.payload.message || `🎉 ${invite.payload.channelName}\n\n${invite.payload.inviteLink}`,
+              supabaseUrl,
+              supabaseServiceKey
+            );
+
+            // Mark as sent
+            await supabase
+              .from('telegram_outbox')
+              .update({
+                status: 'sent',
+                sent_at: new Date().toISOString(),
+                channel_id: chatId
+              })
+              .eq('id', invite.id);
+          } catch (err) {
+            console.error('Failed to send pending invite:', err);
+          }
+        }
+      }
 
       return NextResponse.json({ ok: true });
     }
