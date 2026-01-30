@@ -224,7 +224,7 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
   // Simplified format for new highs (Arabic only)
   if (isNewHigh) {
     const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
-    const gainDollars = ((highPrice - entryPrice) * (trade.qty || 1)).toFixed(2);
+    const gainDollars = ((highPrice - entryPrice) * (trade.qty || 1) * 100).toFixed(2);
 
     // Format expiry date
     const expiryDate = trade.expiry ? new Date(trade.expiry).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) : '';
