@@ -201,9 +201,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   const fetchMarketStatus = async () => {
     try {
-      const response = await fetch('/api/indices/market-status')
+      const timestamp = Date.now()
+      const response = await fetch(`/api/indices/market-status?_t=${timestamp}`, {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      })
       if (response.ok) {
         const data = await response.json()
+        console.log('Market Status Response:', data)
         setMarketStatus(data)
       }
     } catch (error) {
@@ -1289,9 +1296,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 Market Closed
               </Badge>
               <h4 className="font-medium">Manual Price Entry</h4>
+              {(marketStatus as any)?.debug && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  ET: {(marketStatus as any).debug.etTime}
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Markets are closed. Set current and entry prices manually. During RTH, live prices will be used automatically.
+              Markets are closed ({marketStatus.status}). Set current and entry prices manually. During RTH, live prices will be used automatically.
             </p>
 
             <div className="grid md:grid-cols-2 gap-4">
@@ -1339,6 +1351,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 Market Open
               </Badge>
               <h4 className="font-medium">Live Price Tracking</h4>
+              {(marketStatus as any)?.debug && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  ET: {(marketStatus as any).debug.etTime}
+                </span>
+              )}
             </div>
             <p className="text-sm text-muted-foreground">
               Markets are currently open. Entry prices will be automatically fetched from Polygon API when you create the trade.

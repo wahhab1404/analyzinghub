@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
 
         const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
         const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
-        const shouldCheckPrice = !lastQuoteAt || timeSinceLastQuote > 45000;
+        const shouldCheckPrice = !lastQuoteAt || timeSinceLastQuote > 5000;
 
         if (!shouldCheckPrice) {
           console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);

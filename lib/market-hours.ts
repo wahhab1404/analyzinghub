@@ -14,33 +14,17 @@ export interface MarketStatus {
 export function getMarketStatus(): MarketStatus {
   const now = new Date();
 
-  // Get current time in ET timezone
+  // Get current time in ET timezone using toLocaleString which is more reliable
   const etTimeString = now.toLocaleString('en-US', {
     timeZone: 'America/New_York',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    weekday: 'short',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
   });
 
-  // Parse the ET time string to get hours and minutes
-  const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const etDate = new Date(etTimeString);
   const dayOfWeek = etDate.getDay(); // 0 = Sunday, 6 = Saturday
 
-  // Get the actual hours in ET by using UTC methods with timezone offset
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-
-  const parts = formatter.formatToParts(now);
-  const hours = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-  const minutes = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+  // Get hours and minutes directly from the ET date
+  const hours = etDate.getHours();
+  const minutes = etDate.getMinutes();
   const timeInMinutes = hours * 60 + minutes;
 
   // Weekend check

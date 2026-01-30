@@ -220,12 +220,31 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
   const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
   const bid = currentSnapshot?.bid || 0;
   const ask = currentSnapshot?.ask || 0;
-  const volume = currentSnapshot?.volume || 0;
 
+  // Simplified format for new highs (Arabic only)
+  if (isNewHigh) {
+    const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
+    const gainDollars = ((highPrice - entryPrice) * (trade.qty || 1)).toFixed(2);
+
+    // Format expiry date
+    const expiryDate = trade.expiry ? new Date(trade.expiry).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) : '';
+    const optionType = trade.option_type?.toUpperCase() || trade.direction?.toUpperCase() || '';
+
+    let caption = "🚀 <b>قمة جديدة</b>\n\n";
+    caption += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
+    caption += `<b>العقد:</b> ${trade.strike?.toFixed(0)} - ${expiryDate} - ${optionType}\n`;
+    caption += `<b>المكسب:</b> $${gainDollars}\n`;
+
+    if (trade.contract_url) {
+      return { photo: trade.contract_url, caption };
+    }
+
+    return { text: caption };
+  }
+
+  // Full format for new trades and winning trades
   let caption = isWinning
     ? "🎉 <b>WINNING TRADE | صفقة رابحة!</b>\n\n"
-    : isNewHigh
-    ? "🚀 <b>NEW HIGH ALERT | تنبيه قمة جديدة!</b>\n\n"
     : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
 
   caption += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
@@ -248,12 +267,6 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
 
     caption += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)} (+${pnlPercent}%)\n`;
     caption += `<b>🎊 Reached $100+ profit milestone! | تم الوصول لربح +$100!</b>\n`;
-  } else if (isNewHigh) {
-    const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
-    const gainPercent = payload.gainPercent || ((highPrice - entryPrice) / entryPrice * 100).toFixed(2);
-
-    caption += `<b>New High | القمة الجديدة:</b> $${parseFloat(highPrice).toFixed(2)} 🎉\n`;
-    caption += `<b>Gain | المكسب:</b> +${gainPercent}%\n`;
   }
 
   if (trade.qty) {

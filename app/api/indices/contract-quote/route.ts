@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
 import { polygonService } from '@/services/indices/polygon.service';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 /**
  * GET /api/indices/contract-quote
  * Fetch real-time quote for a specific options contract
@@ -67,6 +70,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         quote: contract.quote,
         success: true,
+      }, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       });
     } catch (polygonError: any) {
       console.error('Polygon API error:', polygonError);
