@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ImageViewer } from '@/components/ui/image-viewer'
 import { ShareMenu } from '@/components/ui/share-menu'
-import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, Star, Newspaper, FileText, LineChart, ExternalLink, Lock, Users, Zap, AlertCircle } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, Star, Newspaper, FileText, LineChart, ExternalLink, Lock, Users, Zap, AlertCircle, Sparkles } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { FollowButton } from '@/components/profile/FollowButton'
@@ -50,6 +50,15 @@ interface AnalysisCardProps {
     activation_met_at?: string
     preactivation_stop_touched?: boolean
     preactivation_stop_touched_at?: string
+    targets_hit_data?: Array<{
+      target_id: string
+      target_number: number
+      target_price: number
+      hit_price: number
+      hit_at: string
+      hit_session?: string
+      hit_source?: string
+    }>
     profiles: {
       id: string
       full_name: string
@@ -59,6 +68,7 @@ interface AnalysisCardProps {
       symbol: string
     }
     analysis_targets?: Array<{
+      id?: string
       price: number
       expected_time: string
     }>
@@ -387,18 +397,56 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
   const hitTargetNumber = validationEvent?.event_type === 'TARGET_HIT' ? validationEvent.target_number : null
   const stopLossHit = validationEvent?.event_type === 'STOP_LOSS_HIT'
 
+  const targetsHitData = analysis.targets_hit_data || []
+  const hitTargetNumbers = new Set(targetsHitData.map(hit => hit.target_number))
+
   const statusDisplay = getAnalysisStatusDisplay(analysis.status)
 
+  const totalTargets = sortedTargets.length
+  const targetsHitCount = hitTargetNumbers.size
+  const hasTargetsHit = targetsHitCount > 0 && totalTargets > 0
+
+  const getSuccessGlowClass = () => {
+    if (!hasTargetsHit) return ''
+
+    const hitPercentage = targetsHitCount / totalTargets
+
+    if (hitPercentage === 1) {
+      return 'ring-4 ring-green-400/60 shadow-2xl shadow-green-500/50 border-green-400'
+    } else if (hitPercentage >= 0.66) {
+      return 'ring-4 ring-green-400/50 shadow-xl shadow-green-500/40 border-green-400'
+    } else if (hitPercentage >= 0.33) {
+      return 'ring-2 ring-green-400/40 shadow-lg shadow-green-500/30 border-green-400/80'
+    } else {
+      return 'ring-2 ring-green-400/30 shadow-md shadow-green-500/20 border-green-400/60'
+    }
+  }
+
+  const cardClassName = `relative overflow-hidden transition-all duration-300 ${
+    hasTargetsHit ? getSuccessGlowClass() : statusDisplay.borderClass
+  }`
+
   return (
-    <Card className={`relative overflow-hidden ${statusDisplay.borderClass}`}>
+    <Card className={cardClassName}>
+      {hasTargetsHit && (
+        <div className={`absolute inset-0 pointer-events-none ${
+          targetsHitCount === totalTargets
+            ? 'bg-gradient-to-br from-green-50/90 via-emerald-50/80 to-green-50/90 dark:from-green-950/30 dark:via-emerald-950/25 dark:to-green-950/30'
+            : targetsHitCount / totalTargets >= 0.66
+            ? 'bg-gradient-to-br from-green-50/70 via-emerald-50/60 to-green-50/70 dark:from-green-950/25 dark:via-emerald-950/20 dark:to-green-950/25'
+            : targetsHitCount / totalTargets >= 0.33
+            ? 'bg-gradient-to-br from-green-50/50 via-emerald-50/40 to-green-50/50 dark:from-green-950/20 dark:via-emerald-950/15 dark:to-green-950/20'
+            : 'bg-gradient-to-br from-green-50/30 via-emerald-50/25 to-green-50/30 dark:from-green-950/15 dark:via-emerald-950/10 dark:to-green-950/15'
+        }`} />
+      )}
       {(analysis.visibility === 'subscribers' || analysis.visibility === 'followers') && (
-        <div className={`absolute top-0 left-0 right-0 h-1.5 shadow-sm ${
+        <div className={`absolute top-0 left-0 right-0 h-1.5 shadow-sm z-10 ${
           analysis.visibility === 'subscribers'
             ? 'bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-400'
             : 'bg-gradient-to-r from-blue-500 via-sky-500 to-blue-500'
         }`} />
       )}
-      <CardHeader className="space-y-3">
+      <CardHeader className="space-y-3 relative z-10">
         <div className="flex items-center justify-between">
           <Link
             href={`/dashboard/profile/${analysis.profiles.id}`}
@@ -495,13 +543,30 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
                   <span className="mr-1">{directionIcons[analysis.direction]}</span>
                   {analysis.direction}
                 </Badge>
+                {hasTargetsHit && (
+                  <Badge
+                    variant="outline"
+                    className={`${
+                      targetsHitCount === totalTargets
+                        ? 'bg-gradient-to-r from-green-100 via-emerald-100 to-green-100 text-green-900 border-green-500 dark:from-green-900/50 dark:via-emerald-900/50 dark:to-green-900/50 dark:text-green-100 dark:border-green-500 font-bold shadow-lg'
+                        : 'bg-green-50 text-green-800 border-green-400 dark:bg-green-900/30 dark:text-green-200 font-semibold'
+                    }`}
+                  >
+                    {targetsHitCount === totalTargets ? (
+                      <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                    ) : (
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    {targetsHitCount}/{totalTargets} Targets Hit
+                  </Badge>
+                )}
               </>
             )}
           </div>
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 relative z-10">
         <Link href={`/dashboard/analysis/${analysis.id}`} className="block space-y-4">
           {postType === 'news' && (
             <div className="space-y-3">
@@ -657,12 +722,31 @@ export function AnalysisCard({ analysis, onFollowChange }: AnalysisCardProps) {
               )}
 
               {sortedTargets.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-sm text-muted-foreground">{t.analysisCard.targets}</p>
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <p className="text-sm text-muted-foreground">{t.analysisCard.targets}</p>
+                    <div className="flex items-center gap-1 w-full">
+                      {sortedTargets.map((_, index) => {
+                        const targetNum = index + 1
+                        const isHit = hitTargetNumbers.has(targetNum)
+                        return (
+                          <div
+                            key={index}
+                            className={`h-2 flex-1 rounded-full transition-all duration-500 ${
+                              isHit
+                                ? 'bg-gradient-to-r from-green-400 to-emerald-500 shadow-sm'
+                                : 'bg-gray-200 dark:bg-gray-700'
+                            }`}
+                            title={`Target ${targetNum}: ${isHit ? 'Hit' : 'Pending'}`}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
                   <div className="space-y-1">
                     {sortedTargets.map((target, index) => {
                       const targetNum = index + 1
-                      const isHit = hitTargetNumber === targetNum
+                      const isHit = hitTargetNumbers.has(targetNum)
                       return (
                         <div key={index} className="space-y-0.5">
                           <div className="flex items-baseline gap-2">

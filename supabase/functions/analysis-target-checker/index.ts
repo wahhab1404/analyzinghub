@@ -311,6 +311,47 @@ Deno.serve(async (req: Request) => {
               }
             });
 
+            try {
+              const { data: channels } = await supabase
+                .from("telegram_channels")
+                .select("channel_id, channel_name, notify_target_hit")
+                .eq("user_id", analysis.analyzer_id)
+                .eq("enabled", true)
+                .eq("notify_target_hit", true);
+
+              if (channels && channels.length > 0) {
+                const { data: siteDomain } = await supabase
+                  .from("admin_settings")
+                  .select("value")
+                  .eq("key", "site_domain")
+                  .single();
+
+                const domain = siteDomain?.value || "analyzhub.com";
+
+                for (const channel of channels) {
+                  const message = `🎯 Target ${result.targetNumber} Hit!\n\n${symbol}\nTarget Price: $${result.targetPrice.toFixed(2)}\nHit Price: $${result.hitPrice.toFixed(2)}\nSession: ${result.hitSession}\n\n${direction === "LONG" ? "📈" : "📉"} View: https://${domain}/share/${analysis.id}`;
+
+                  await supabase.from("telegram_outbox").insert({
+                    channel_id: channel.channel_id,
+                    message_type: "target_hit",
+                    payload: {
+                      analysis_id: analysis.id,
+                      symbol,
+                      target_number: result.targetNumber,
+                      target_price: result.targetPrice,
+                      hit_price: result.hitPrice,
+                      message
+                    },
+                    priority: 2,
+                  });
+
+                  console.log(`📤 Queued Telegram notification for ${symbol} target ${result.targetNumber} to ${channel.channel_name}`);
+                }
+              }
+            } catch (telegramError) {
+              console.error("Failed to queue Telegram notification:", telegramError);
+            }
+
             newTargetsHit++;
             results.targetsHit++;
           } else {
