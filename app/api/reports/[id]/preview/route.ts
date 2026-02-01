@@ -26,9 +26,10 @@ export async function GET(
       .from('daily_trade_reports')
       .select('*')
       .eq('id', id)
-      .single()
+      .maybeSingle()
 
     if (error || !report) {
+      console.error('Error fetching report for preview:', error)
       return new NextResponse('Report not found', { status: 404 })
     }
 

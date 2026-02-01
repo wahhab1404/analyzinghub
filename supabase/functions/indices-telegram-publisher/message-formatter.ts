@@ -239,7 +239,7 @@ export function formatTradeMessage(
   });
 
   const analysisUrl = trade.analysis ? `${baseUrl}/dashboard/analysis/${trade.analysis.id}` : '#';
-  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;
   const stopPrice = trade.stoploss?.level;
 
@@ -369,7 +369,7 @@ export function formatTradeResultMessage(
 ): { text: string } {
   const analysisUrl = `${baseUrl}/dashboard/analysis/${trade.analysis.id}`;
   const isWin = trade.status === "tp_hit";
-  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || 0;
   const highestPrice = trade.contract_high_since || 0;
   const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);

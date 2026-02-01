@@ -39,11 +39,13 @@ export async function GET(request: NextRequest) {
         language_mode,
         status,
         file_url,
+        image_url,
         created_at,
         period_type,
         start_date,
         end_date,
-        summary
+        summary,
+        html_content
       `, { count: 'exact' })
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)

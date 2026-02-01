@@ -1373,4 +1373,12 @@ export const ar: TranslationKeys = {
     likes: 'الإعجابات',
     reposts: 'إعادة النشر',
   },
+  reports: {
+    selectChannels: 'اختر قنوات تيليجرام',
+    selectChannelsDesc: 'اختر القنوات التي تريد إرسال التقرير إليها',
+    noChannelsConfigured: 'لم يتم تكوين قنوات تيليجرام. يرجى إضافة القنوات في الإعدادات.',
+    selectAtLeastOne: 'اختر قناة واحدة على الأقل لإرسال التقرير',
+    sending: 'جارٍ الإرسال...',
+    sendToTelegram: 'إرسال إلى تيليجرام',
+  },
 };

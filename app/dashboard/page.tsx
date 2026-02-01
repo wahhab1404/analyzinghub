@@ -77,7 +77,10 @@ export default function DashboardPage() {
 
   const fetchTradeStats = async () => {
     try {
-      const res = await fetch('/api/dashboard/stats')
+      const res = await fetch('/api/dashboard/stats', {
+        credentials: 'include',
+        cache: 'no-store'
+      })
       if (res.ok) {
         const data = await res.json()
         setTradeStats(data.summary)

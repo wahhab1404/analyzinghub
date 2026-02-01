@@ -214,7 +214,7 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
   });
 
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
-  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || entryPrice;
 
   const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
@@ -293,7 +293,7 @@ function formatTradeResultMessage(payload: any): { text: string } {
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
 
   const isWin = outcome === 'succeed';
-  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const currentPrice = trade.current_contract || 0;
   const highestPrice = trade.contract_high_since || 0;
 
@@ -353,7 +353,7 @@ function formatTradeClosedForNewEntryMessage(payload: any): { text: string } {
   const reason = payload.reason || 'Closed for new entry';
   const peakPrice = payload.peakPrice || trade.peak_price_after_entry || trade.contract_high_since || 0;
 
-  const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
   const pnlPercent = ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2);
 
   let message = "🔄 <b>TRADE CLOSED FOR NEW ENTRY | إغلاق الصفقة لإدخال جديد</b>\n\n";

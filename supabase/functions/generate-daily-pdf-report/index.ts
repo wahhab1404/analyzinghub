@@ -118,7 +118,7 @@ function generatePDFHTML(data: any): string {
   const tradesHtml = trades.length === 0
     ? '<div class="no-trades"><div class="no-trades-icon">📭</div><h3>No Trades Today</h3><p>There were no trades recorded for today.</p></div>'
     : trades.map((trade: Trade) => {
-        const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
         const profitPercent = trade.max_profit || 0;
         const profitClass = profitPercent > 0 ? 'positive' : profitPercent < 0 ? 'negative' : 'neutral';

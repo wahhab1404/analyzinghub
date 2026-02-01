@@ -70,39 +70,54 @@ Deno.serve(async (req) => {
       endOfDay = new Date(reportDate + 'T23:59:59.999Z');
     }
 
-    const { data: trades, error: tradesError } = await supabase
+    const { data: allTradesFromDB, error: tradesError } = await supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
-      .or(`created_at.lte.${endOfDay.toISOString()},closed_at.gte.${startOfDay.toISOString()},expiry.gte.${startOfDay.toISOString()}`)
       .order('created_at', { ascending: false });
 
     if (tradesError) throw tradesError;
 
-    const activeTrades = trades?.filter(t => {
-      const createdAt = new Date(t.created_at);
-      return t.status === 'active' &&
-        createdAt >= startOfDay &&
-        createdAt <= endOfDay;
-    }) || [];
+    console.log(`[Report Generator] Total trades from DB: ${allTradesFromDB?.length || 0}`);
+    console.log(`[Report Generator] Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
 
-    const closedTrades = trades?.filter(t => {
+    const trades = (allTradesFromDB || []).filter(t => {
+      const createdAt = new Date(t.created_at);
+      const closedAt = t.closed_at ? new Date(t.closed_at) : null;
+      const expiryDate = t.expiry ? new Date(t.expiry) : null;
+
+      const matchCreated = createdAt >= startOfDay && createdAt <= endOfDay;
+      const matchClosed = closedAt && closedAt >= startOfDay && closedAt <= endOfDay;
+      const matchExpiry = expiryDate && expiryDate >= startOfDay && expiryDate <= endOfDay;
+      const matchActive = t.status === 'active' && createdAt <= endOfDay;
+
+      return matchCreated || matchClosed || matchExpiry || matchActive;
+    });
+
+    console.log(`[Report Generator] Filtered trades for period: ${trades?.length || 0}`);
+
+    const activeTrades = trades.filter(t => t.status === 'active');
+
+    const closedTrades = trades.filter(t => {
       if (!t.closed_at) return false;
       const closedAt = new Date(t.closed_at);
       return t.status === 'closed' &&
         closedAt >= startOfDay &&
         closedAt <= endOfDay;
-    }) || [];
+    });
 
-    const expiredTrades = trades?.filter(t => {
+    const closedTradeIds = new Set(closedTrades.map(t => t.id));
+
+    const expiredTrades = trades.filter(t => {
+      if (closedTradeIds.has(t.id)) return false;
       if (!t.expiry) return false;
       const expiryDate = new Date(t.expiry);
       return expiryDate >= startOfDay &&
         expiryDate <= endOfDay;
-    }) || [];
+    });
 
     const enrichedExpiredTrades = expiredTrades.map(trade => {
-      const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+      const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
       const highestPrice = trade.contract_high_since || entryPrice;
       const qty = trade.qty || 1;
       const maxProfit = (highestPrice - entryPrice) * qty * 100;
@@ -211,7 +226,7 @@ Deno.serve(async (req) => {
 
     if (dry_run) {
       const tradesForPreview = allTrades.map(trade => {
-        const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
         const currentPrice = trade.current_contract || 0;
         const qty = trade.qty || 1;
@@ -338,9 +353,11 @@ function generateReportHTML(data: any): string {
     winners: isDual ? 'Winners | رابحة' : isArabic ? 'رابحة' : 'Winners',
     losers: isDual ? 'Losers | خاسرة' : isArabic ? 'خاسرة' : 'Losers',
     totalProfit: isDual ? 'Total Profit | إجمالي الربح' : isArabic ? 'إجمالي الربح' : 'Total Profit',
+    totalLoss: isDual ? 'Total Loss | إجمالي الخسارة' : isArabic ? 'إجمالي الخسارة' : 'Total Loss',
+    netProfit: isDual ? 'Net Profit | صافي الربح' : isArabic ? 'صافي الربح' : 'Net Profit',
     avgProfit: isDual ? 'Avg Profit | متوسط الربح' : isArabic ? 'متوسط الربح' : 'Avg Profit',
     maxProfit: isDual ? 'Max Profit | أقصى ربح' : isArabic ? 'أقصى ربح' : 'Max Profit',
-    winRate: isDual ? 'Win Rate | معدل الربح' : isArabic ? 'معدل الربح' : 'Win Rate',
+    winRate: isDual ? 'Win Rate | معدل النجاح' : isArabic ? 'معدل النجاح' : 'Win Rate',
     todayTrades: isDual ? "Today's Trades | صفقات اليوم" : isArabic ? 'صفقات اليوم' : "Today's Trades",
     tradeDetails: isDual ? 'Trade Details | تفاصيل الصفقة' : isArabic ? 'تفاصيل الصفقة' : 'Trade Details',
     entry: isDual ? 'Entry | الدخول' : isArabic ? 'الدخول' : 'Entry',
@@ -348,7 +365,12 @@ function generateReportHTML(data: any): string {
     strike: isDual ? 'Strike | السعر' : isArabic ? 'السعر' : 'Strike',
     expiry: isDual ? 'Expiry | الانتهاء' : isArabic ? 'الانتهاء' : 'Expiry',
     profit: isDual ? 'Profit | الربح' : isArabic ? 'الربح' : 'Profit',
-    noTrades: isDual ? 'No trades recorded | لا توجد صفقات مسجلة' : isArabic ? 'لا توجد صفقات مسجلة' : 'No trades recorded'
+    noTrades: isDual ? 'No trades recorded | لا توجد صفقات مسجلة' : isArabic ? 'لا توجد صفقات مسجلة' : 'No trades recorded',
+    call: isDual ? 'CALL | شراء' : isArabic ? 'شراء' : 'CALL',
+    put: isDual ? 'PUT | بيع' : isArabic ? 'بيع' : 'PUT',
+    activeStatus: isDual ? 'ACTIVE | نشطة' : isArabic ? 'نشطة' : 'ACTIVE',
+    closedStatus: isDual ? 'CLOSED | مغلقة' : isArabic ? 'مغلقة' : 'CLOSED',
+    expiredStatus: isDual ? 'EXPIRED | منتهية' : isArabic ? 'منتهية' : 'EXPIRED'
   };
 
   const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyzer';
@@ -360,20 +382,42 @@ function generateReportHTML(data: any): string {
   const tradesHTML = trades.length === 0
     ? `<div class="no-trades"><div class="no-trades-icon">📭</div><h3>${t.noTrades}</h3></div>`
     : trades.map((trade: any) => {
-        const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
         const currentPrice = trade.current_contract || 0;
-        const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-        const profitClass = profitPercent > 0 ? 'positive' : profitPercent < 0 ? 'negative' : 'neutral';
+        const qty = trade.qty || 1;
+        const multiplier = 100;
 
-        const statusText = trade.expired_status || trade.status?.toUpperCase();
+        // Use actual P&L from database for closed trades, otherwise calculate
+        let profitDollars: number;
+        if (trade.status === 'closed' && (trade.pnl_usd !== null && trade.pnl_usd !== undefined)) {
+          profitDollars = parseFloat(trade.pnl_usd.toString());
+        } else if (trade.final_profit !== null && trade.final_profit !== undefined) {
+          profitDollars = parseFloat(trade.final_profit.toString());
+        } else {
+          profitDollars = (highestPrice - entryPrice) * qty * multiplier;
+        }
+
+        const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
+        const profitClass = profitDollars > 0 ? 'positive' : profitDollars < 0 ? 'negative' : 'neutral';
+
+        const optionTypeText = trade.option_type?.toLowerCase() === 'call' ? t.call : trade.option_type?.toLowerCase() === 'put' ? t.put : trade.option_type?.toUpperCase();
+
+        let statusText = trade.expired_status || trade.status?.toUpperCase();
+        if (trade.status === 'active') {
+          statusText = t.activeStatus;
+        } else if (trade.status === 'closed') {
+          statusText = t.closedStatus;
+        } else if (trade.expired_status) {
+          statusText = t.expiredStatus;
+        }
 
         return `
           <div class="trade-card">
             <div class="trade-header">
               <div>
                 <span class="trade-symbol">${trade.underlying_index_symbol}</span>
-                <span class="trade-type ${trade.option_type?.toLowerCase()}">${trade.option_type?.toUpperCase() || 'N/A'}</span>
+                <span class="trade-type ${trade.option_type?.toLowerCase()}">${optionTypeText}</span>
               </div>
               <div>
                 <span class="trade-status ${trade.status}">${statusText}</span>
@@ -399,7 +443,7 @@ function generateReportHTML(data: any): string {
               <div class="trade-detail">
                 <div class="trade-detail-label">${t.profit}</div>
                 <div class="trade-detail-value">
-                  <span class="profit-badge ${profitClass}">${profitPercent > 0 ? '+' : ''}${formatNumber(profitPercent, 1)}%</span>
+                  <span class="profit-badge ${profitClass}">${profitDollars > 0 ? '+' : profitDollars < 0 ? '-' : ''}${formatCurrencySimple(Math.abs(profitDollars), 0)}</span>
                 </div>
               </div>
             </div>

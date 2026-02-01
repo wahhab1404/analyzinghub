@@ -240,7 +240,9 @@ export default function IndicesHubPage() {
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to send report')
+        const errorMsg = errorData.error || 'Failed to send report'
+        const errorDetails = errorData.details ? `\n\nDetails: ${errorData.details}` : ''
+        throw new Error(errorMsg + errorDetails)
       }
 
       const data = await response.json()
@@ -250,6 +252,7 @@ export default function IndicesHubPage() {
       setReportToSend(null)
       await loadReports()
     } catch (err) {
+      console.error('[Send Report Error]:', err)
       setError(err instanceof Error ? err.message : 'Failed to send report')
     } finally {
       setSending(null)

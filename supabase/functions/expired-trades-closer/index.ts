@@ -78,7 +78,7 @@ Deno.serve(async (req: Request) => {
     for (const trade of expiredTrades) {
       try {
         const maxProfit = parseFloat(trade.max_profit?.toString() || '0');
-        const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const qty = trade.qty || 1;
         const multiplier = 100;
 

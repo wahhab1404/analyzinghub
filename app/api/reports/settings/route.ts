@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
       .from('report_settings')
       .select('*')
       .eq('analyst_id', user.id)
-      .single()
+      .maybeSingle()
 
-    if (error && error.code !== 'PGRST116') {
+    if (error) {
       throw error
     }
 
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
         .from('report_settings')
         .insert({ analyst_id: user.id })
         .select()
-        .single()
+        .maybeSingle()
 
       if (insertError) throw insertError
 
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest) {
       .update(updateData)
       .eq('analyst_id', user.id)
       .select()
-      .single()
+      .maybeSingle()
 
     if (error) throw error
 

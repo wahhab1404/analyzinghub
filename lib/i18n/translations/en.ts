@@ -1371,6 +1371,14 @@ export const en = {
     likes: 'Likes',
     reposts: 'Reposts',
   },
+  reports: {
+    selectChannels: 'Select Telegram Channels',
+    selectChannelsDesc: 'Choose which Telegram channels to send this report to',
+    noChannelsConfigured: 'No Telegram channels configured. Please add channels in Settings.',
+    selectAtLeastOne: 'Select at least one channel to send the report',
+    sending: 'Sending...',
+    sendToTelegram: 'Send to Telegram',
+  },
 };
 
 export type TranslationKeys = typeof en;

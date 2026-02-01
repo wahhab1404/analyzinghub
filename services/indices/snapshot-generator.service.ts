@@ -268,7 +268,7 @@ export class SnapshotGeneratorService {
    * Prepare snapshot data from trade object
    */
   static prepareSnapshotData(trade: any, isNewHigh: boolean = false): TradeSnapshotData {
-    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+    const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
     const currentPrice = trade.current_contract || entryPrice;
     const priceChange = currentPrice - entryPrice;
     const priceChangePercent = (priceChange / entryPrice) * 100;

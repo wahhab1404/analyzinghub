@@ -100,23 +100,44 @@ Deno.serve(async (req) => {
 
     if (tradesError) throw tradesError;
 
+    console.log(`[Period Report] Total trades from DB: ${trades?.length || 0}`);
+    console.log(`[Period Report] Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
+
     const allTrades = (trades || []).filter(t => {
       const createdAt = new Date(t.created_at);
       const closedAt = t.closed_at ? new Date(t.closed_at) : null;
       const expiryDate = t.expiry ? new Date(t.expiry) : null;
 
-      return (
-        (createdAt >= startDate && createdAt <= endDate) ||
-        (closedAt && closedAt >= startDate && closedAt <= endDate) ||
-        (expiryDate && expiryDate >= startDate && expiryDate <= endDate) ||
-        (t.status === 'active' && createdAt <= endDate)
-      );
-    });
-    const activeTrades = allTrades.filter(t => t.status === 'active');
-    const closedTrades = allTrades.filter(t => t.status === 'closed');
-    const expiredTrades = allTrades.filter(t => t.status === 'expired');
+      const matchCreated = createdAt >= startDate && createdAt <= endDate;
+      const matchClosed = closedAt && closedAt >= startDate && closedAt <= endDate;
+      const matchExpiry = expiryDate && expiryDate >= startDate && expiryDate <= endDate;
+      const matchActive = t.status === 'active' && createdAt <= endDate;
 
-    const completedTrades = allTrades.filter(t => t.status === 'closed' || t.status === 'expired');
+      return matchCreated || matchClosed || matchExpiry || matchActive;
+    });
+
+    console.log(`[Period Report] Filtered trades: ${allTrades.length}`);
+
+    const activeTrades = allTrades.filter(t => t.status === 'active');
+
+    const expiredTrades = allTrades.filter(t => {
+      if (!t.expiry) return false;
+      const expiryDate = new Date(t.expiry);
+      return expiryDate >= startDate && expiryDate <= endDate;
+    });
+
+    const closedTrades = allTrades.filter(t => {
+      if (t.status !== 'closed') return false;
+      const tradeExpiry = t.expiry ? new Date(t.expiry) : null;
+      const isExpiredTrade = tradeExpiry && tradeExpiry >= startDate && tradeExpiry <= endDate;
+      return !isExpiredTrade;
+    });
+
+    const completedTrades = allTrades.filter(t =>
+      t.status === 'closed' ||
+      t.status === 'expired' ||
+      (t.expiry && new Date(t.expiry) >= startDate && new Date(t.expiry) <= endDate)
+    );
 
     const winningTrades = completedTrades.filter(t => t.is_winning_trade === true);
     const losingTrades = completedTrades.filter(t => t.is_winning_trade === false);
@@ -185,15 +206,39 @@ Deno.serve(async (req) => {
       .eq('id', analyst_id)
       .single();
 
+    console.log(`[Period Report] About to generate HTML`);
+    console.log(`[Period Report] allTrades length: ${allTrades.length}`);
+    console.log(`[Period Report] allTrades array check:`, Array.isArray(allTrades));
+
+    if (allTrades.length > 0) {
+      console.log(`[Period Report] First 3 trades:`, allTrades.slice(0, 3).map(t => ({
+        id: t.id,
+        symbol: t.underlying_index_symbol,
+        strike: t.strike,
+        option_type: t.option_type,
+        created: t.created_at,
+        status: t.status,
+        entry: t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last,
+        high: t.contract_high_since
+      })));
+    }
+
+    // Defensive check - ensure allTrades is an array
+    const tradesForHtml = Array.isArray(allTrades) ? allTrades : [];
+    console.log(`[Period Report] Passing ${tradesForHtml.length} trades to HTML generator`);
+
     const html = generatePeriodReportHTML({
       start_date,
       end_date,
       period_type,
-      trades: allTrades,
+      trades: tradesForHtml,
       metrics,
       language_mode,
       analyzer: analyzerProfile
     });
+
+    console.log(`[Period Report] Generated HTML length: ${html.length}`);
+    console.log(`[Period Report] HTML contains "no-trades":`, html.includes('no-trades'));
 
     if (dry_run) {
       return new Response(
@@ -317,10 +362,22 @@ function generatePeriodReportHTML(data: any): string {
   const tradesHTML = trades.length === 0
     ? `<div class="no-trades"><div class="no-trades-icon">📭</div><h3>${t.noTrades}</h3></div>`
     : trades.map((trade: any) => {
-        const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
         const highestPrice = trade.contract_high_since || trade.current_contract || 0;
+        const qty = trade.qty || 1;
+        const multiplier = 100;
+
+        // Use actual P&L from database for closed trades, otherwise calculate
+        let profitDollars: number;
+        if (trade.status === 'closed' && (trade.pnl_usd !== null && trade.pnl_usd !== undefined)) {
+          profitDollars = parseFloat(trade.pnl_usd.toString());
+        } else if (trade.final_profit !== null && trade.final_profit !== undefined) {
+          profitDollars = parseFloat(trade.final_profit.toString());
+        } else {
+          profitDollars = (highestPrice - entryPrice) * qty * multiplier;
+        }
+
         const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-        const profitDollars = trade.final_profit || trade.max_profit || 0;
         const profitClass = profitDollars > 0 ? 'positive' : profitDollars < 0 ? 'negative' : 'neutral';
         const statusText = trade.status?.toUpperCase() || 'N/A';
         const createdDate = new Date(trade.created_at).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {

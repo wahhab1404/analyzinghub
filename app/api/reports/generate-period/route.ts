@@ -114,6 +114,58 @@ export async function POST(request: NextRequest) {
 
     const result = await response.json();
 
+    // Generate image for the report if it was successfully created
+    if (result.report_id) {
+      try {
+        console.log('[Generate Period Report] Generating image for report:', result.report_id)
+        const imageResponse = await fetch(
+          `${supabaseUrl}/functions/v1/generate-report-image`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`
+            },
+            body: JSON.stringify({ report_id: result.report_id })
+          }
+        )
+
+        if (imageResponse.ok) {
+          const imageBlob = await imageResponse.arrayBuffer()
+          const fileName = `report-${result.report_id}-${Date.now()}.png`
+
+          // Upload image to storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('daily-reports')
+            .upload(fileName, imageBlob, {
+              contentType: 'image/png',
+              cacheControl: '3600'
+            })
+
+          if (!uploadError && uploadData) {
+            const { data: { publicUrl } } = supabase.storage
+              .from('daily-reports')
+              .getPublicUrl(fileName)
+
+            // Update report with image URL
+            await supabase
+              .from('daily_trade_reports')
+              .update({ image_url: publicUrl })
+              .eq('id', result.report_id)
+
+            console.log('[Generate Period Report] Image saved:', publicUrl)
+          } else {
+            console.error('[Generate Period Report] Image upload error:', uploadError)
+          }
+        } else {
+          console.error('[Generate Period Report] Image generation failed:', await imageResponse.text())
+        }
+      } catch (imageError) {
+        console.error('[Generate Period Report] Image generation error:', imageError)
+        // Don't fail the whole request if image generation fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       period_type,

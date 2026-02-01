@@ -12,15 +12,21 @@ interface SendReportRequest {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[Reports Send] Starting send request')
     const supabase = createRouteHandlerClient(request)
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
+      console.error('[Reports Send] Unauthorized - no user')
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    console.log('[Reports Send] User authenticated:', user.id)
+
     const body: SendReportRequest = await request.json()
     const { report_id, channel_ids, send_as_image = false } = body
+
+    console.log('[Reports Send] Request body:', { report_id, channel_ids, send_as_image })
 
     if (!report_id) {
       return NextResponse.json({ error: 'report_id is required' }, { status: 400 })
@@ -46,7 +52,7 @@ export async function POST(request: NextRequest) {
         .from('profiles')
         .select('role:roles(name)')
         .eq('id', user.id)
-        .single()
+        .maybeSingle()
 
       const roleName = (profile as any)?.role?.name
       if (roleName !== 'SuperAdmin') {
@@ -61,7 +67,7 @@ export async function POST(request: NextRequest) {
         .from('report_settings')
         .select('default_channel_id, extra_channel_ids')
         .eq('analyst_id', report.author_id)
-        .single()
+        .maybeSingle()
 
       if (settings) {
         targetChannels = [
@@ -91,11 +97,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (!targetChannels || targetChannels.length === 0) {
+      console.error('[Reports Send] No channels configured for report')
       return NextResponse.json({ error: 'No channels configured' }, { status: 400 })
     }
 
+    console.log('[Reports Send] Target channels:', targetChannels)
+
     const botToken = process.env.TELEGRAM_BOT_TOKEN
     if (!botToken) {
+      console.error('[Reports Send] Telegram bot token not configured')
       return NextResponse.json({ error: 'Telegram bot not configured' }, { status: 500 })
     }
 
@@ -110,15 +120,22 @@ export async function POST(request: NextRequest) {
 
     let imageBuffer: Buffer | null = null
 
-    console.log('[Reports] Generating image via ApiFlash...')
-    try {
+    if (send_as_image) {
+      console.log('[Reports] Generating image via edge function (internal satori)...')
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+      const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+      if (!supabaseUrl || !serviceKey) {
+        throw new Error('Missing Supabase configuration')
+      }
+
       const imageResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/generate-report-image`,
+        `${supabaseUrl}/functions/v1/generate-report-image`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`
+            'Authorization': `Bearer ${serviceKey}`
           },
           body: JSON.stringify({
             report_id: report.id
@@ -126,22 +143,19 @@ export async function POST(request: NextRequest) {
         }
       )
 
-      if (imageResponse.ok) {
-        const arrayBuffer = await imageResponse.arrayBuffer()
-        imageBuffer = Buffer.from(arrayBuffer)
-        console.log('[Reports] Image generated successfully, size:', imageBuffer.length)
-      } else {
+      if (!imageResponse.ok) {
         const errorText = await imageResponse.text()
-        console.error('[Reports] Failed to generate image:', errorText)
-        throw new Error(`Image generation failed: ${errorText}`)
+        console.error('[Reports] Failed to generate image:', imageResponse.status, errorText)
+        throw new Error(`Image generation failed (${imageResponse.status}): ${errorText}`)
       }
-    } catch (err) {
-      console.error('[Reports] Error generating image:', err)
-      throw new Error(`Failed to generate report image: ${err instanceof Error ? err.message : 'Unknown error'}`)
-    }
 
-    if (!imageBuffer) {
-      throw new Error('Failed to generate report image')
+      const arrayBuffer = await imageResponse.arrayBuffer()
+      imageBuffer = Buffer.from(arrayBuffer)
+      console.log('[Reports] Image generated successfully, size:', imageBuffer.length)
+
+      if (!imageBuffer || imageBuffer.length === 0) {
+        throw new Error('Failed to generate report image - empty buffer')
+      }
     }
 
     const results = []
@@ -152,29 +166,61 @@ export async function POST(request: NextRequest) {
           .from('telegram_channels')
           .select('channel_name')
           .eq('channel_id', channelId)
-          .single()
+          .maybeSingle()
 
-        const caption = `📊 <b>Daily Trading Report</b> - ${report.report_date}\n\n🎯 Summary: ${totalTrades} trades | Avg: ${avgProfit >= 0 ? '+' : ''}${avgProfit.toFixed(1)}% | Max: +${maxProfit.toFixed(1)}% | Win Rate: ${winRate.toFixed(1)}%`
+        if (imageBuffer && imageBuffer.length > 0) {
+          const caption = `📊 <b>Daily Trading Report</b> - ${report.report_date}\n\n🎯 Summary: ${totalTrades} trades | Avg: ${avgProfit >= 0 ? '+' : ''}${avgProfit.toFixed(1)}% | Max: +${maxProfit.toFixed(1)}% | Win Rate: ${winRate.toFixed(1)}%`
 
-        const formData = new FormData()
-        formData.append('chat_id', channelId)
-        formData.append('photo', new Blob([imageBuffer], { type: 'image/png' }), `report_${report.report_date}.png`)
-        formData.append('caption', caption)
-        formData.append('parse_mode', 'HTML')
+          const formData = new FormData()
+          formData.append('chat_id', channelId)
+          formData.append('photo', new Blob([imageBuffer], { type: 'image/png' }), `report_${report.report_date}.png`)
+          formData.append('caption', caption)
+          formData.append('parse_mode', 'HTML')
 
-        console.log(`[Reports] Sending photo to channel ${channelId}...`)
-        const sendPhotoResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
-          method: 'POST',
-          body: formData
-        })
+          console.log(`[Reports] Sending photo to channel ${channelId}...`)
+          const sendPhotoResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+          })
 
-        if (!sendPhotoResponse.ok) {
-          const errorText = await sendPhotoResponse.text()
-          console.error(`[Reports] Telegram API error for channel ${channelId}:`, errorText)
-          throw new Error(`Telegram API error: ${errorText}`)
+          if (!sendPhotoResponse.ok) {
+            const errorText = await sendPhotoResponse.text()
+            console.error(`[Reports] Telegram API error for channel ${channelId}:`, errorText)
+            throw new Error(`Telegram API error: ${errorText}`)
+          }
+
+          console.log(`[Reports] Photo sent successfully to channel ${channelId}`)
+        } else {
+          const textMessage = `📊 <b>Daily Trading Report</b>\n📅 ${report.report_date}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `📊 <b>Summary</b>\n` +
+            `• Total Trades: ${totalTrades}\n` +
+            `• Active: ${activeTrades} | Closed: ${closedTrades} | Expired: ${expiredTrades}\n\n` +
+            `📈 <b>Performance</b>\n` +
+            `• Average Profit: ${avgProfit >= 0 ? '+' : ''}${avgProfit.toFixed(1)}%\n` +
+            `• Max Profit: +${maxProfit.toFixed(1)}%\n` +
+            `• Win Rate: ${winRate.toFixed(1)}%\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━`
+
+          console.log(`[Reports] Sending text message to channel ${channelId}...`)
+          const sendMessageResponse = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: channelId,
+              text: textMessage,
+              parse_mode: 'HTML'
+            })
+          })
+
+          if (!sendMessageResponse.ok) {
+            const errorText = await sendMessageResponse.text()
+            console.error(`[Reports] Telegram API error for channel ${channelId}:`, errorText)
+            throw new Error(`Telegram API error: ${errorText}`)
+          }
+
+          console.log(`[Reports] Text message sent successfully to channel ${channelId}`)
         }
-
-        console.log(`[Reports] Photo sent successfully to channel ${channelId}`)
 
         const { data: delivery } = await supabase
           .from('report_deliveries')
@@ -186,7 +232,7 @@ export async function POST(request: NextRequest) {
             sent_at: new Date().toISOString()
           })
           .select()
-          .single()
+          .maybeSingle()
 
         results.push({
           channel_id: channelId,
@@ -222,13 +268,22 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      results
+      results,
+      sent_as_image: imageBuffer !== null
     })
 
   } catch (error) {
-    console.error('Error sending report:', error)
+    console.error('[Reports Send] Fatal error:', error)
+    console.error('[Reports Send] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error'
+    const errorDetails = error instanceof Error ? error.stack : String(error)
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Internal server error' },
+      {
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? errorDetails : undefined
+      },
       { status: 500 }
     )
   }

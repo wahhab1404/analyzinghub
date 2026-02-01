@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
-import { Loader2, CheckCircle2, XCircle, Clock, Download, Send, RefreshCw, FileText, CalendarIcon, Settings, ShieldAlert, Eye, Save } from 'lucide-react'
+import { Loader2, CheckCircle2, XCircle, Clock, Download, Send, RefreshCw, FileText, CalendarIcon, Settings, ShieldAlert, Eye, Save, Image } from 'lucide-react'
 import { format } from 'date-fns'
 import { useLanguage } from '@/lib/i18n/language-context'
 import { Calendar } from '@/components/ui/calendar'
@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { SendToChannelDialog } from '@/components/reports/SendToChannelDialog'
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -28,6 +29,7 @@ interface Report {
   language_mode: 'en' | 'ar' | 'dual'
   status: string
   file_url?: string
+  image_url?: string
   created_at: string
   period_type?: 'daily' | 'weekly' | 'monthly' | 'custom'
   start_date?: string
@@ -71,6 +73,8 @@ export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
   const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+  const [weekOffset, setWeekOffset] = useState<number>(0)
+  const [monthOffset, setMonthOffset] = useState<number>(0)
 
   // Reports history
   const [reports, setReports] = useState<Report[]>([])
@@ -82,7 +86,11 @@ export default function ReportsPage() {
   const [userRole, setUserRole] = useState<string>('')
   const [previewReport, setPreviewReport] = useState<Report | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
   const [sendingToTelegram, setSendingToTelegram] = useState<string | null>(null)
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false)
+  const [selectedReportForSend, setSelectedReportForSend] = useState<string | null>(null)
 
   // Automated settings
   const [settings, setSettings] = useState<ReportSettings | null>(null)
@@ -204,9 +212,9 @@ export default function ReportsPage() {
         body.period_type = periodType
 
         if (periodType === 'weekly') {
-          body.week_offset = 0
+          body.week_offset = weekOffset
         } else if (periodType === 'monthly') {
-          body.month_offset = 0
+          body.month_offset = monthOffset
         }
       }
 
@@ -224,10 +232,14 @@ export default function ReportsPage() {
       const data = await response.json()
       setSuccess(`Report generated successfully! ${periodType === 'daily' ? '' : `(${data.start_date} to ${data.end_date})`}`)
 
+      // Force immediate refresh
+      await loadReports()
+      setActiveTab('history')
+
+      // Refresh again after a short delay to ensure the database write is complete
       setTimeout(() => {
         loadReports()
-        setActiveTab('history')
-      }, 500)
+      }, 1000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate report')
     } finally {
@@ -268,21 +280,32 @@ export default function ReportsPage() {
     setPreviewOpen(true)
   }
 
-  const sendToTelegram = async (reportId: string) => {
-    setSendingToTelegram(reportId)
+  const handleImagePreview = (imageUrl: string) => {
+    setSelectedImageUrl(imageUrl)
+    setImagePreviewOpen(true)
+  }
+
+  const openChannelDialog = (reportId: string) => {
+    setSelectedReportForSend(reportId)
+    setChannelDialogOpen(true)
+  }
+
+  const sendToSelectedChannels = async (channelIds: string[]) => {
+    if (!selectedReportForSend) return
+
+    setSendingToTelegram(selectedReportForSend)
     setError(null)
     setSuccess(null)
 
     try {
-      await loadReports()
-
-      const currentReport = reports.find(r => r.id === reportId)
+      const currentReport = reports.find(r => r.id === selectedReportForSend)
       if (!currentReport) {
         throw new Error('Report not found. Please refresh and try again.')
       }
 
       console.log('[Reports Page] Sending report to Telegram:', {
-        reportId,
+        reportId: selectedReportForSend,
+        channelIds,
         languageMode: currentReport.language_mode,
         hasSummary: !!currentReport.summary
       })
@@ -291,7 +314,8 @@ export default function ReportsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          report_id: reportId,
+          report_id: selectedReportForSend,
+          channel_ids: channelIds,
           language_mode: currentReport.language_mode || 'dual'
         })
       })
@@ -305,7 +329,7 @@ export default function ReportsPage() {
       const result = await response.json()
       console.log('[Reports Page] Telegram send result:', result)
 
-      setSuccess(`Report sent successfully to ${result.sent_to || 0} channel(s)!`)
+      setSuccess(`Report sent successfully to ${result.sent_to || channelIds.length} channel(s)!`)
 
       setTimeout(() => {
         loadReports()
@@ -313,6 +337,7 @@ export default function ReportsPage() {
     } catch (err) {
       console.error('[Reports Page] Error:', err)
       setError(err instanceof Error ? err.message : 'Failed to send to Telegram')
+      throw err
     } finally {
       setSendingToTelegram(null)
     }
@@ -503,9 +528,49 @@ export default function ReportsPage() {
                           selected={selectedDate}
                           onSelect={(date) => date && setSelectedDate(date)}
                           initialFocus
+                          disabled={(date) => date > new Date()}
                         />
                       </PopoverContent>
                     </Popover>
+                  </div>
+                )}
+
+                {periodType === 'weekly' && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'الأسبوع' : 'Week Period'}
+                    </label>
+                    <Select value={weekOffset.toString()} onValueChange={(v) => setWeekOffset(parseInt(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">{language === 'ar' ? 'الأسبوع الحالي' : 'Current Week'}</SelectItem>
+                        <SelectItem value="-1">{language === 'ar' ? 'الأسبوع الماضي' : 'Last Week'}</SelectItem>
+                        <SelectItem value="-2">{language === 'ar' ? 'أسبوعين ماضيين' : '2 Weeks Ago'}</SelectItem>
+                        <SelectItem value="-3">{language === 'ar' ? 'ثلاثة أسابيع ماضية' : '3 Weeks Ago'}</SelectItem>
+                        <SelectItem value="-4">{language === 'ar' ? 'أربعة أسابيع ماضية' : '4 Weeks Ago'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {periodType === 'monthly' && (
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'الشهر' : 'Month Period'}
+                    </label>
+                    <Select value={monthOffset.toString()} onValueChange={(v) => setMonthOffset(parseInt(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">{language === 'ar' ? 'الشهر الحالي' : 'Current Month'}</SelectItem>
+                        <SelectItem value="-1">{language === 'ar' ? 'الشهر الماضي' : 'Last Month'}</SelectItem>
+                        <SelectItem value="-2">{language === 'ar' ? 'شهرين ماضيين' : '2 Months Ago'}</SelectItem>
+                        <SelectItem value="-3">{language === 'ar' ? 'ثلاثة أشهر ماضية' : '3 Months Ago'}</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
@@ -546,12 +611,37 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {periodType !== 'daily' && (
+              {periodType === 'weekly' && (
                 <Alert>
                   <AlertDescription className="text-sm">
                     {language === 'ar'
-                      ? `سيتم إنشاء تقرير ${periodType === 'weekly' ? 'أسبوعي' : 'شهري'} للفترة الحالية`
-                      : `Will generate ${periodType} report for the current period`}
+                      ? `سيتم إنشاء تقرير أسبوعي ${
+                          weekOffset === 0 ? 'للأسبوع الحالي' :
+                          weekOffset === -1 ? 'للأسبوع الماضي' :
+                          `لأسبوع قبل ${Math.abs(weekOffset)} أسابيع`
+                        }`
+                      : `Will generate weekly report ${
+                          weekOffset === 0 ? 'for current week' :
+                          weekOffset === -1 ? 'for last week' :
+                          `for ${Math.abs(weekOffset)} weeks ago`
+                        }`}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {periodType === 'monthly' && (
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? `سيتم إنشاء تقرير شهري ${
+                          monthOffset === 0 ? 'للشهر الحالي' :
+                          monthOffset === -1 ? 'للشهر الماضي' :
+                          `لشهر قبل ${Math.abs(monthOffset)} أشهر`
+                        }`
+                      : `Will generate monthly report ${
+                          monthOffset === 0 ? 'for current month' :
+                          monthOffset === -1 ? 'for last month' :
+                          `for ${Math.abs(monthOffset)} months ago`
+                        }`}
                   </AlertDescription>
                 </Alert>
               )}
@@ -737,6 +827,12 @@ export default function ReportsPage() {
                             <Badge variant="secondary" className="text-xs">
                               {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
                             </Badge>
+                            {report.image_url && (
+                              <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                                <Image className="w-3 h-3 mr-1" />
+                                Image
+                              </Badge>
+                            )}
                           </div>
 
                           {report.start_date && report.end_date && (
@@ -796,8 +892,19 @@ export default function ReportsPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => handlePreview(report)}
+                              title={language === 'ar' ? 'معاينة HTML' : 'Preview HTML'}
                             >
-                              <Eye className="w-4 h-4" />
+                              <FileText className="w-4 h-4" />
+                            </Button>
+                          )}
+                          {report.image_url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleImagePreview(report.image_url!)}
+                              title={language === 'ar' ? 'معاينة الصورة' : 'Preview Image'}
+                            >
+                              <Eye className="w-4 h-4 text-purple-600" />
                             </Button>
                           )}
                           {report.file_url && (
@@ -805,6 +912,7 @@ export default function ReportsPage() {
                               variant="outline"
                               size="sm"
                               asChild
+                              title={language === 'ar' ? 'تحميل PDF' : 'Download PDF'}
                             >
                               <a href={report.file_url} target="_blank" rel="noopener noreferrer">
                                 <Download className="w-4 h-4" />
@@ -814,8 +922,9 @@ export default function ReportsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => sendToTelegram(report.id)}
+                            onClick={() => openChannelDialog(report.id)}
                             disabled={sendingToTelegram === report.id}
+                            title={language === 'ar' ? 'إرسال إلى تيليجرام' : 'Send to Telegram'}
                           >
                             {sendingToTelegram === report.id ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
@@ -838,7 +947,7 @@ export default function ReportsPage() {
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
-              {language === 'ar' ? 'معاينة التقرير' : 'Report Preview'}
+              {language === 'ar' ? 'معاينة التقرير HTML' : 'HTML Report Preview'}
             </DialogTitle>
           </DialogHeader>
           {previewReport?.html_content && (
@@ -849,6 +958,33 @@ export default function ReportsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>
+              {language === 'ar' ? 'معاينة صورة التقرير' : 'Report Image Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedImageUrl && (
+            <div className="flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 rounded-lg p-4">
+              <img
+                src={selectedImageUrl}
+                alt="Report Preview"
+                className="max-w-full h-auto rounded-lg shadow-lg"
+                style={{ maxHeight: 'calc(90vh - 120px)' }}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <SendToChannelDialog
+        open={channelDialogOpen}
+        onOpenChange={setChannelDialogOpen}
+        onSend={sendToSelectedChannels}
+        reportId={selectedReportForSend || ''}
+      />
     </div>
   )
 }

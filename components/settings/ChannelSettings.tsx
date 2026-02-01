@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Send, CheckCircle, AlertCircle, Radio, Languages } from 'lucide-react';
 import { toast } from 'sonner';
+import { AdChannelsSettings } from './AdChannelsSettings';
 
 interface Channel {
   id: string;
@@ -267,6 +268,7 @@ export function ChannelSettings() {
   }
 
   return (
+    <>
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
@@ -618,5 +620,10 @@ export function ChannelSettings() {
         )}
       </CardContent>
     </Card>
+
+    <div className="mt-6">
+      <AdChannelsSettings />
+    </div>
+  </>
   );
 }

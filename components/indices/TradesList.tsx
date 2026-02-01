@@ -5,10 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info, Edit, Trash2 } from 'lucide-react'
+import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info, Edit, Trash2, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 import { ManualHighUpdateDialog } from './ManualHighUpdateDialog'
+import { SendTradeAdDialog } from './SendTradeAdDialog'
 import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
 import {
   AlertDialog,
@@ -32,10 +33,11 @@ interface Trade {
   expiry: string | null
   option_type: 'call' | 'put' | null
   entry_contract_snapshot: {
-    mid: number
+    price?: number
+    mid?: number
     bid?: number
     ask?: number
-    timestamp: string
+    timestamp?: string
   }
   current_contract: number
   contract_high_since: number
@@ -64,6 +66,8 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [tradeToDelete, setTradeToDelete] = useState<Trade | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [sendAdDialogOpen, setSendAdDialogOpen] = useState(false)
+  const [tradeToSendAd, setTradeToSendAd] = useState<Trade | null>(null)
 
   useEffect(() => {
     fetchTrades()
@@ -147,7 +151,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   }
 
   const calculatePnL = (trade: Trade) => {
-    const entryPrice = trade.entry_contract_snapshot.mid
+    const entryPrice = trade.entry_contract_snapshot.price || trade.entry_contract_snapshot.mid || 0
 
     // For CALL/LONG: best profit is at highest price
     // For PUT/SHORT: best profit is at lowest price
@@ -278,7 +282,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Entry
                   </div>
                   <div className="text-lg font-semibold">
-                    {formatCurrencySimple(trade.entry_contract_snapshot.mid, 4)}
+                    {formatCurrencySimple(trade.entry_contract_snapshot.price || trade.entry_contract_snapshot.mid || 0, 4)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -380,6 +384,20 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     </Button>
                   </>
                 )}
+                {pnl.isPositive && pnl.percentage > 0 && (
+                  <Button
+                    variant="default"
+                    size="icon"
+                    onClick={() => {
+                      setTradeToSendAd(trade)
+                      setSendAdDialogOpen(true)
+                    }}
+                    title="Send as Advertisement"
+                    className="bg-purple-600 hover:bg-purple-700"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
                 {isAdmin && (
                   <Button
                     variant="destructive"
@@ -458,6 +476,14 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {tradeToSendAd && (
+        <SendTradeAdDialog
+          tradeId={tradeToSendAd.id}
+          open={sendAdDialogOpen}
+          onOpenChange={setSendAdDialogOpen}
+        />
+      )}
     </div>
   )
 }
