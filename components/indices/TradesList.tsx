@@ -5,11 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info, Edit, Trash2, Send } from 'lucide-react'
+import { Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity, Target, CircleDot, Info, Edit, Trash2, Send, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 import { ManualHighUpdateDialog } from './ManualHighUpdateDialog'
 import { SendTradeAdDialog } from './SendTradeAdDialog'
+import { QuickManualTradeDialog } from './QuickManualTradeDialog'
 import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
 import {
   AlertDialog,
@@ -68,6 +69,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   const [deleting, setDeleting] = useState(false)
   const [sendAdDialogOpen, setSendAdDialogOpen] = useState(false)
   const [tradeToSendAd, setTradeToSendAd] = useState<Trade | null>(null)
+  const [quickManualTradeOpen, setQuickManualTradeOpen] = useState(false)
 
   useEffect(() => {
     fetchTrades()
@@ -205,6 +207,22 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Active Trades</h3>
+          <p className="text-sm text-muted-foreground">
+            {trades.length} {trades.length === 1 ? 'trade' : 'trades'} total
+          </p>
+        </div>
+        <Button
+          onClick={() => setQuickManualTradeOpen(true)}
+          className="gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Quick Manual Trade
+        </Button>
+      </div>
+
       {!marketStatus.isOpen && (
         <Alert>
           <Info className="h-4 w-4" />
@@ -484,6 +502,15 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
           onOpenChange={setSendAdDialogOpen}
         />
       )}
+
+      <QuickManualTradeDialog
+        open={quickManualTradeOpen}
+        onOpenChange={setQuickManualTradeOpen}
+        onSuccess={() => {
+          toast.success('Manual trade created successfully')
+          fetchTrades()
+        }}
+      />
     </div>
   )
 }

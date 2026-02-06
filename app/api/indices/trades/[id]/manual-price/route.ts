@@ -200,7 +200,9 @@ export async function POST(
         const newHigh = updates.contract_high_since;
         const gainPercent = entryPrice > 0 ? ((newHigh - entryPrice) / entryPrice) * 100 : 0;
 
-        console.log(`📸 Generating snapshot for new high: $${newHigh} (+${gainPercent.toFixed(2)}%)`);
+        console.log(`📸 [Manual High] Generating snapshot for trade ID: ${id}`);
+        console.log(`📊 [Manual High] New high: $${newHigh} (+${gainPercent.toFixed(2)}%), Winner: ${newlyWon}`);
+        console.log(`🔗 [Manual High] Calling: ${supabaseUrl}/functions/v1/generate-trade-snapshot`);
 
         const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
           method: 'POST',
@@ -215,11 +217,13 @@ export async function POST(
           }),
         });
 
+        console.log(`📡 [Manual High] Snapshot response status: ${snapshotResponse.status}`);
+
         let snapshotUrl = null;
         if (snapshotResponse.ok) {
           const snapshotResult = await snapshotResponse.json();
           snapshotUrl = snapshotResult.imageUrl;
-          console.log(`✅ Snapshot generated: ${snapshotUrl}`);
+          console.log(`✅ [Manual High] Snapshot generated successfully: ${snapshotUrl}`);
 
           await supabase
             .from('index_trades')
@@ -227,6 +231,9 @@ export async function POST(
             .eq('id', id);
 
           trade.contract_url = snapshotUrl;
+        } else {
+          const errorText = await snapshotResponse.text();
+          console.error(`❌ [Manual High] Failed to generate snapshot (${snapshotResponse.status}):`, errorText);
         }
 
         const channelId = existing.telegram_channel_id || existing.analysis?.telegram_channel_id;

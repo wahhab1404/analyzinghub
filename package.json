@@ -23,6 +23,7 @@
     "test:resend-channel": "node node_modules/tsx/dist/cli.mjs scripts/test-resend-channel.ts",
     "test:expired-closer": "node node_modules/tsx/dist/cli.mjs scripts/test-expired-trades-closer.ts",
     "test:telegram:symbol": "node node_modules/tsx/dist/cli.mjs scripts/test-telegram-symbol-query.ts",
+    "test:manual-snapshot": "node node_modules/tsx/dist/cli.mjs scripts/test-manual-trade-snapshot.ts",
     "clear:cache": "node node_modules/tsx/dist/cli.mjs scripts/clear-spx-cache.ts",
     "check:telegram-channels": "node node_modules/tsx/dist/cli.mjs scripts/check-telegram-channels.ts",
     "sync:test": "npm install && npm run build",
