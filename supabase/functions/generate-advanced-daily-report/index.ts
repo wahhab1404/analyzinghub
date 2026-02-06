@@ -335,11 +335,13 @@ function generateReportHTML(data: any): string {
   const isDual = language_mode === 'dual';
   const dir = isArabic ? 'rtl' : 'ltr';
   
-  const dateFormatted = new Date(date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
+  // Parse date at noon UTC to avoid timezone shifts
+  const dateFormatted = new Date(date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   });
 
   const t = {

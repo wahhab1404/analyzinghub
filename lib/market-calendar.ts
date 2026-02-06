@@ -96,21 +96,22 @@ export function getWeekTradingDays(weekOffset: number = 0): { start: Date; end: 
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
+  // Calculate the Monday of the current calendar week
+  const dayOfWeek = now.getDay();
+  const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday is 6 days from Monday
+
   const monday = new Date(now);
-  monday.setDate(now.getDate() - now.getDay() + 1 + weekOffset * 7);
+  monday.setDate(now.getDate() - daysFromMonday + weekOffset * 7);
   monday.setHours(0, 0, 0, 0);
 
   const friday = new Date(monday);
   friday.setDate(monday.getDate() + 4);
   friday.setHours(23, 59, 59, 999);
 
-  // Only cap at today if it's the current week (weekOffset === 0)
-  const endDate = weekOffset === 0 && friday > now ? now : friday;
-
   return {
     start: monday,
-    end: endDate,
-    days: getTradingDaysInRange(monday, endDate),
+    end: friday,
+    days: getTradingDaysInRange(monday, friday),
   };
 }
 

@@ -57,7 +57,9 @@ export async function GET(
       analysis = analysisData;
     }
 
-    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+    const entryPrice = trade.entry_contract_snapshot?.price ||
+                        trade.entry_contract_snapshot?.mid ||
+                        trade.entry_contract_snapshot?.last || 0;
     const currentPrice = trade.current_contract || entryPrice;
     const priceChange = currentPrice - entryPrice;
     const priceChangePercent = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;

@@ -318,6 +318,19 @@ Deno.serve(async (req) => {
 function generatePeriodReportHTML(data: any): string {
   const { start_date, end_date, period_type, trades, metrics, language_mode, analyzer } = data;
 
+  // CRITICAL DEBUG LOGGING
+  console.log(`[HTML Generator] Received trades array:`, Array.isArray(trades));
+  console.log(`[HTML Generator] Trades length:`, trades?.length || 0);
+  if (trades && trades.length > 0) {
+    console.log(`[HTML Generator] First trade:`, {
+      id: trades[0].id,
+      symbol: trades[0].underlying_index_symbol,
+      status: trades[0].status
+    });
+  } else {
+    console.log(`[HTML Generator] ⚠️  NO TRADES RECEIVED - will show empty state`);
+  }
+
   const isArabic = language_mode === 'ar';
   const isDual = language_mode === 'dual';
   const dir = isArabic ? 'rtl' : 'ltr';
@@ -329,16 +342,19 @@ function generatePeriodReportHTML(data: any): string {
     'custom': isDual ? 'Period Report | تقرير الفترة' : isArabic ? 'تقرير الفترة' : 'Period Report'
   }[period_type];
 
-  const startFormatted = new Date(start_date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
+  // Parse dates at noon UTC to avoid timezone shifts
+  const startFormatted = new Date(start_date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   });
 
-  const endFormatted = new Date(end_date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
+  const endFormatted = new Date(end_date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
     year: 'numeric',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'UTC'
   });
 
   const dateRange = `${startFormatted} - ${endFormatted}`;

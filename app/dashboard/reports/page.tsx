@@ -73,8 +73,13 @@ export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
   const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
-  const [weekOffset, setWeekOffset] = useState<number>(0)
+  const [weekOffset, setWeekOffset] = useState<number>(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    return (dayOfWeek === 0 || dayOfWeek === 6) ? -1 : 0;
+  })
   const [monthOffset, setMonthOffset] = useState<number>(0)
+  const [recentTradeDates, setRecentTradeDates] = useState<string[]>([])
 
   // Reports history
   const [reports, setReports] = useState<Report[]>([])
@@ -165,6 +170,29 @@ export default function ReportsPage() {
     }
   }, [])
 
+  const loadRecentTradeDates = useCallback(async () => {
+    try {
+      const response = await fetch('/api/indices/trades?limit=100')
+      if (!response.ok) return
+      const data = await response.json()
+
+      const uniqueDates = new Set<string>()
+      data.trades?.forEach((trade: any) => {
+        const date = new Date(trade.created_at).toISOString().split('T')[0]
+        uniqueDates.add(date)
+      })
+
+      const sortedDates = Array.from(uniqueDates).sort().reverse().slice(0, 10)
+      setRecentTradeDates(sortedDates)
+
+      if (sortedDates.length > 0) {
+        setSelectedDate(new Date(sortedDates[0] + 'T12:00:00'))
+      }
+    } catch (err) {
+      console.error('Error loading recent trade dates:', err)
+    }
+  }, [])
+
   useEffect(() => {
     setMounted(true)
   }, [])
@@ -180,6 +208,7 @@ export default function ReportsPage() {
       await checkAccess()
       await loadReports()
       await loadSettings()
+      await loadRecentTradeDates()
 
       if (isActive) {
         setInitComplete(true)
@@ -192,7 +221,7 @@ export default function ReportsPage() {
     return () => {
       isActive = false
     }
-  }, [mounted, checkAccess, loadReports, loadSettings, router])
+  }, [mounted, checkAccess, loadReports, loadSettings, loadRecentTradeDates, router])
 
   const generateReport = async () => {
     setGenerating(true)
@@ -206,7 +235,12 @@ export default function ReportsPage() {
       }
 
       if (periodType === 'daily') {
-        body.date = format(selectedDate, 'yyyy-MM-dd')
+        // Format date in UTC to avoid timezone issues
+        const year = selectedDate.getFullYear()
+        const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
+        const day = String(selectedDate.getDate()).padStart(2, '0')
+        body.date = `${year}-${month}-${day}`
+        console.log('[Generate Report] Selected date:', selectedDate, 'Formatted:', body.date)
       } else {
         endpoint = '/api/reports/generate-period'
         body.period_type = periodType
@@ -218,28 +252,54 @@ export default function ReportsPage() {
         }
       }
 
+      console.log('[Generate Report] Sending request:', { endpoint, body })
+
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
         body: JSON.stringify(body)
       })
 
       if (!response.ok) {
         const errorData = await response.json()
+        console.error('[Generate Report] Error:', errorData)
         throw new Error(errorData.error || 'Failed to generate report')
       }
 
       const data = await response.json()
+      console.log('[Generate Report] New report created:', data)
+
       setSuccess(`Report generated successfully! ${periodType === 'daily' ? '' : `(${data.start_date} to ${data.end_date})`}`)
 
-      // Force immediate refresh
-      await loadReports()
+      // Clear existing reports to force fresh load
+      setReports([])
+
+      // Switch to history tab first
       setActiveTab('history')
 
-      // Refresh again after a short delay to ensure the database write is complete
-      setTimeout(() => {
-        loadReports()
-      }, 1000)
+      // Wait a bit for database write to complete
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Force fresh load with multiple attempts
+      console.log('[Generate Report] Refreshing reports list...')
+      await loadReports()
+
+      // Second refresh after delay
+      setTimeout(async () => {
+        console.log('[Generate Report] Second refresh...')
+        await loadReports()
+      }, 1500)
+
+      // Third refresh to be absolutely sure
+      setTimeout(async () => {
+        console.log('[Generate Report] Final refresh...')
+        await loadReports()
+      }, 3000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate report')
     } finally {
@@ -481,8 +541,8 @@ export default function ReportsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div className="md:col-span-2">
                   <label className="text-sm font-medium mb-2 block">
                     {language === 'ar' ? 'نوع التقرير' : 'Report Type'}
                   </label>
@@ -505,38 +565,60 @@ export default function ReportsPage() {
                 </div>
 
                 {periodType === 'daily' && (
-                  <div>
+                  <div className="md:col-span-4">
                     <label className="text-sm font-medium mb-2 block">
                       {language === 'ar' ? 'التاريخ' : 'Date'}
                     </label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            'w-full justify-start text-left font-normal',
-                            !selectedDate && 'text-muted-foreground'
-                          )}
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={selectedDate}
-                          onSelect={(date) => date && setSelectedDate(date)}
-                          initialFocus
-                          disabled={(date) => date > new Date()}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <div className="flex gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              'flex-1 justify-start text-left font-normal',
+                              !selectedDate && 'text-muted-foreground'
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar
+                            mode="single"
+                            selected={selectedDate}
+                            onSelect={(date) => date && setSelectedDate(date)}
+                            initialFocus
+                            disabled={(date) => date > new Date()}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    {recentTradeDates.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          {language === 'ar' ? 'تواريخ حديثة بها صفقات:' : 'Recent dates with trades:'}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {recentTradeDates.slice(0, 5).map((date) => (
+                            <Button
+                              key={date}
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => setSelectedDate(new Date(date + 'T12:00:00'))}
+                            >
+                              {format(new Date(date), 'MMM dd')}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {periodType === 'weekly' && (
-                  <div>
+                  <div className="md:col-span-4">
                     <label className="text-sm font-medium mb-2 block">
                       {language === 'ar' ? 'الأسبوع' : 'Week Period'}
                     </label>
@@ -556,7 +638,7 @@ export default function ReportsPage() {
                 )}
 
                 {periodType === 'monthly' && (
-                  <div>
+                  <div className="md:col-span-4">
                     <label className="text-sm font-medium mb-2 block">
                       {language === 'ar' ? 'الشهر' : 'Month Period'}
                     </label>
@@ -574,7 +656,7 @@ export default function ReportsPage() {
                   </div>
                 )}
 
-                <div>
+                <div className="md:col-span-3">
                   <label className="text-sm font-medium mb-2 block">
                     {language === 'ar' ? 'اللغة' : 'Language'}
                   </label>
@@ -590,7 +672,7 @@ export default function ReportsPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-end">
+                <div className="md:col-span-3 flex items-end">
                   <Button
                     onClick={generateReport}
                     disabled={generating}
@@ -633,15 +715,15 @@ export default function ReportsPage() {
                   <AlertDescription className="text-sm">
                     {language === 'ar'
                       ? `سيتم إنشاء تقرير شهري ${
-                          monthOffset === 0 ? 'للشهر الحالي' :
-                          monthOffset === -1 ? 'للشهر الماضي' :
+                          monthOffset === 0 ? 'للشهر الحالي (فبراير 2026)' :
+                          monthOffset === -1 ? 'للشهر الماضي (يناير 2026)' :
                           `لشهر قبل ${Math.abs(monthOffset)} أشهر`
                         }`
                       : `Will generate monthly report ${
-                          monthOffset === 0 ? 'for current month' :
-                          monthOffset === -1 ? 'for last month' :
+                          monthOffset === 0 ? 'for current month (February 2026)' :
+                          monthOffset === -1 ? 'for last month (January 2026)' :
                           `for ${Math.abs(monthOffset)} months ago`
-                        }`}
+                        } with all trades from that period`}
                   </AlertDescription>
                 </Alert>
               )}
@@ -819,7 +901,7 @@ export default function ReportsPage() {
                           <div className="flex items-center gap-2 mb-2">
                             <h3 className="font-semibold">
                               {report.period_type === 'daily'
-                                ? format(new Date(report.report_date), 'PPP')
+                                ? format(new Date(report.report_date + 'T12:00:00'), 'PPP')
                                 : `${report.period_type?.charAt(0).toUpperCase()}${report.period_type?.slice(1)} Report`
                               }
                             </h3>
@@ -837,7 +919,7 @@ export default function ReportsPage() {
 
                           {report.start_date && report.end_date && (
                             <p className="text-sm text-muted-foreground mb-2">
-                              {format(new Date(report.start_date), 'MMM dd')} - {format(new Date(report.end_date), 'MMM dd, yyyy')}
+                              {format(new Date(report.start_date + 'T12:00:00'), 'MMM dd')} - {format(new Date(report.end_date + 'T12:00:00'), 'MMM dd, yyyy')}
                             </p>
                           )}
 

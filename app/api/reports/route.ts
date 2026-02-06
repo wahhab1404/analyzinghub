@@ -76,6 +76,12 @@ export async function GET(request: NextRequest) {
       total: count || 0,
       limit,
       offset
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     })
   } catch (error) {
     console.error('[Reports API] Error fetching reports:', error)

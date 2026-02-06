@@ -109,9 +109,9 @@ Deno.serve(async (req) => {
                      profit < 0 ? '❌' : '⏰';
       const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}` : '-';
       const displaySymbol = t.underlying_index_symbol || t.symbol || 'N/A';
-      const strike = t.strike_price || 0;
-      const entry = t.entry_contract_price || 0;
-      const high = t.contract_high_since || t.entry_contract_price || 0;
+      const strike = t.strike || 0;
+      const entry = t.entry_contract_snapshot?.price || t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+      const high = t.contract_high_since || t.current_contract || entry;
       return {
         symbol: displaySymbol,
         status,

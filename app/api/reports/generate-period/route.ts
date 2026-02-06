@@ -172,6 +172,12 @@ export async function POST(request: NextRequest) {
       start_date: finalStartDate,
       end_date: finalEndDate,
       ...result,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      }
     });
   } catch (error: any) {
     console.error('Error generating period report:', error);
