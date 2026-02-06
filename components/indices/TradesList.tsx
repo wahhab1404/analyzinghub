@@ -11,6 +11,7 @@ import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 import { ManualHighUpdateDialog } from './ManualHighUpdateDialog'
 import { SendTradeAdDialog } from './SendTradeAdDialog'
 import { QuickManualTradeDialog } from './QuickManualTradeDialog'
+import { EditHighWatermarkDialog } from './EditHighWatermarkDialog'
 import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
 import {
   AlertDialog,
@@ -70,6 +71,8 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   const [sendAdDialogOpen, setSendAdDialogOpen] = useState(false)
   const [tradeToSendAd, setTradeToSendAd] = useState<Trade | null>(null)
   const [quickManualTradeOpen, setQuickManualTradeOpen] = useState(false)
+  const [editHighDialogOpen, setEditHighDialogOpen] = useState(false)
+  const [tradeToEditHigh, setTradeToEditHigh] = useState<Trade | null>(null)
 
   useEffect(() => {
     fetchTrades()
@@ -402,6 +405,17 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     </Button>
                   </>
                 )}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => {
+                    setTradeToEditHigh(trade)
+                    setEditHighDialogOpen(true)
+                  }}
+                  title="Edit High Watermark"
+                >
+                  <TrendingUp className="h-4 w-4" />
+                </Button>
                 {pnl.isPositive && pnl.percentage > 0 && (
                   <Button
                     variant="default"
@@ -442,6 +456,17 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
           trade={selectedTradeForUpdate}
           onSuccess={() => {
             toast.success('Prices updated successfully')
+            fetchTrades()
+          }}
+        />
+      )}
+
+      {tradeToEditHigh && (
+        <EditHighWatermarkDialog
+          open={editHighDialogOpen}
+          onOpenChange={setEditHighDialogOpen}
+          trade={tradeToEditHigh}
+          onSuccess={() => {
             fetchTrades()
           }}
         />

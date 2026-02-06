@@ -293,7 +293,8 @@ export function formatTradeMessage(
   message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
 
   if (trade.polygon_option_ticker) {
-    message += `<b>العقد:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
+    message += `<b>العقد:</b> ${cleanSymbol}\n`;
+    message += `<b>سترايك:</b> ${trade.strike?.toFixed(0)}\n`;
   }
 
   message += `<b>الدخول:</b> ${entryPrice.toFixed(2)}\n`;

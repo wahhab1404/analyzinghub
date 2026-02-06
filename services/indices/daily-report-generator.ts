@@ -3,6 +3,8 @@
  * Creates beautifully styled HTML reports for daily options trades
  */
 
+import { formatPercent } from '@/lib/format-utils';
+
 export interface TradeReportData {
   trade_id: string
   underlying_symbol: string
@@ -40,13 +42,16 @@ export class DailyReportGenerator {
    * Generate a summary from trade data
    */
   static generateSummary(trades: TradeReportData[]): DailyReportSummary {
-    const winningTrades = trades.filter(t => t.is_winning_trade || t.profit_from_entry > 20)
-    const losingTrades = trades.filter(t => t.profit_from_entry < -20)
-    const breakevenTrades = trades.filter(t => t.profit_from_entry >= -20 && t.profit_from_entry <= 20 && !t.is_winning_trade)
+    const winningTrades = trades.filter(t => t.is_winning_trade || (t.max_profit || 0) >= 100)
+    const losingTrades = trades.filter(t => (t.max_profit || 0) < -20)
+    const breakevenTrades = trades.filter(t => {
+      const profit = t.max_profit || 0;
+      return profit >= -20 && profit < 100 && !t.is_winning_trade;
+    })
 
-    const totalProfit = trades.reduce((sum, t) => sum + (t.profit_from_entry || 0), 0)
+    const totalProfit = trades.reduce((sum, t) => sum + (t.max_profit || 0), 0)
     const biggestWin = Math.max(...trades.map(t => t.max_profit || 0), 0)
-    const biggestLoss = Math.min(...trades.map(t => t.profit_from_entry || 0), 0)
+    const biggestLoss = Math.min(...trades.map(t => t.max_profit || 0), 0)
     const winRate = trades.length > 0 ? (winningTrades.length / trades.length) * 100 : 0
 
     return {
@@ -344,7 +349,7 @@ export class DailyReportGenerator {
       </div>
       <div class="summary-card win-rate">
         <div class="label">Win Rate</div>
-        <div class="value">${summary.win_rate.toFixed(1)}%</div>
+        <div class="value">${formatPercent(summary.win_rate, 'rounded')}</div>
       </div>
       <div class="summary-card ${summary.total_profit >= 0 ? 'profit' : 'loss'}">
         <div class="label">Total P&L</div>
