@@ -12,7 +12,7 @@ import { ManualHighUpdateDialog } from './ManualHighUpdateDialog'
 import { SendTradeAdDialog } from './SendTradeAdDialog'
 import { QuickManualTradeDialog } from './QuickManualTradeDialog'
 import { EditHighWatermarkDialog } from './EditHighWatermarkDialog'
-import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
+import { formatNumber, formatCurrency, formatCurrencySimple } from '@/lib/format-utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -169,8 +169,13 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
     const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
     const adjustedPnL = pnlPercentage * multiplier
 
+    const contractMultiplier = trade.contract_multiplier || 100
+    const qty = trade.qty || 1
+    const pnlDollars = (bestPrice - entryPrice) * qty * contractMultiplier * multiplier
+
     return {
       percentage: adjustedPnL,
+      dollars: pnlDollars,
       isPositive: adjustedPnL > 0,
     }
   }
@@ -282,13 +287,16 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     </p>
                   )}
                 </div>
-                <div className={`text-right ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
-                  <div className="text-2xl font-bold flex items-center gap-1">
+                <div className={`text-right space-y-1 ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                  <div className="text-3xl font-bold flex items-center justify-end gap-2">
                     {pnl.isPositive ? (
-                      <TrendingUp className="h-5 w-5" />
+                      <TrendingUp className="h-7 w-7" />
                     ) : (
-                      <TrendingDown className="h-5 w-5" />
+                      <TrendingDown className="h-7 w-7" />
                     )}
+                    {pnl.dollars >= 0 ? '+' : ''}{formatCurrency(pnl.dollars, 2)}
+                  </div>
+                  <div className="text-xl font-semibold">
                     {pnl.percentage > 0 ? '+' : ''}{formatNumber(pnl.percentage, 2)}%
                   </div>
                   <div className="text-xs text-muted-foreground">P&L</div>
@@ -303,7 +311,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Entry
                   </div>
                   <div className="text-lg font-semibold">
-                    {formatCurrencySimple(trade.entry_contract_snapshot.price || trade.entry_contract_snapshot.mid || 0, 4)}
+                    {formatNumber(trade.entry_contract_snapshot.price || trade.entry_contract_snapshot.mid || 0, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -312,7 +320,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Current
                   </div>
                   <div className="text-lg font-semibold">
-                    {formatCurrencySimple(trade.current_contract, 4)}
+                    {formatNumber(trade.current_contract, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -321,7 +329,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     High
                   </div>
                   <div className="text-lg font-semibold text-green-600">
-                    {formatCurrencySimple(trade.contract_high_since, 4)}
+                    {formatNumber(trade.contract_high_since, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -330,7 +338,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                     Low
                   </div>
                   <div className="text-lg font-semibold text-red-600">
-                    {formatCurrencySimple(trade.contract_low_since, 4)}
+                    {formatNumber(trade.contract_low_since, 2)}
                   </div>
                 </div>
               </div>
@@ -382,7 +390,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                 </div>
               </div>
 
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {trade.status === 'active' && (
                   <>
                     <Button
@@ -406,15 +414,15 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
                   </>
                 )}
                 <Button
-                  variant="outline"
-                  size="icon"
+                  variant="default"
+                  className="bg-blue-600 hover:bg-blue-700"
                   onClick={() => {
                     setTradeToEditHigh(trade)
                     setEditHighDialogOpen(true)
                   }}
-                  title="Edit High Watermark"
                 >
-                  <TrendingUp className="h-4 w-4" />
+                  <TrendingUp className="h-4 w-4 mr-2" />
+                  Edit High
                 </Button>
                 {pnl.isPositive && pnl.percentage > 0 && (
                   <Button

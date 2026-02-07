@@ -403,7 +403,7 @@ export function IndexAnalysisDetailDialog({
                                 {pnl.isPositive ? '+' : ''}{pnl.percentage.toFixed(2)}%
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                ${trade.current_contract.toFixed(2)}
+                                {trade.current_contract.toFixed(2)}
                               </div>
                             </div>
                           )}
@@ -414,7 +414,7 @@ export function IndexAnalysisDetailDialog({
                           <div>
                             <div className="text-muted-foreground text-xs">Entry</div>
                             <div className="font-semibold">
-                              ${trade.entry_contract_snapshot.mid.toFixed(2)}
+                              {trade.entry_contract_snapshot.mid.toFixed(2)}
                             </div>
                           </div>
                           {trade.status === 'active' && (
@@ -422,13 +422,13 @@ export function IndexAnalysisDetailDialog({
                               <div>
                                 <div className="text-muted-foreground text-xs">High</div>
                                 <div className="font-semibold text-green-600">
-                                  ${trade.contract_high_since.toFixed(2)}
+                                  {trade.contract_high_since.toFixed(2)}
                                 </div>
                               </div>
                               <div>
                                 <div className="text-muted-foreground text-xs">Low</div>
                                 <div className="font-semibold text-red-600">
-                                  ${trade.contract_low_since.toFixed(2)}
+                                  {trade.contract_low_since.toFixed(2)}
                                 </div>
                               </div>
                             </>

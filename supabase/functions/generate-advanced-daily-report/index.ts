@@ -170,21 +170,43 @@ Deno.serve(async (req) => {
     const winningTradesList = completedTrades.filter(t => t.is_winning_trade === true || t.is_expired_winner === true);
     const losingTradesList = completedTrades.filter(t => t.is_winning_trade === false && !t.is_expired_winner);
 
+    // Calculate total profit (from winning trades)
     const totalProfit = winningTradesList.reduce((sum, t) => {
-      const profit = t.pnl_usd || t.final_profit || t.computed_profit_usd || 0;
+      // Priority: pnl_usd -> final_profit -> calculated from max_profit
+      let profit = 0;
+      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
+        profit = parseFloat(t.pnl_usd.toString());
+      } else if (t.final_profit !== null && t.final_profit !== undefined) {
+        profit = parseFloat(t.final_profit.toString());
+      } else if (t.max_profit !== null && t.max_profit !== undefined) {
+        profit = parseFloat(t.max_profit.toString());
+      } else {
+        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+        const highestPrice = t.contract_high_since || 0;
+        const qty = t.qty || 1;
+        const multiplier = t.contract_multiplier || 100;
+        profit = (highestPrice - entryPrice) * qty * multiplier;
+      }
       return sum + Math.abs(profit);
     }, 0);
 
+    // Calculate total loss (from losing trades)
     const totalLoss = losingTradesList.reduce((sum, t) => {
-      let loss = t.pnl_usd || t.final_profit || t.computed_profit_usd;
-
-      if (!loss || loss === 0) {
+      // Priority: pnl_usd -> final_profit -> calculated from max_profit
+      let loss = 0;
+      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
+        loss = parseFloat(t.pnl_usd.toString());
+      } else if (t.final_profit !== null && t.final_profit !== undefined) {
+        loss = parseFloat(t.final_profit.toString());
+      } else if (t.max_profit !== null && t.max_profit !== undefined) {
+        loss = parseFloat(t.max_profit.toString());
+      } else {
         const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+        const highestPrice = t.contract_high_since || 0;
         const qty = t.qty || 1;
         const multiplier = t.contract_multiplier || 100;
-        loss = -(entryPrice * qty * multiplier);
+        loss = (highestPrice - entryPrice) * qty * multiplier;
       }
-
       return sum + Math.abs(loss);
     }, 0);
 
@@ -192,6 +214,31 @@ Deno.serve(async (req) => {
 
     const winningTrades = winningTradesList.length;
     const losingTrades = losingTradesList.length;
+
+    // Calculate additional metrics for better reporting
+    const avgProfitPerWin = winningTrades > 0 ? (totalProfit / winningTrades) : 0;
+    const avgLossPerLoss = losingTrades > 0 ? (totalLoss / losingTrades) : 0;
+
+    const allProfits = winningTradesList.map(t => {
+      if (t.pnl_usd !== null && t.pnl_usd !== undefined) return Math.abs(parseFloat(t.pnl_usd.toString()));
+      if (t.final_profit !== null && t.final_profit !== undefined) return Math.abs(parseFloat(t.final_profit.toString()));
+      if (t.max_profit !== null && t.max_profit !== undefined) return Math.abs(parseFloat(t.max_profit.toString()));
+      const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+      const highestPrice = t.contract_high_since || 0;
+      return Math.abs((highestPrice - entryPrice) * (t.qty || 1) * (t.contract_multiplier || 100));
+    });
+
+    const allLosses = losingTradesList.map(t => {
+      if (t.pnl_usd !== null && t.pnl_usd !== undefined) return Math.abs(parseFloat(t.pnl_usd.toString()));
+      if (t.final_profit !== null && t.final_profit !== undefined) return Math.abs(parseFloat(t.final_profit.toString()));
+      if (t.max_profit !== null && t.max_profit !== undefined) return Math.abs(parseFloat(t.max_profit.toString()));
+      const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+      const highestPrice = t.contract_high_since || 0;
+      return Math.abs((highestPrice - entryPrice) * (t.qty || 1) * (t.contract_multiplier || 100));
+    });
+
+    const bestTrade = allProfits.length > 0 ? Math.max(...allProfits) : 0;
+    const worstTrade = allLosses.length > 0 ? -Math.max(...allLosses) : 0;
 
     const metrics = {
       total_trades: totalTrades,
@@ -206,7 +253,11 @@ Deno.serve(async (req) => {
       total_profit: totalProfit,
       total_loss: totalLoss,
       net_profit: netProfit,
-      total_profit_dollars: netProfit
+      total_profit_dollars: netProfit,
+      avg_profit_per_winning_trade: avgProfitPerWin,
+      avg_loss_per_losing_trade: avgLossPerLoss,
+      best_trade: bestTrade,
+      worst_trade: worstTrade
     };
 
     const { data: analyzerProfile } = await supabase

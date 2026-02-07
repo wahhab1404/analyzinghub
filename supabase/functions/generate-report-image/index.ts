@@ -72,10 +72,16 @@ Deno.serve(async (req) => {
       endOfPeriod: endOfPeriod.toISOString()
     });
 
-    const { data: allTrades } = await supabase
+    const { data: allTrades, error: tradesQueryError } = await supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analystId);
+
+    if (tradesQueryError) {
+      console.error('[Report Image] Error fetching trades:', tradesQueryError);
+    }
+
+    console.log('[Report Image] All trades count:', allTrades?.length || 0);
 
     const trades = allTrades?.filter((t: any) => {
       const createdAt = new Date(t.created_at);
@@ -91,6 +97,8 @@ Deno.serve(async (req) => {
     }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 8) || [];
 
+    console.log('[Report Image] Filtered trades count:', trades?.length || 0);
+
     const tradesError = null;
 
     if (tradesError) {
@@ -103,10 +111,25 @@ Deno.serve(async (req) => {
     }
 
     const tradesData = (trades || []).map(t => {
-      const profit = t.pnl_usd || t.final_profit || 0;
+      // Calculate profit with proper priority
+      let profit = 0;
+      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
+        profit = parseFloat(t.pnl_usd.toString());
+      } else if (t.final_profit !== null && t.final_profit !== undefined) {
+        profit = parseFloat(t.final_profit.toString());
+      } else if (t.max_profit !== null && t.max_profit !== undefined) {
+        profit = parseFloat(t.max_profit.toString());
+      } else {
+        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
+        const highestPrice = t.contract_high_since || 0;
+        const qty = t.qty || 1;
+        const multiplier = t.contract_multiplier || 100;
+        profit = (highestPrice - entryPrice) * qty * multiplier;
+      }
+
       const status = t.status === 'active' ? '🟢' :
-                     t.is_winning_trade ? '✅' :
-                     profit < 0 ? '❌' : '⏰';
+                     t.is_winning_trade || profit >= 100 ? '✅' :
+                     profit < -20 ? '❌' : '⏰';
       const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}` : '-';
       const displaySymbol = t.underlying_index_symbol || t.symbol || 'N/A';
       const strike = t.strike || 0;

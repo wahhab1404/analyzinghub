@@ -924,30 +924,41 @@ export default function ReportsPage() {
                           )}
 
                           {report.summary && (
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  {language === 'ar' ? 'إجمالي الصفقات' : 'Total Trades'}
-                                </p>
-                                <p className="text-lg font-semibold">{report.summary.total_trades || 0}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  {language === 'ar' ? 'نشطة' : 'Active'}
-                                </p>
-                                <p className="text-lg font-semibold text-blue-600">{report.summary.active_trades || 0}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  {language === 'ar' ? 'مغلقة' : 'Closed'}
-                                </p>
-                                <p className="text-lg font-semibold text-green-600">{report.summary.closed_trades || 0}</p>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground">
-                                  {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
-                                </p>
-                                <p className="text-lg font-semibold">{(report.summary.win_rate || 0).toFixed(1)}%</p>
+                            <div className="space-y-4 mt-3">
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border-l-4 border-green-500">
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {language === 'ar' ? 'صافي الربح' : 'Net Profit'}
+                                  </p>
+                                  <p className="text-2xl font-bold text-green-700 dark:text-green-400">
+                                    {report.summary.net_profit >= 0 ? '+' : ''}${(report.summary.net_profit || 0).toFixed(0)}
+                                  </p>
+                                  <p className="text-sm text-green-600 dark:text-green-500 mt-1">
+                                    {report.summary.avg_profit_percent ? `${report.summary.avg_profit_percent.toFixed(1)}%` : '0.0%'}
+                                  </p>
+                                </div>
+                                <div className="bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/20 dark:to-indigo-900/20 p-4 rounded-lg border-l-4 border-blue-500">
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
+                                  </p>
+                                  <p className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                                    {(report.summary.win_rate || 0).toFixed(1)}%
+                                  </p>
+                                  <p className="text-sm text-blue-600 dark:text-blue-500 mt-1">
+                                    {report.summary.winning_trades || 0}W / {report.summary.losing_trades || 0}L
+                                  </p>
+                                </div>
+                                <div className="bg-gradient-to-br from-purple-50 to-pink-100 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-lg border-l-4 border-purple-500">
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    {language === 'ar' ? 'إجمالي الصفقات' : 'Total Trades'}
+                                  </p>
+                                  <p className="text-2xl font-bold text-purple-700 dark:text-purple-400">
+                                    {report.summary.total_trades || 0}
+                                  </p>
+                                  <p className="text-sm text-purple-600 dark:text-purple-500 mt-1">
+                                    {report.summary.active_trades || 0} {language === 'ar' ? 'نشطة' : 'Active'}
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           )}
@@ -974,9 +985,9 @@ export default function ReportsPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => handlePreview(report)}
-                              title={language === 'ar' ? 'معاينة HTML' : 'Preview HTML'}
+                              title={language === 'ar' ? 'معاينة التقرير' : 'Preview Report'}
                             >
-                              <FileText className="w-4 h-4" />
+                              <Eye className="w-4 h-4" />
                             </Button>
                           )}
                           {report.image_url && (
@@ -986,20 +997,46 @@ export default function ReportsPage() {
                               onClick={() => handleImagePreview(report.image_url!)}
                               title={language === 'ar' ? 'معاينة الصورة' : 'Preview Image'}
                             >
-                              <Eye className="w-4 h-4 text-purple-600" />
+                              <Image className="w-4 h-4" />
                             </Button>
                           )}
                           {report.file_url && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              asChild
-                              title={language === 'ar' ? 'تحميل PDF' : 'Download PDF'}
-                            >
-                              <a href={report.file_url} target="_blank" rel="noopener noreferrer">
-                                <Download className="w-4 h-4" />
-                              </a>
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                asChild
+                                title={language === 'ar' ? 'تحميل HTML' : 'Download HTML'}
+                              >
+                                <a href={report.file_url} target="_blank" rel="noopener noreferrer">
+                                  <Download className="w-4 h-4" />
+                                </a>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    const response = await fetch(report.file_url!);
+                                    const htmlContent = await response.text();
+                                    const blob = new Blob([htmlContent], { type: 'text/html' });
+                                    const url = URL.createObjectURL(blob);
+                                    const printWindow = window.open(url, '_blank');
+                                    if (printWindow) {
+                                      printWindow.onload = () => {
+                                        printWindow.print();
+                                        URL.revokeObjectURL(url);
+                                      };
+                                    }
+                                  } catch (error) {
+                                    console.error('Error printing:', error);
+                                  }
+                                }}
+                                title={language === 'ar' ? 'طباعة كـ PDF' : 'Print as PDF'}
+                              >
+                                <FileText className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="outline"

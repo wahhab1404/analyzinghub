@@ -143,20 +143,12 @@ Deno.serve(async (req) => {
     const losingTrades = completedTrades.filter(t => t.is_winning_trade === false);
 
     const totalProfit = winningTrades.reduce((sum, t) => {
-      const profit = t.pnl_usd || t.final_profit || t.computed_profit_usd || 0;
+      const profit = t.max_profit || 0;
       return sum + Math.abs(profit);
     }, 0);
 
     const totalLoss = losingTrades.reduce((sum, t) => {
-      let loss = t.pnl_usd || t.final_profit || t.computed_profit_usd;
-
-      if (!loss || loss === 0) {
-        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-        const qty = t.qty || 1;
-        const multiplier = t.contract_multiplier || 100;
-        loss = -(entryPrice * qty * multiplier);
-      }
-
+      const loss = t.max_profit || 0;
       return sum + Math.abs(loss);
     }, 0);
 
@@ -174,7 +166,7 @@ Deno.serve(async (req) => {
       ? -(totalLoss / losingTrades.length)
       : 0;
 
-    const allProfits = completedTrades.map(t => t.pnl_usd || t.final_profit || t.computed_profit_usd || 0);
+    const allProfits = completedTrades.map(t => t.max_profit || 0);
     const bestTrade = allProfits.length > 0 ? Math.max(...allProfits) : 0;
     const worstTrade = allProfits.length > 0 ? Math.min(...allProfits) : 0;
 

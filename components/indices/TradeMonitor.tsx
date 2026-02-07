@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot } from 'lucide-react'
+import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot, Edit2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
-import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
+import { formatNumber, formatCurrency, formatCurrencySimple } from '@/lib/format-utils'
+import { EditHighWatermarkDialog } from './EditHighWatermarkDialog'
 
 interface Trade {
   id: string
@@ -55,6 +56,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
   const [secondsAgo, setSecondsAgo] = useState(0)
   const [refreshSecondsAgo, setRefreshSecondsAgo] = useState(0)
   const [marketStatus, setMarketStatus] = useState(getMarketStatus())
+  const [editHighDialogOpen, setEditHighDialogOpen] = useState(false)
 
   useEffect(() => {
     fetchTrade()
@@ -136,7 +138,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
   }
 
   const calculatePnL = () => {
-    if (!trade) return { percentage: 0, absolute: 0, isPositive: false }
+    if (!trade) return { percentage: 0, absolute: 0, dollars: 0, isPositive: false }
 
     const entryPrice = trade.entry_contract_snapshot.mid
 
@@ -151,9 +153,14 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
 
     const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
 
+    const contractMultiplier = trade.contract_multiplier || 100
+    const qty = trade.qty || 1
+    const pnlDollars = (bestPrice - entryPrice) * qty * contractMultiplier * multiplier
+
     return {
       percentage: pnlPercentage * multiplier,
       absolute: pnlAbsolute * multiplier,
+      dollars: pnlDollars,
       isPositive: pnlPercentage * multiplier > 0,
     }
   }
@@ -223,12 +230,23 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
             {marketStatus.message}
           </Badge>
         </div>
-        {lastFetchTime && (
-          <div className="text-xs text-muted-foreground flex items-center gap-1">
-            <Activity className="h-3 w-3" />
-            Refreshed {refreshSecondsAgo}s ago • {formatMarketTime()}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setEditHighDialogOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            <Edit2 className="h-4 w-4 mr-2" />
+            Edit High Watermark
+          </Button>
+          {lastFetchTime && (
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              <Activity className="h-3 w-3" />
+              Refreshed {refreshSecondsAgo}s ago • {formatMarketTime()}
+            </div>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -276,7 +294,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
             <div className="space-y-4">
               <div className="text-center">
                 <div className="text-4xl font-bold flex items-center justify-center gap-2">
-                  {formatCurrencySimple(trade.current_contract, 4)}
+                  {formatNumber(trade.current_contract, 2)}
                   {priceChange !== 0 && (
                     <span className={`text-xl ${priceChange > 0 ? 'text-green-500' : 'text-red-500'}`}>
                       {priceChange > 0 ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
@@ -310,12 +328,15 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                 <div className="space-y-1">
                   <div className="text-sm text-muted-foreground">Entry</div>
                   <div className="text-lg font-semibold">
-                    {formatCurrencySimple(trade.entry_contract_snapshot.mid, 4)}
+                    {formatNumber(trade.entry_contract_snapshot.mid, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
                   <div className={`text-sm ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
                     P&L
+                  </div>
+                  <div className={`text-2xl font-bold ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
+                    {pnl.dollars >= 0 ? '+' : ''}{formatCurrency(pnl.dollars, 2)}
                   </div>
                   <div className={`text-lg font-semibold ${pnl.isPositive ? 'text-green-500' : 'text-red-500'}`}>
                     {pnl.percentage > 0 ? '+' : ''}{formatNumber(pnl.percentage, 2)}%
@@ -330,7 +351,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     High
                   </div>
                   <div className="text-lg font-semibold text-green-600">
-                    {formatCurrencySimple(trade.contract_high_since, 4)}
+                    {formatNumber(trade.contract_high_since, 2)}
                   </div>
                 </div>
                 <div className="space-y-1">
@@ -339,7 +360,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                     Low
                   </div>
                   <div className="text-lg font-semibold text-red-600">
-                    {formatCurrencySimple(trade.contract_low_since, 4)}
+                    {formatNumber(trade.contract_low_since, 2)}
                   </div>
                 </div>
               </div>
@@ -444,7 +465,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                         TP{index + 1}
                       </Badge>
                       <div>
-                        <div className="font-semibold">{formatCurrencySimple(target.price, 4)}</div>
+                        <div className="font-semibold">{formatNumber(target.price, 2)}</div>
                         <div className="text-xs text-muted-foreground">
                           Target: {target.percentage}%
                         </div>
@@ -474,7 +495,7 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
           <CardContent>
             <div className="flex items-center justify-between p-3 border border-red-200 rounded-lg bg-red-50">
               <div>
-                <div className="font-semibold text-red-600">{formatCurrencySimple(trade.stoploss.price, 4)}</div>
+                <div className="font-semibold text-red-600">{formatNumber(trade.stoploss.price, 2)}</div>
                 <div className="text-xs text-muted-foreground">
                   Stop: {trade.stoploss.percentage}%
                 </div>
@@ -499,6 +520,23 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
           </CardContent>
         </Card>
       )}
+
+      <EditHighWatermarkDialog
+        open={editHighDialogOpen}
+        onOpenChange={setEditHighDialogOpen}
+        trade={{
+          id: trade.id,
+          underlying_index_symbol: trade.underlying_index_symbol,
+          strike: trade.strike,
+          option_type: trade.option_type,
+          contract_high_since: trade.contract_high_since,
+          status: trade.status,
+        }}
+        onSuccess={() => {
+          fetchTrade()
+          toast.success('High watermark updated successfully')
+        }}
+      />
     </div>
   )
 }

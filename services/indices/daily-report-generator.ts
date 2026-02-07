@@ -406,9 +406,9 @@ export class DailyReportGenerator {
                     <div><strong>$${trade.strike}</strong> ${trade.option_type}</div>
                     <div class="contract-details">${new Date(trade.expiry).toLocaleDateString()}</div>
                   </td>
-                  <td>$${trade.entry_contract_price?.toFixed(2) || 'N/A'}</td>
-                  <td>$${trade.current_contract_price?.toFixed(2) || 'N/A'}</td>
-                  <td>$${trade.max_contract_price?.toFixed(2) || 'N/A'}</td>
+                  <td>${trade.entry_contract_price?.toFixed(2) || 'N/A'}</td>
+                  <td>${trade.current_contract_price?.toFixed(2) || 'N/A'}</td>
+                  <td>${trade.max_contract_price?.toFixed(2) || 'N/A'}</td>
                   <td>
                     <div class="profit-cell" style="color: ${profitStyle.color}; background: ${profitStyle.bgColor};">
                       ${profitStyle.text}
