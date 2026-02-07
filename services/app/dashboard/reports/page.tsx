@@ -1,0 +1,1220 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Loader2, CheckCircle2, XCircle, Clock, Download, Send, RefreshCw, FileText, CalendarIcon, Settings, ShieldAlert, Eye, Save, Image, FileType, AlertCircle, History } from 'lucide-react'
+import { format } from 'date-fns'
+import { useLanguage } from '@/lib/i18n/language-context'
+import { Calendar } from '@/components/ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
+import { SendToChannelDialog } from '@/components/reports/SendToChannelDialog'
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+interface Report {
+  id: string
+  report_date: string
+  language_mode: 'en' | 'ar' | 'dual'
+  status: string
+  file_url?: string
+  image_url?: string
+  created_at: string
+  period_type?: 'daily' | 'weekly' | 'monthly' | 'custom'
+  start_date?: string
+  end_date?: string
+  html_content?: string
+  summary?: {
+    total_trades: number
+    active_trades: number
+    closed_trades: number
+    expired_trades: number
+    winning_trades: number
+    losing_trades: number
+    net_profit: number
+    total_profit: number
+    avg_profit_percent: number
+    max_profit_percent: number
+    best_trade: number
+    win_rate: number
+  }
+  deliveries?: Array<{
+    id: string
+    channel_name?: string
+    status: string
+    sent_at?: string
+  }>
+}
+
+interface ReportSettings {
+  id: string
+  enabled: boolean
+  language_mode: 'en' | 'ar' | 'dual'
+  schedule_time: string
+  timezone: string
+  default_channel_id?: string
+  extra_channel_ids?: string[]
+}
+
+export default function ReportsPage() {
+  const router = useRouter()
+  const { language } = useLanguage()
+  const [mounted, setMounted] = useState(false)
+  const [initComplete, setInitComplete] = useState(false)
+  const [activeTab, setActiveTab] = useState('generate')
+
+  // Manual generation
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date())
+  const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
+  const [periodType, setPeriodType] = useState<'daily' | 'weekly' | 'monthly' | 'custom'>('daily')
+  const [weekOffset, setWeekOffset] = useState<number>(() => {
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    return (dayOfWeek === 0 || dayOfWeek === 6) ? -1 : 0;
+  })
+  const [monthOffset, setMonthOffset] = useState<number>(0)
+  const [recentTradeDates, setRecentTradeDates] = useState<string[]>([])
+
+  // Reports history
+  const [reports, setReports] = useState<Report[]>([])
+  const [loading, setLoading] = useState(false)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+  const [hasAccess, setHasAccess] = useState<boolean | null>(null)
+  const [userRole, setUserRole] = useState<string>('')
+  const [previewReport, setPreviewReport] = useState<Report | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [imagePreviewOpen, setImagePreviewOpen] = useState(false)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null)
+  const [sendingToTelegram, setSendingToTelegram] = useState<string | null>(null)
+  const [channelDialogOpen, setChannelDialogOpen] = useState(false)
+  const [selectedReportForSend, setSelectedReportForSend] = useState<string | null>(null)
+  const [downloadingPdf, setDownloadingPdf] = useState<string | null>(null)
+
+  // Automated settings
+  const [settings, setSettings] = useState<ReportSettings | null>(null)
+  const [loadingSettings, setLoadingSettings] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  const checkAccess = useCallback(async () => {
+    try {
+      const response = await fetch('/api/me', {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      })
+      if (!response.ok) throw new Error('Failed to load user info')
+      const data = await response.json()
+      const role = data.user?.role || ''
+      setUserRole(role)
+      setHasAccess(role === 'Analyzer' || role === 'SuperAdmin')
+    } catch (err) {
+      console.error('Error checking access:', err)
+      setHasAccess(false)
+    }
+  }, [])
+
+  const loadReports = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log('[Reports Page] Loading reports...')
+      const response = await fetch('/api/reports?t=' + Date.now(), {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
+      })
+
+      console.log('[Reports Page] Response status:', response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('[Reports Page] Error response:', errorText)
+        throw new Error('Failed to load reports')
+      }
+
+      const data = await response.json()
+      console.log('[Reports Page] Received data:', {
+        reportsCount: data.reports?.length || 0,
+        total: data.total,
+        reports: data.reports
+      })
+
+      setReports(data.reports || [])
+    } catch (err) {
+      console.error('[Reports Page] Load error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load reports')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const loadSettings = useCallback(async () => {
+    setLoadingSettings(true)
+    try {
+      const response = await fetch('/api/reports/settings')
+      if (!response.ok) throw new Error('Failed to load settings')
+      const data = await response.json()
+      setSettings(data)
+    } catch (err) {
+      console.error('Error loading settings:', err)
+    } finally {
+      setLoadingSettings(false)
+    }
+  }, [])
+
+  const loadRecentTradeDates = useCallback(async () => {
+    try {
+      const response = await fetch('/api/indices/trades?limit=100')
+      if (!response.ok) return
+      const data = await response.json()
+
+      const uniqueDates = new Set<string>()
+      data.trades?.forEach((trade: any) => {
+        const date = new Date(trade.created_at).toISOString().split('T')[0]
+        uniqueDates.add(date)
+      })
+
+      const sortedDates = Array.from(uniqueDates).sort().reverse().slice(0, 10)
+      setRecentTradeDates(sortedDates)
+
+      if (sortedDates.length > 0) {
+        setSelectedDate(new Date(sortedDates[0] + 'T12:00:00'))
+      }
+    } catch (err) {
+      console.error('Error loading recent trade dates:', err)
+    }
+  }, [])
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  useEffect(() => {
+    if (!mounted) return
+
+    let isActive = true
+
+    const init = async () => {
+      if (!isActive) return
+
+      await checkAccess()
+      await loadReports()
+      await loadSettings()
+      await loadRecentTradeDates()
+
+      if (isActive) {
+        setInitComplete(true)
+        router.refresh()
+      }
+    }
+
+    init()
+
+    return () => {
+      isActive = false
+    }
+  }, [mounted, checkAccess, loadReports, loadSettings, loadRecentTradeDates, router])
+
+  const generateReport = async () => {
+    setGenerating(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      let endpoint = '/api/reports/generate'
+      let body: any = {
+        language_mode: languageMode
+      }
+
+      if (periodType === 'daily') {
+        // Format date in UTC to avoid timezone issues
+        const year = selectedDate.getFullYear()
+        const month = String(selectedDate.getMonth() + 1).padStart(2, '0')
+        const day = String(selectedDate.getDate()).padStart(2, '0')
+        body.date = `${year}-${month}-${day}`
+        console.log('[Generate Report] Selected date:', selectedDate, 'Formatted:', body.date)
+      } else {
+        endpoint = '/api/reports/generate-period'
+        body.period_type = periodType
+
+        if (periodType === 'weekly') {
+          body.week_offset = weekOffset
+        } else if (periodType === 'monthly') {
+          body.month_offset = monthOffset
+        }
+      }
+
+      console.log('[Generate Report] Sending request:', { endpoint, body })
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        },
+        cache: 'no-store',
+        body: JSON.stringify(body)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('[Generate Report] Error:', errorData)
+        throw new Error(errorData.error || 'Failed to generate report')
+      }
+
+      const data = await response.json()
+      console.log('[Generate Report] New report created:', data)
+
+      setSuccess(`Report generated successfully! ${periodType === 'daily' ? '' : `(${data.start_date} to ${data.end_date})`}`)
+
+      // Clear existing reports to force fresh load
+      setReports([])
+
+      // Switch to history tab first
+      setActiveTab('history')
+
+      // Wait a bit for database write to complete
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Force fresh load with multiple attempts
+      console.log('[Generate Report] Refreshing reports list...')
+      await loadReports()
+
+      // Second refresh after delay
+      setTimeout(async () => {
+        console.log('[Generate Report] Second refresh...')
+        await loadReports()
+      }, 1500)
+
+      // Third refresh to be absolutely sure
+      setTimeout(async () => {
+        console.log('[Generate Report] Final refresh...')
+        await loadReports()
+      }, 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate report')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  const saveSettings = async () => {
+    if (!settings) return
+
+    setSavingSettings(true)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const response = await fetch('/api/reports/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to save settings')
+      }
+
+      setSuccess('Settings saved successfully!')
+      await loadSettings()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save settings')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  const handlePreview = (report: Report) => {
+    setPreviewReport(report)
+    setPreviewOpen(true)
+  }
+
+  const handleImagePreview = (imageUrl: string) => {
+    setSelectedImageUrl(imageUrl)
+    setImagePreviewOpen(true)
+  }
+
+  const openChannelDialog = (reportId: string) => {
+    setSelectedReportForSend(reportId)
+    setChannelDialogOpen(true)
+  }
+
+  const sendToSelectedChannels = async (channelIds: string[]) => {
+    if (!selectedReportForSend) return
+
+    setSendingToTelegram(selectedReportForSend)
+    setError(null)
+    setSuccess(null)
+
+    try {
+      const currentReport = reports.find(r => r.id === selectedReportForSend)
+      if (!currentReport) {
+        throw new Error('Report not found. Please refresh and try again.')
+      }
+
+      console.log('[Reports Page] Sending report to Telegram:', {
+        reportId: selectedReportForSend,
+        channelIds,
+        languageMode: currentReport.language_mode,
+        hasSummary: !!currentReport.summary
+      })
+
+      const response = await fetch('/api/reports/send-telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          report_id: selectedReportForSend,
+          channel_ids: channelIds,
+          language_mode: currentReport.language_mode || 'dual'
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('[Reports Page] Telegram send error:', errorData)
+        throw new Error(errorData.error || 'Failed to send to Telegram')
+      }
+
+      const result = await response.json()
+      console.log('[Reports Page] Telegram send result:', result)
+
+      setSuccess(`Report sent successfully to ${result.sent_to || channelIds.length} channel(s)!`)
+
+      setTimeout(() => {
+        loadReports()
+      }, 500)
+    } catch (err) {
+      console.error('[Reports Page] Error:', err)
+      setError(err instanceof Error ? err.message : 'Failed to send to Telegram')
+      throw err
+    } finally {
+      setSendingToTelegram(null)
+    }
+  }
+
+  const downloadPDF = async (report: Report) => {
+    setDownloadingPdf(report.id)
+    setError(null)
+
+    try {
+      if (!report.file_url) {
+        throw new Error('Report HTML not available')
+      }
+
+      // Fetch the HTML content
+      const htmlResponse = await fetch(report.file_url)
+      if (!htmlResponse.ok) throw new Error('Failed to fetch report HTML')
+      const htmlContent = await htmlResponse.text()
+
+      // Create a blob and download it as HTML (browser's print dialog can save as PDF)
+      const blob = new Blob([htmlContent], { type: 'text/html' })
+      const url = URL.createObjectURL(blob)
+
+      // Create temporary link and trigger download
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `report-${report.report_date}.html`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+
+      // Then trigger print dialog for PDF saving
+      const printWindow = window.open(url, '_blank')
+      if (printWindow) {
+        printWindow.onload = () => {
+          setTimeout(() => {
+            printWindow.print()
+          }, 250)
+        }
+      }
+    } catch (err) {
+      console.error('Error downloading PDF:', err)
+      setError(err instanceof Error ? err.message : 'Failed to download PDF')
+    } finally {
+      setDownloadingPdf(null)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'completed':
+      case 'generated':
+        return <Badge variant="outline" className="bg-green-50"><CheckCircle2 className="w-3 h-3 mr-1" />Generated</Badge>
+      case 'sent':
+        return <Badge variant="outline" className="bg-blue-50"><Send className="w-3 h-3 mr-1" />Sent</Badge>
+      case 'failed':
+        return <Badge variant="outline" className="bg-red-50"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
+      case 'generating':
+        return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />Generating</Badge>
+      default:
+        return <Badge variant="outline">{status}</Badge>
+    }
+  }
+
+  if (!mounted) {
+    return null
+  }
+
+  if (hasAccess === null || !initComplete) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    )
+  }
+
+  if (hasAccess === false) {
+    return (
+      <div className="container mx-auto p-6 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold">
+            {language === 'ar' ? 'التقارير' : 'Reports'}
+          </h1>
+          <p className="text-muted-foreground">
+            {language === 'ar'
+              ? 'إنشاء وإدارة تقارير التداول'
+              : 'Generate and manage trading reports'}
+          </p>
+        </div>
+
+        <Alert variant="destructive">
+          <ShieldAlert className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-semibold">
+                {language === 'ar'
+                  ? 'الوصول مرفوض'
+                  : 'Access Denied'}
+              </p>
+              <p>
+                {language === 'ar'
+                  ? 'التقارير متاحة فقط للمحللين والمسؤولين. دورك الحالي: ' + userRole
+                  : 'Reports are only available to Analyzers and Admins. Your current role: ' + userRole}
+              </p>
+              <p className="text-sm">
+                {language === 'ar'
+                  ? 'للوصول إلى ميزة التقارير، يرجى الاتصال بالمسؤول لترقية حسابك.'
+                  : 'To access the Reports feature, please contact an administrator to upgrade your account.'}
+              </p>
+            </div>
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold">
+            {language === 'ar' ? 'التقارير' : 'Reports'}
+          </h1>
+          <p className="text-muted-foreground">
+            {language === 'ar'
+              ? 'إنشاء وإدارة تقارير التداول'
+              : 'Generate and manage trading reports'}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            loadReports()
+            loadSettings()
+          }}
+          disabled={loading || loadingSettings}
+          title={language === 'ar' ? 'تحديث' : 'Refresh'}
+        >
+          <RefreshCw className={cn("w-4 h-4", (loading || loadingSettings) && "animate-spin")} />
+        </Button>
+      </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {success && (
+        <Alert>
+          <AlertDescription>{success}</AlertDescription>
+        </Alert>
+      )}
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="generate">
+            <FileText className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'إنشاء تقرير' : 'Generate'}
+          </TabsTrigger>
+          <TabsTrigger value="automated">
+            <Settings className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'تقارير تلقائية' : 'Automated'}
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <Clock className="w-4 h-4 mr-2" />
+            {language === 'ar' ? 'السجل' : 'History'}
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="generate" className="space-y-6">
+          <Alert className="bg-blue-50 border-blue-200">
+            <AlertDescription className="text-blue-900">
+              <div className="flex items-start gap-3">
+                <FileText className="w-5 h-5 mt-0.5 text-blue-600 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold mb-1">
+                    {language === 'ar' ? 'كيفية إنشاء تقرير:' : 'How to Generate a Report:'}
+                  </p>
+                  <ol className="text-sm space-y-1 list-decimal list-inside">
+                    <li>{language === 'ar' ? 'اختر نوع التقرير (يومي/أسبوعي/شهري)' : 'Choose report type (Daily/Weekly/Monthly)'}</li>
+                    <li>{language === 'ar' ? 'اختر التاريخ أو الفترة' : 'Select date or period'}</li>
+                    <li>{language === 'ar' ? 'اختر اللغة (English/العربية/Both)' : 'Choose language (English/العربية/Both)'}</li>
+                    <li>{language === 'ar' ? 'اضغط "إنشاء" وانتظر بضع ثوان' : 'Click "Generate" and wait a few seconds'}</li>
+                    <li>{language === 'ar' ? 'انتقل إلى تبويب "السجل" لرؤية التقارير' : 'Go to "History" tab to see your reports'}</li>
+                  </ol>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {language === 'ar' ? 'إنشاء تقرير جديد' : 'Generate New Report'}
+              </CardTitle>
+              <CardDescription>
+                {language === 'ar'
+                  ? 'اختر نوع التقرير والإعدادات'
+                  : 'Select report type and settings'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div className="md:col-span-2">
+                  <label className="text-sm font-medium mb-2 block">
+                    {language === 'ar' ? 'نوع التقرير' : 'Report Type'}
+                  </label>
+                  <Select value={periodType} onValueChange={(v: any) => setPeriodType(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">
+                        {language === 'ar' ? 'يومي' : 'Daily'}
+                      </SelectItem>
+                      <SelectItem value="weekly">
+                        {language === 'ar' ? 'أسبوعي' : 'Weekly'}
+                      </SelectItem>
+                      <SelectItem value="monthly">
+                        {language === 'ar' ? 'شهري' : 'Monthly'}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {periodType === 'daily' && (
+                  <div className="md:col-span-4">
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'التاريخ' : 'Date'}
+                    </label>
+                    <div className="flex gap-2">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            className={cn(
+                              'flex-1 justify-start text-left font-normal',
+                              !selectedDate && 'text-muted-foreground'
+                            )}
+                          >
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0">
+                          <Calendar
+                            mode="single"
+                            selected={selectedDate}
+                            onSelect={(date) => date && setSelectedDate(date)}
+                            initialFocus
+                            disabled={(date) => date > new Date()}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    {recentTradeDates.length > 0 && (
+                      <div className="mt-2">
+                        <p className="text-xs text-muted-foreground mb-1">
+                          {language === 'ar' ? 'تواريخ حديثة بها صفقات:' : 'Recent dates with trades:'}
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {recentTradeDates.slice(0, 5).map((date) => (
+                            <Button
+                              key={date}
+                              variant="outline"
+                              size="sm"
+                              className="text-xs h-7"
+                              onClick={() => setSelectedDate(new Date(date + 'T12:00:00'))}
+                            >
+                              {format(new Date(date), 'MMM dd')}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {periodType === 'weekly' && (
+                  <div className="md:col-span-4">
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'الأسبوع' : 'Week Period'}
+                    </label>
+                    <Select value={weekOffset.toString()} onValueChange={(v) => setWeekOffset(parseInt(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">{language === 'ar' ? 'الأسبوع الحالي' : 'Current Week'}</SelectItem>
+                        <SelectItem value="-1">{language === 'ar' ? 'الأسبوع الماضي' : 'Last Week'}</SelectItem>
+                        <SelectItem value="-2">{language === 'ar' ? 'أسبوعين ماضيين' : '2 Weeks Ago'}</SelectItem>
+                        <SelectItem value="-3">{language === 'ar' ? 'ثلاثة أسابيع ماضية' : '3 Weeks Ago'}</SelectItem>
+                        <SelectItem value="-4">{language === 'ar' ? 'أربعة أسابيع ماضية' : '4 Weeks Ago'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                {periodType === 'monthly' && (
+                  <div className="md:col-span-4">
+                    <label className="text-sm font-medium mb-2 block">
+                      {language === 'ar' ? 'الشهر' : 'Month Period'}
+                    </label>
+                    <Select value={monthOffset.toString()} onValueChange={(v) => setMonthOffset(parseInt(v))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">{language === 'ar' ? 'الشهر الحالي' : 'Current Month'}</SelectItem>
+                        <SelectItem value="-1">{language === 'ar' ? 'الشهر الماضي' : 'Last Month'}</SelectItem>
+                        <SelectItem value="-2">{language === 'ar' ? 'شهرين ماضيين' : '2 Months Ago'}</SelectItem>
+                        <SelectItem value="-3">{language === 'ar' ? 'ثلاثة أشهر ماضية' : '3 Months Ago'}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="md:col-span-3">
+                  <label className="text-sm font-medium mb-2 block">
+                    {language === 'ar' ? 'اللغة' : 'Language'}
+                  </label>
+                  <Select value={languageMode} onValueChange={(v: any) => setLanguageMode(v)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="ar">العربية</SelectItem>
+                      <SelectItem value="dual">Both / كلاهما</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="md:col-span-3 flex items-end">
+                  <Button
+                    onClick={generateReport}
+                    disabled={generating}
+                    className="w-full"
+                  >
+                    {generating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {language === 'ar' ? 'جاري الإنشاء...' : 'Generating...'}
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'إنشاء' : 'Generate'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {periodType === 'weekly' && (
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? `سيتم إنشاء تقرير أسبوعي ${
+                          weekOffset === 0 ? 'للأسبوع الحالي' :
+                          weekOffset === -1 ? 'للأسبوع الماضي' :
+                          `لأسبوع قبل ${Math.abs(weekOffset)} أسابيع`
+                        }`
+                      : `Will generate weekly report ${
+                          weekOffset === 0 ? 'for current week' :
+                          weekOffset === -1 ? 'for last week' :
+                          `for ${Math.abs(weekOffset)} weeks ago`
+                        }`}
+                  </AlertDescription>
+                </Alert>
+              )}
+              {periodType === 'monthly' && (
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? `سيتم إنشاء تقرير شهري ${
+                          monthOffset === 0 ? 'للشهر الحالي (فبراير 2026)' :
+                          monthOffset === -1 ? 'للشهر الماضي (يناير 2026)' :
+                          `لشهر قبل ${Math.abs(monthOffset)} أشهر`
+                        }`
+                      : `Will generate monthly report ${
+                          monthOffset === 0 ? 'for current month (February 2026)' :
+                          monthOffset === -1 ? 'for last month (January 2026)' :
+                          `for ${Math.abs(monthOffset)} months ago`
+                        } with all trades from that period`}
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="automated" className="space-y-6">
+          {loadingSettings ? (
+            <Card>
+              <CardContent className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+              </CardContent>
+            </Card>
+          ) : settings ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>
+                  {language === 'ar' ? 'إعدادات التقارير التلقائية' : 'Automated Report Settings'}
+                </CardTitle>
+                <CardDescription>
+                  {language === 'ar'
+                    ? 'تخصيص إعدادات التقارير اليومية التلقائية'
+                    : 'Customize automatic daily report settings'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="enabled">
+                      {language === 'ar' ? 'تفعيل التقارير التلقائية' : 'Enable Automatic Reports'}
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      {language === 'ar'
+                        ? 'إنشاء وإرسال تقارير يومية تلقائياً'
+                        : 'Automatically generate and send daily reports'}
+                    </p>
+                  </div>
+                  <Switch
+                    id="enabled"
+                    checked={settings.enabled}
+                    onCheckedChange={(checked) =>
+                      setSettings({ ...settings, enabled: checked })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="language_mode">
+                    {language === 'ar' ? 'لغة التقرير' : 'Report Language'}
+                  </Label>
+                  <Select
+                    value={settings.language_mode}
+                    onValueChange={(v: any) =>
+                      setSettings({ ...settings, language_mode: v })
+                    }
+                  >
+                    <SelectTrigger id="language_mode">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="en">English</SelectItem>
+                      <SelectItem value="ar">العربية (Arabic)</SelectItem>
+                      <SelectItem value="dual">Both / كلاهما</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="schedule_time">
+                    {language === 'ar' ? 'وقت الإنشاء' : 'Generation Time'}
+                  </Label>
+                  <Input
+                    id="schedule_time"
+                    type="time"
+                    value={settings.schedule_time}
+                    onChange={(e) =>
+                      setSettings({ ...settings, schedule_time: e.target.value })
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {language === 'ar'
+                      ? 'الوقت اليومي لإنشاء التقرير (بتوقيت المنطقة المحددة)'
+                      : 'Daily time to generate the report (in selected timezone)'}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="timezone">
+                    {language === 'ar' ? 'المنطقة الزمنية' : 'Timezone'}
+                  </Label>
+                  <Select
+                    value={settings.timezone}
+                    onValueChange={(v) => setSettings({ ...settings, timezone: v })}
+                  >
+                    <SelectTrigger id="timezone">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="America/New_York">America/New_York (ET)</SelectItem>
+                      <SelectItem value="Asia/Riyadh">Asia/Riyadh</SelectItem>
+                      <SelectItem value="Asia/Dubai">Asia/Dubai</SelectItem>
+                      <SelectItem value="Europe/London">Europe/London</SelectItem>
+                      <SelectItem value="UTC">UTC</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <Alert>
+                  <AlertDescription className="text-sm">
+                    {language === 'ar'
+                      ? 'ملاحظة: التقارير التلقائية يتم إنشاءها فقط في أيام التداول (الإثنين - الجمعة، باستثناء العطلات)'
+                      : 'Note: Automatic reports are only generated on trading days (Monday-Friday, excluding holidays)'}
+                  </AlertDescription>
+                </Alert>
+
+                <div className="flex justify-end">
+                  <Button onClick={saveSettings} disabled={savingSettings}>
+                    {savingSettings ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        {language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'حفظ الإعدادات' : 'Save Settings'}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="history" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {language === 'ar' ? 'التقارير السابقة' : 'Generated Reports'}
+              </CardTitle>
+              <CardDescription>
+                {language === 'ar'
+                  ? 'سجل التقارير المُنشأة'
+                  : 'History of generated reports'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : !reports || reports.length === 0 ? (
+                <div className="text-center py-12">
+                  <div className="flex flex-col items-center gap-4 max-w-md mx-auto">
+                    <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center">
+                      <FileText className="w-10 h-10 text-blue-600" />
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-lg font-semibold">
+                        {language === 'ar' ? 'لا توجد تقارير' : 'No Reports Yet'}
+                      </h3>
+                      <p className="text-muted-foreground text-sm">
+                        {language === 'ar'
+                          ? 'لم يتم إنشاء أي تقارير بعد. انقر على "إنشاء تقرير" أعلاه لإنشاء تقريرك الأول.'
+                          : 'No reports have been generated yet. Click the "Generate" tab above to create your first report.'}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button onClick={() => setActiveTab('generate')} className="bg-blue-600 hover:bg-blue-700">
+                        <FileText className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'إنشاء تقرير' : 'Generate Report'}
+                      </Button>
+                      <Button onClick={loadReports} variant="outline">
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        {language === 'ar' ? 'تحديث' : 'Refresh'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reports.map((report) => (
+                    <div
+                      key={report.id}
+                      className="border rounded-lg p-4 hover:bg-accent/50 transition-colors"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 mb-3 flex-wrap">
+                          <h3 className="font-semibold text-lg">
+                            {report.period_type === 'daily'
+                              ? format(new Date(report.report_date + 'T12:00:00'), 'PPP')
+                              : `${report.period_type?.charAt(0).toUpperCase()}${report.period_type?.slice(1)} Report`
+                            }
+                          </h3>
+                          {getStatusBadge(report.status)}
+                          <Badge variant="secondary" className="text-xs">
+                            {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
+                          </Badge>
+                          {report.image_url && (
+                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                              <Image className="w-3 h-3 mr-1" />
+                              Image
+                            </Badge>
+                          )}
+                        </div>
+
+                        {report.start_date && report.end_date && (
+                          <p className="text-sm text-muted-foreground mb-3">
+                            {format(new Date(report.start_date + 'T12:00:00'), 'MMM dd')} - {format(new Date(report.end_date + 'T12:00:00'), 'MMM dd, yyyy')}
+                          </p>
+                        )}
+
+                        {report.summary && (
+                          <div className="space-y-4 mb-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                              <div className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border-l-4 border-green-500">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  {language === 'ar' ? 'صافي الربح' : 'Net Profit'}
+                                </p>
+                                <p className="text-3xl font-bold text-green-700 dark:text-green-400 mb-1">
+                                  {report.summary.net_profit >= 0 ? '+' : ''}${Number(report.summary.net_profit || 0).toFixed(0)}
+                                </p>
+                                <p className="text-xs text-green-600 dark:text-green-500">
+                                  {report.summary.avg_profit_percent ? `${Number(report.summary.avg_profit_percent).toFixed(1)}%` : '0.0%'} {language === 'ar' ? 'متوسط' : 'avg'}
+                                </p>
+                              </div>
+                              <div className="bg-gradient-to-br from-blue-50 to-sky-100 dark:from-blue-900/20 dark:to-sky-900/20 p-4 rounded-lg border-l-4 border-blue-500">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  {language === 'ar' ? 'إجمالي الربح' : 'Total Profit'}
+                                </p>
+                                <p className="text-3xl font-bold text-blue-700 dark:text-blue-400 mb-1">
+                                  +${Number(report.summary.total_profit || 0).toFixed(0)}
+                                </p>
+                                <p className="text-xs text-blue-600 dark:text-blue-500">
+                                  {language === 'ar' ? 'من الصفقات الرابحة' : 'from wins'}
+                                </p>
+                              </div>
+                              <div className="bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-900/20 dark:to-orange-900/20 p-4 rounded-lg border-l-4 border-amber-500">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
+                                </p>
+                                <p className="text-3xl font-bold text-amber-700 dark:text-amber-400 mb-1">
+                                  {Number(report.summary.win_rate || 0).toFixed(1)}%
+                                </p>
+                                <p className="text-xs text-amber-600 dark:text-amber-500">
+                                  {report.summary.winning_trades || 0}W / {report.summary.losing_trades || 0}L
+                                </p>
+                              </div>
+                              <div className="bg-gradient-to-br from-purple-50 to-pink-100 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-lg border-l-4 border-purple-500">
+                                <p className="text-xs text-muted-foreground mb-1">
+                                  {language === 'ar' ? 'أعلى ربح' : 'Best Trade'}
+                                </p>
+                                <p className="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-1">
+                                  +${Number((report.summary.best_trade || report.summary.max_profit_percent || 0)).toFixed(0)}
+                                </p>
+                                <p className="text-xs text-purple-600 dark:text-purple-500">
+                                  {Number(report.summary.max_profit_percent || 0).toFixed(1)}% {language === 'ar' ? 'نسبة' : 'gain'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {report.deliveries && report.deliveries.length > 0 && (
+                          <div className="mb-4 pb-3 border-b">
+                            <p className="text-xs text-muted-foreground mb-2">
+                              {language === 'ar' ? 'الإرسال إلى تيليجرام:' : 'Telegram Deliveries:'}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {report.deliveries.map((delivery) => (
+                                <Badge key={delivery.id} variant="outline" className="text-xs">
+                                  {delivery.channel_name || 'Unknown'}: {delivery.status}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-3">
+                            <div className="bg-blue-600 text-white px-3 py-1 rounded-md font-bold text-sm">
+                              {language === 'ar' ? '⚡ الإجراءات' : '⚡ ACTIONS'}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {language === 'ar' ? 'اختر إجراء لهذا التقرير' : 'Choose an action for this report'}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                console.log('Preview clicked for report:', report.id)
+                                handlePreview(report)
+                              }}
+                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
+                              disabled={!report.html_content}
+                            >
+                              <Eye className="w-5 h-5" />
+                              <span className="text-xs font-medium">
+                                {language === 'ar' ? 'معاينة' : 'Preview'}
+                              </span>
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                console.log('Image preview clicked for report:', report.id)
+                                handleImagePreview(report.image_url!)
+                              }}
+                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
+                              disabled={!report.image_url}
+                            >
+                              <Image className="w-5 h-5" />
+                              <span className="text-xs font-medium">
+                                {language === 'ar' ? 'صورة' : 'Image'}
+                              </span>
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              asChild
+                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
+                              disabled={!report.file_url}
+                            >
+                              <a href={report.file_url || '#'} target="_blank" rel="noopener noreferrer">
+                                <Download className="w-5 h-5" />
+                                <span className="text-xs font-medium">HTML</span>
+                              </a>
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => downloadPDF(report)}
+                              disabled={downloadingPdf === report.id || !report.file_url}
+                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
+                            >
+                              {downloadingPdf === report.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <FileType className="w-5 h-5" />
+                              )}
+                              <span className="text-xs font-medium">PDF</span>
+                            </Button>
+
+                            <Button
+                              variant="default"
+                              size="sm"
+                              onClick={() => openChannelDialog(report.id)}
+                              disabled={sendingToTelegram === report.id}
+                              className="w-full h-auto py-3 flex flex-col items-center gap-1 bg-blue-600 hover:bg-blue-700 col-span-2 md:col-span-1"
+                            >
+                              {sendingToTelegram === report.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <Send className="w-5 h-5" />
+                              )}
+                              <span className="text-xs font-bold">
+                                {language === 'ar' ? 'إرسال' : 'Send'}
+                              </span>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {language === 'ar' ? 'معاينة التقرير HTML' : 'HTML Report Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          {previewReport?.html_content && (
+            <div
+              className="prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: previewReport.html_content }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={imagePreviewOpen} onOpenChange={setImagePreviewOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>
+              {language === 'ar' ? 'معاينة صورة التقرير' : 'Report Image Preview'}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedImageUrl && (
+            <div className="flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 rounded-lg p-4">
+              <img
+                src={selectedImageUrl}
+                alt="Report Preview"
+                className="max-w-full h-auto rounded-lg shadow-lg"
+                style={{ maxHeight: 'calc(90vh - 120px)' }}
+              />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <SendToChannelDialog
+        open={channelDialogOpen}
+        onOpenChange={setChannelDialogOpen}
+        onSend={sendToSelectedChannels}
+        reportId={selectedReportForSend || ''}
+      />
+    </div>
+  )
+}

@@ -1,0 +1,37 @@
+{
+  "syncRules": {
+    "exclude": [
+      ".git",
+      ".env",
+      ".env.local",
+      "node_modules",
+      ".next",
+      "*.log",
+      ".DS_Store"
+    ],
+    "documentationFiles": {
+      "action": "skip",
+      "note": "Documentation files (*.md) are usually project-specific and managed separately"
+    },
+    "alwaysSync": [
+      "components/**",
+      "app/**",
+      "lib/**",
+      "services/**",
+      "hooks/**",
+      "supabase/**",
+      "public/**",
+      "package.json",
+      "package-lock.json",
+      "tsconfig.json",
+      "next.config.js",
+      "tailwind.config.ts",
+      "middleware.ts"
+    ]
+  },
+  "workflow": {
+    "recommended": "bolt-primary",
+    "testBeforePush": true,
+    "autoCommitMessage": "Sync from Bolt - {{timestamp}}"
+  }
+}

@@ -1,0 +1,31 @@
+app = "databento-live-svc"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+  ignorefile = ".dockerignore"
+
+[env]
+  LOG_LEVEL = "INFO"
+  UPDATE_INTERVAL_SECONDS = "1"
+  HEARTBEAT_INTERVAL_SECONDS = "30"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+[deploy]
+  strategy = "rolling"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

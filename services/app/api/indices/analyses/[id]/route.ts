@@ -1,0 +1,275 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@/lib/supabase/server';
+import { UpdateAnalysisRequest } from '@/services/indices/types';
+
+/**
+ * GET /api/indices/analyses/[id]
+ * Get a single analysis with trades and updates
+ */
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = createServerClient();
+    const params = await context.params;
+    const { id } = params;
+
+    // Get current user
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    // Fetch analysis
+    const { data: analysis, error: analysisError } = await supabase
+      .from('index_analyses')
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name, avatar_url, email)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (analysisError || !analysis) {
+      return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
+    }
+
+    // Check if user is a trader and has access to this analysis
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role_id, roles(name)')
+        .eq('id', user.id)
+        .single();
+
+      const roleName = (profile as any)?.roles?.name;
+
+      // If user is a Trader, check if they're subscribed to the analyzer
+      if (roleName === 'Trader' && analysis.author_id !== user.id) {
+        const { data: subscription } = await supabase
+          .from('subscriptions')
+          .select('id')
+          .eq('subscriber_id', user.id)
+          .eq('analyst_id', analysis.author_id)
+          .eq('status', 'active')
+          .single();
+
+        if (!subscription) {
+          return NextResponse.json(
+            { error: 'You must be subscribed to this analyzer to view their indices analyses' },
+            { status: 403 }
+          );
+        }
+      }
+    }
+
+    // Fetch trades for this analysis
+    const { data: trades, error: tradesError } = await supabase
+      .from('index_trades')
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name, avatar_url)
+      `)
+      .eq('analysis_id', id)
+      .in('status', ['active', 'tp_hit', 'sl_hit', 'closed'])
+      .order('published_at', { ascending: false, nullsFirst: false });
+
+    if (tradesError) {
+      console.error('Error fetching trades:', tradesError);
+    }
+
+    // Fetch updates for this analysis
+    const { data: updates, error: updatesError } = await supabase
+      .from('analysis_updates')
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name, avatar_url)
+      `)
+      .eq('analysis_id', id)
+      .order('created_at', { ascending: false });
+
+    if (updatesError) {
+      console.error('Error fetching updates:', updatesError);
+    }
+
+    // Increment views count (fire and forget)
+    supabase
+      .from('index_analyses')
+      .update({ views_count: (analysis.views_count || 0) + 1 })
+      .eq('id', id)
+      .then(() => {})
+      .catch((err) => console.error('Error updating views:', err));
+
+    return NextResponse.json({
+      analysis,
+      trades: trades || [],
+      updates: updates || [],
+    });
+  } catch (error: any) {
+    console.error('Error in GET /api/indices/analyses/[id]:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * PATCH /api/indices/analyses/[id]
+ * Update an analysis
+ */
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = createServerClient();
+    const params = await context.params;
+    const { id } = params;
+
+    // Check authentication
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user owns this analysis
+    const { data: existing, error: fetchError } = await supabase
+      .from('index_analyses')
+      .select('author_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !existing) {
+      return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
+    }
+
+    if (existing.author_id !== user.id) {
+      return NextResponse.json(
+        { error: 'You can only update your own analyses' },
+        { status: 403 }
+      );
+    }
+
+    const body: UpdateAnalysisRequest = await request.json();
+
+    // Build update object
+    const updates: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.body !== undefined) updates.body = body.body;
+    if (body.chart_image_url !== undefined) updates.chart_image_url = body.chart_image_url;
+    if (body.chart_embed_url !== undefined) updates.chart_embed_url = body.chart_embed_url;
+    if (body.visibility !== undefined) updates.visibility = body.visibility;
+    if (body.status !== undefined) {
+      updates.status = body.status;
+      // Set published_at when publishing
+      if (body.status === 'published' && !existing.published_at) {
+        updates.published_at = new Date().toISOString();
+      }
+    }
+
+    const { data: analysis, error: updateError } = await supabase
+      .from('index_analyses')
+      .update(updates)
+      .eq('id', id)
+      .select(`
+        *,
+        author:profiles!author_id(id, full_name, avatar_url, email)
+      `)
+      .single();
+
+    if (updateError) {
+      console.error('Error updating analysis:', updateError);
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ analysis });
+  } catch (error: any) {
+    console.error('Error in PATCH /api/indices/analyses/[id]:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/indices/analyses/[id]
+ * Delete an analysis (Admin only)
+ * This will cascade delete all related trades
+ */
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = createServerClient();
+    const params = await context.params;
+    const { id } = params;
+
+    // Check authentication
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user is admin
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id, roles(name)')
+      .eq('id', user.id)
+      .single();
+
+    const roleName = (profile as any)?.roles?.name;
+    if (!roleName || roleName !== 'SuperAdmin') {
+      return NextResponse.json(
+        { error: 'Only admins can delete analyses' },
+        { status: 403 }
+      );
+    }
+
+    // Check if analysis exists
+    const { data: existing, error: fetchError } = await supabase
+      .from('index_analyses')
+      .select('id, title')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !existing) {
+      return NextResponse.json({ error: 'Analysis not found' }, { status: 404 });
+    }
+
+    // Delete (cascade will handle trades, updates, etc.)
+    const { error: deleteError } = await supabase
+      .from('index_analyses')
+      .delete()
+      .eq('id', id);
+
+    if (deleteError) {
+      console.error('Error deleting analysis:', deleteError);
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: `Analysis "${existing.title}" and all related trades deleted successfully`
+    });
+  } catch (error: any) {
+    console.error('Error in DELETE /api/indices/analyses/[id]:', error);
+    return NextResponse.json(
+      { error: error.message || 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
