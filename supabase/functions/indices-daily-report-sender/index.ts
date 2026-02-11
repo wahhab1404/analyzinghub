@@ -197,7 +197,7 @@ Deno.serve(async (req: Request) => {
 
       // Generate HTML report and store it
       const htmlReport = generateHTMLReport(channelTrades, targetDate, channel.channel_name)
-      
+
       const { data: reportData, error: reportError } = await supabase
         .from('daily_trade_reports')
         .upsert({
@@ -218,6 +218,18 @@ Deno.serve(async (req: Request) => {
       } else {
         console.log(`✅ Report stored for channel ${channel.channel_name}`)
       }
+
+      // Upload HTML to storage and send as document
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      await sendReportDocument(
+        channelTrades[0].author_id,
+        targetDate,
+        channel.channel_id,
+        htmlReport,
+        supabase,
+        botToken,
+        channel.channel_name
+      )
     }
 
     // Mark trades as notified
@@ -302,9 +314,74 @@ function generateLosingTradesText(trades: TradeData[]): string {
   }).join('\n\n')
 }
 
+async function sendReportDocument(
+  authorId: string,
+  date: string,
+  chatId: string,
+  htmlContent: string,
+  supabase: any,
+  botToken: string,
+  channelName: string
+) {
+  try {
+    console.log(`📄 Uploading report document for ${channelName}...`)
+
+    const fileName = `daily-report-${date}.html`
+    const filePath = `${authorId}/${fileName}`
+
+    const { data: uploadData, error: uploadError } = await supabase.storage
+      .from('daily-reports')
+      .upload(filePath, htmlContent, {
+        contentType: 'text/html',
+        upsert: true
+      })
+
+    if (uploadError) {
+      console.error('Upload error:', uploadError)
+      return
+    }
+
+    const { data: urlData } = await supabase.storage
+      .from('daily-reports')
+      .createSignedUrl(filePath, 604800)
+
+    if (!urlData?.signedUrl) {
+      console.error('Failed to get signed URL')
+      return
+    }
+
+    console.log(`📤 Sending document to Telegram...`)
+
+    const fileResponse = await fetch(urlData.signedUrl)
+    const fileBlob = await fileResponse.blob()
+
+    const formData = new FormData()
+    formData.append('chat_id', chatId)
+    formData.append('document', fileBlob, fileName)
+    formData.append('caption', `📊 Daily Trading Report - ${date}\n${channelName}`)
+
+    const response = await fetch(
+      `https://api.telegram.org/bot${botToken}/sendDocument`,
+      {
+        method: 'POST',
+        body: formData
+      }
+    )
+
+    if (response.ok) {
+      console.log(`✅ Report document sent successfully`)
+    } else {
+      const errorText = await response.text()
+      console.error(`Failed to send document:`, errorText)
+    }
+  } catch (error) {
+    console.error('Error sending report document:', error)
+  }
+}
+
 function generateHTMLReport(trades: TradeData[], date: string, channelName: string): string {
   const summary = calculateSummary(trades)
-  
+
   return `<!DOCTYPE html>
 <html>
 <head>

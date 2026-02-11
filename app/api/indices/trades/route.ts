@@ -301,6 +301,17 @@ export async function POST(request: NextRequest) {
       const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
       if (body.reentry_decision === 'NEW_ENTRY') {
+        // Validate telegram_channel_id is a UUID if provided
+        let validatedChannelId = null;
+        if (body.telegram_channel_id) {
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.telegram_channel_id);
+          if (isUUID) {
+            validatedChannelId = body.telegram_channel_id;
+          } else {
+            console.warn('telegram_channel_id is not a UUID, setting to null:', body.telegram_channel_id);
+          }
+        }
+
         // Close previous and create new
         const newTradeData = {
           author_id: user.id,
@@ -320,9 +331,15 @@ export async function POST(request: NextRequest) {
           entry_cost_usd: (entryContract * (body.qty || 1) * 100).toString(),
           qty: (body.qty || 1).toString(),
           trade_price_basis: body.trade_price_basis || 'OPTION_PREMIUM',
-          telegram_channel_id: body.telegram_channel_id || null,
+          telegram_channel_id: validatedChannelId,
           telegram_send_enabled: 'true',
         };
+
+        console.log('Calling process_trade_new_entry with:', {
+          existing_trade_id: body.existing_trade_id,
+          new_trade_data: newTradeData,
+          idempotency_key: idempotencyKey,
+        });
 
         const { data: result, error: processError } = await adminClient.rpc(
           'process_trade_new_entry',
@@ -335,7 +352,17 @@ export async function POST(request: NextRequest) {
 
         if (processError) {
           console.error('Error processing NEW_ENTRY:', processError);
-          return NextResponse.json({ error: processError.message }, { status: 500 });
+          console.error('Error details:', {
+            message: processError.message,
+            details: processError.details,
+            hint: processError.hint,
+            code: processError.code,
+          });
+          return NextResponse.json({
+            error: processError.message,
+            details: processError.details,
+            hint: processError.hint,
+          }, { status: 500 });
         }
 
         // Fetch the new trade with author data
@@ -355,6 +382,13 @@ export async function POST(request: NextRequest) {
 
       } else if (body.reentry_decision === 'AVERAGE_ADJUSTMENT') {
         // Average the entry
+        console.log('Calling process_trade_average_adjustment with:', {
+          existing_trade_id: body.existing_trade_id,
+          new_entry_price: entryContract,
+          new_qty: body.qty || 1,
+          idempotency_key: idempotencyKey,
+        });
+
         const { data: result, error: processError } = await adminClient.rpc(
           'process_trade_average_adjustment',
           {
@@ -367,7 +401,17 @@ export async function POST(request: NextRequest) {
 
         if (processError) {
           console.error('Error processing AVERAGE_ADJUSTMENT:', processError);
-          return NextResponse.json({ error: processError.message }, { status: 500 });
+          console.error('Error details:', {
+            message: processError.message,
+            details: processError.details,
+            hint: processError.hint,
+            code: processError.code,
+          });
+          return NextResponse.json({
+            error: processError.message,
+            details: processError.details,
+            hint: processError.hint,
+          }, { status: 500 });
         }
 
         // Fetch the updated trade with author data
@@ -433,6 +477,7 @@ export async function POST(request: NextRequest) {
         entry_cost_usd: entryContract * (body.qty || 1) * 100,
         max_contract_price: currentContractPrice,
         max_profit: 0,
+        is_testing: body.is_testing || false
       })
       .select(`
         *,
@@ -455,8 +500,12 @@ export async function POST(request: NextRequest) {
     try {
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      const isDevelopment = process.env.NODE_ENV === 'development' || !process.env.APP_BASE_URL;
 
-      if (supabaseUrl && serviceRoleKey) {
+      if (isDevelopment) {
+        console.log('⚠️  Skipping snapshot generation in development mode');
+        console.log('   Deploy your app to enable automatic snapshot generation');
+      } else if (supabaseUrl && serviceRoleKey) {
         console.log('Generating snapshot for standalone trade:', trade.id);
         const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
           method: 'POST',
@@ -487,56 +536,74 @@ export async function POST(request: NextRequest) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         } else {
           const errorText = await snapshotResponse.text();
-          console.error('Snapshot generation failed:', errorText);
+          console.error('⚠️  Snapshot generation failed (non-critical):', errorText.substring(0, 200));
         }
       }
     } catch (snapshotError) {
-      console.error('Failed to generate snapshot:', snapshotError);
+      console.error('⚠️  Failed to generate snapshot (non-critical):', snapshotError);
     }
 
-    if (body.auto_publish_telegram && body.telegram_channel_id) {
+    if (body.auto_publish_telegram) {
       try {
-        console.log(`Publishing standalone trade ${trade.id} to Telegram channel ${body.telegram_channel_id}`);
+        const channelsToPublish: string[] = [];
 
-        const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        // For test trades, use testing channels
+        if (body.is_testing && body.testing_channel_ids && body.testing_channel_ids.length > 0) {
+          channelsToPublish.push(...body.testing_channel_ids);
+          console.log(`Publishing test trade ${trade.id} to ${body.testing_channel_ids.length} testing channels`);
+        } else if (body.telegram_channel_id) {
+          channelsToPublish.push(body.telegram_channel_id);
+        }
 
-        if (supabaseUrlEnv && serviceRoleKey) {
-          const supabaseClient = createClient(supabaseUrlEnv, serviceRoleKey);
+        if (channelsToPublish.length > 0) {
+          const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-          const tradeWithSnapshot = {
-            ...trade,
-            contract_url: snapshotUrl,
-            analysis: {
-              id: trade.id,
-              title: 'Standalone Trade',
-              index_symbol: trade.underlying_index_symbol,
-            },
-          };
+          if (supabaseUrlEnv && serviceRoleKey) {
+            const supabaseClient = createClient(supabaseUrlEnv, serviceRoleKey);
 
-          let actualChannelId = body.telegram_channel_id;
-          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.telegram_channel_id)) {
-            const { data: channel } = await supabaseClient
-              .from("telegram_channels")
-              .select("channel_id")
-              .eq("id", body.telegram_channel_id)
-              .single();
+            const tradeWithSnapshot = {
+              ...trade,
+              contract_url: snapshotUrl,
+              analysis: {
+                id: trade.id,
+                title: 'Standalone Trade',
+                index_symbol: trade.underlying_index_symbol,
+              },
+            };
 
-            if (channel?.channel_id) {
-              actualChannelId = channel.channel_id;
+            // Publish to all channels
+            for (const channelId of channelsToPublish) {
+              let actualChannelId = channelId;
+
+              // Check if it's a UUID (database ID) or direct channel ID
+              if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
+                const { data: channel } = await supabaseClient
+                  .from("telegram_channels")
+                  .select("channel_id")
+                  .eq("id", channelId)
+                  .single();
+
+                if (channel?.channel_id) {
+                  actualChannelId = channel.channel_id;
+                }
+              }
+
+              await supabaseClient.from("telegram_outbox").insert({
+                message_type: "new_trade",
+                payload: {
+                  trade: tradeWithSnapshot,
+                  isTestingMode: body.is_testing || false
+                },
+                channel_id: actualChannelId,
+                status: "pending",
+                priority: 5,
+                next_retry_at: new Date().toISOString(),
+              });
+
+              console.log(`✅ Queued new_trade message for channel ${actualChannelId} with snapshot: ${snapshotUrl || 'none'}`);
             }
           }
-
-          await supabaseClient.from("telegram_outbox").insert({
-            message_type: "new_trade",
-            payload: { trade: tradeWithSnapshot },
-            channel_id: actualChannelId,
-            status: "pending",
-            priority: 5,
-            next_retry_at: new Date().toISOString(),
-          });
-
-          console.log(`✅ Queued new_trade message for channel ${actualChannelId} with snapshot: ${snapshotUrl || 'none'}`);
         }
       } catch (telegramError) {
         console.error('Failed to publish standalone trade to Telegram:', telegramError);

@@ -114,10 +114,15 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     notes: '',
     telegram_channel_id: 'analysis' as string,
     auto_publish_telegram: false,
+    is_testing: false,
+    testing_channel_ids: [] as string[],
   })
+  const [testingChannels, setTestingChannels] = useState<Array<{id: string, name: string, telegram_channel_id: string}>>([])
+  const [loadingTestingChannels, setLoadingTestingChannels] = useState(false)
 
   useEffect(() => {
     fetchTelegramChannels()
+    fetchTestingChannels()
     fetchMarketStatus()
     if (formData.underlying_index_symbol) {
       fetchIndexPrice(formData.underlying_index_symbol)
@@ -196,6 +201,22 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       console.error('Error fetching channels:', error)
     } finally {
       setLoadingChannels(false)
+    }
+  }
+
+  const fetchTestingChannels = async () => {
+    setLoadingTestingChannels(true)
+    try {
+      const response = await fetch('/api/testing/channels')
+      if (response.ok) {
+        const data = await response.json()
+        const enabledChannels = (data.channels || []).filter((ch: any) => ch.is_enabled)
+        setTestingChannels(enabledChannels)
+      }
+    } catch (error) {
+      console.error('Error fetching testing channels:', error)
+    } finally {
+      setLoadingTestingChannels(false)
     }
   }
 
@@ -678,7 +699,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         stoploss,
         notes: formData.notes || null,
         telegram_channel_id: telegramChannelId,
-        auto_publish_telegram: formData.auto_publish_telegram,
+        auto_publish_telegram: formData.is_testing ? (formData.testing_channel_ids.length > 0) : formData.auto_publish_telegram,
+        is_testing: formData.is_testing,
+        testing_channel_ids: formData.is_testing ? formData.testing_channel_ids : [],
       }
 
       if (marketStatus && !marketStatus.isOpen) {
@@ -697,9 +720,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       })
 
       if (response.ok) {
-        toast.success('Trade added successfully!')
-        if (formData.auto_publish_telegram) {
-          toast.success('Published to Telegram!')
+        if (formData.is_testing) {
+          toast.success('🧪 Test trade created successfully!')
+          if (formData.testing_channel_ids.length > 0) {
+            toast.success(`Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
+          }
+        } else {
+          toast.success('Trade added successfully!')
+          if (formData.auto_publish_telegram) {
+            toast.success('Published to Telegram!')
+          }
         }
         onComplete()
       } else if (response.status === 409) {
@@ -764,7 +794,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           toast.success('Entry averaged into existing position!')
         }
 
-        if (formData.auto_publish_telegram) {
+        if (formData.is_testing) {
+          if (formData.testing_channel_ids.length > 0) {
+            toast.success(`Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
+          }
+        } else if (formData.auto_publish_telegram) {
           toast.success('Published to Telegram!')
         }
 
@@ -1457,89 +1491,184 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         </div>
 
         <div className="space-y-4 border-t pt-4">
-          <h4 className="font-medium">Telegram Publishing</h4>
+          <h4 className="font-medium">Testing &amp; Publishing</h4>
 
-          {loadingChannels ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading channels...
-            </div>
-          ) : channels.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
-              No Telegram channels available. Set up channels in Settings or on the parent analysis.
-            </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label htmlFor="telegram_channel">Telegram Channel</Label>
-                <Select
-                  value={formData.telegram_channel_id}
-                  onValueChange={(value) => setFormData({ ...formData, telegram_channel_id: value })}
+          <div className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="is_testing"
+                checked={formData.is_testing}
+                onCheckedChange={(checked) =>
+                  setFormData({ ...formData, is_testing: checked as boolean })
+                }
+              />
+              <div className="space-y-1">
+                <label
+                  htmlFor="is_testing"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a channel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {channels.filter(ch => ch.source === 'analysis').length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                          Analysis Default
-                        </div>
-                        {channels.filter(ch => ch.source === 'analysis').map(channel => (
-                          <SelectItem key={channel.id} value={channel.id}>
-                            {channel.channel_name}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {channels.filter(ch => ch.source === 'analyst').length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
-                          Analyst Channels
-                        </div>
-                        {channels.filter(ch => ch.source === 'analyst').map(channel => (
-                          <SelectItem key={channel.id} value={channel.id}>
-                            {channel.channel_name}
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    {channels.filter(ch => ch.source === 'plan').length > 0 && (
-                      <>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
-                          Plan Channels
-                        </div>
-                        {channels.filter(ch => ch.source === 'plan').map(channel => (
-                          <SelectItem key={channel.id} value={channel.id}>
-                            {channel.channel_name} ({channel.plan_name})
-                          </SelectItem>
-                        ))}
-                      </>
-                    )}
-                    <SelectItem value="none">None (Don't publish)</SelectItem>
-                  </SelectContent>
-                </Select>
+                  Test Trade (Not Counted in Reports)
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  Mark this trade as a test. It will only be visible to you and excluded from all statistics, reports, and public views.
+                </p>
               </div>
+            </div>
+          </div>
 
-              {formData.telegram_channel_id && formData.telegram_channel_id !== 'none' && (
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="auto_publish"
-                    checked={formData.auto_publish_telegram}
-                    onCheckedChange={(checked) =>
-                      setFormData({ ...formData, auto_publish_telegram: checked as boolean })
-                    }
-                  />
-                  <label
-                    htmlFor="auto_publish"
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
-                  >
-                    Auto-publish to Telegram when trade is created
-                  </label>
+          {!formData.is_testing && (
+            <>
+              {loadingChannels ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading channels...
                 </div>
+              ) : channels.length === 0 ? (
+                <div className="text-sm text-muted-foreground p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
+                  No Telegram channels available. Set up channels in Settings or on the parent analysis.
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="telegram_channel">Telegram Channel</Label>
+                    <Select
+                      value={formData.telegram_channel_id}
+                      onValueChange={(value) => setFormData({ ...formData, telegram_channel_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a channel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {channels.filter(ch => ch.source === 'analysis').length > 0 && (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                              Analysis Default
+                            </div>
+                            {channels.filter(ch => ch.source === 'analysis').map(channel => (
+                              <SelectItem key={channel.id} value={channel.id}>
+                                {channel.channel_name}
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {channels.filter(ch => ch.source === 'analyst').length > 0 && (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
+                              Analyst Channels
+                            </div>
+                            {channels.filter(ch => ch.source === 'analyst').map(channel => (
+                              <SelectItem key={channel.id} value={channel.id}>
+                                {channel.channel_name}
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        {channels.filter(ch => ch.source === 'plan').length > 0 && (
+                          <>
+                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
+                              Plan Channels
+                            </div>
+                            {channels.filter(ch => ch.source === 'plan').map(channel => (
+                              <SelectItem key={channel.id} value={channel.id}>
+                                {channel.channel_name} ({channel.plan_name})
+                              </SelectItem>
+                            ))}
+                          </>
+                        )}
+                        <SelectItem value="none">None (Don't publish)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {formData.telegram_channel_id && formData.telegram_channel_id !== 'none' && !formData.is_testing && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="auto_publish"
+                        checked={formData.auto_publish_telegram}
+                        onCheckedChange={(checked) =>
+                          setFormData({ ...formData, auto_publish_telegram: checked as boolean })
+                        }
+                      />
+                      <label
+                        htmlFor="auto_publish"
+                        className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                      >
+                        Auto-publish to Telegram when trade is created
+                      </label>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}
+
+          <div className="border-t pt-4">
+            <div className="flex items-center space-x-2 mb-3">
+              <Checkbox
+                id="is_testing"
+                checked={formData.is_testing}
+                onCheckedChange={(checked) => {
+                  const isTest = checked as boolean
+                  setFormData({
+                    ...formData,
+                    is_testing: isTest,
+                    testing_channel_ids: isTest ? formData.testing_channel_ids : [],
+                  })
+                }}
+              />
+              <label
+                htmlFor="is_testing"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+              >
+                🧪 Test Trade (Not Counted in Reports)
+              </label>
+            </div>
+
+            {formData.is_testing && (
+              <div className="ml-6 space-y-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  Test trades are visible only to you and excluded from statistics and reports.
+                </p>
+
+                {testingChannels.length > 0 ? (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-semibold">Send to Testing Channels (Optional)</Label>
+                    {testingChannels.map((channel) => (
+                      <div key={channel.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`testing_channel_${channel.id}`}
+                          checked={formData.testing_channel_ids.includes(channel.telegram_channel_id)}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setFormData({
+                                ...formData,
+                                testing_channel_ids: [...formData.testing_channel_ids, channel.telegram_channel_id]
+                              })
+                            } else {
+                              setFormData({
+                                ...formData,
+                                testing_channel_ids: formData.testing_channel_ids.filter(id => id !== channel.telegram_channel_id)
+                              })
+                            }
+                          }}
+                        />
+                        <label
+                          htmlFor={`testing_channel_${channel.id}`}
+                          className="text-sm leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                        >
+                          {channel.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No testing channels configured. Visit Settings to add testing channels.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

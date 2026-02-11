@@ -44,11 +44,18 @@ export function AdChannelsSettings() {
   const fetchChannels = async () => {
     try {
       const response = await fetch('/api/telegram/ad-channels');
+
+      if (response.status === 401) {
+        console.log('Not authenticated');
+        return;
+      }
+
       if (!response.ok) throw new Error('Failed to fetch channels');
 
       const data = await response.json();
-      setChannels(data);
+      setChannels(data.channels || []);
     } catch (error) {
+      console.error('Failed to fetch ad channels:', error);
       toast({
         title: 'Error',
         description: 'Failed to fetch ad channels',
@@ -80,7 +87,19 @@ export function AdChannelsSettings() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to add channel');
+      if (response.status === 401) {
+        toast({
+          title: 'Authentication Required',
+          description: 'You must be logged in to add channels',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to add channel');
+      }
 
       toast({
         title: 'Success',
@@ -112,7 +131,19 @@ export function AdChannelsSettings() {
         }),
       });
 
-      if (!response.ok) throw new Error('Failed to update channel');
+      if (response.status === 401) {
+        toast({
+          title: 'Authentication Required',
+          description: 'You must be logged in',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to update channel');
+      }
 
       toast({
         title: 'Success',
@@ -123,7 +154,7 @@ export function AdChannelsSettings() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to update channel',
+        description: error instanceof Error ? error.message : 'Failed to update channel',
         variant: 'destructive',
       });
     }
@@ -137,7 +168,19 @@ export function AdChannelsSettings() {
         method: 'DELETE',
       });
 
-      if (!response.ok) throw new Error('Failed to delete channel');
+      if (response.status === 401) {
+        toast({
+          title: 'Authentication Required',
+          description: 'You must be logged in',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to delete channel');
+      }
 
       toast({
         title: 'Success',
@@ -150,7 +193,7 @@ export function AdChannelsSettings() {
     } catch (error) {
       toast({
         title: 'Error',
-        description: 'Failed to delete channel',
+        description: error instanceof Error ? error.message : 'Failed to delete channel',
         variant: 'destructive',
       });
     }

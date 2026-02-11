@@ -467,38 +467,24 @@ function generateReportHTML(data: any): string {
 
         return `
           <div class="trade-card">
-            <div class="trade-header">
-              <div>
+            <div class="trade-compact-row">
+              <div class="trade-symbol-group">
                 <span class="trade-symbol">${trade.underlying_index_symbol}</span>
                 <span class="trade-type ${trade.option_type?.toLowerCase()}">${optionTypeText}</span>
+                <span class="trade-strike">${formatCurrencySimple(trade.strike || 0, 0)}</span>
               </div>
-              <div>
-                <span class="trade-status ${trade.status}">${statusText}</span>
-              </div>
+              <div class="trade-status ${trade.status}">${statusText}</div>
             </div>
-            <div class="trade-details">
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.strike}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(trade.strike || 0, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.entry}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(entryPrice, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.highest}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(highestPrice, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.expiry}</div>
-                <div class="trade-detail-value">${trade.expiry ? new Date(trade.expiry).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' }) : 'N/A'}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.profit}</div>
-                <div class="trade-detail-value">
-                  <span class="profit-badge ${profitClass}">${profitDollars > 0 ? '+' : profitDollars < 0 ? '-' : ''}${formatCurrencySimple(Math.abs(profitDollars), 0)}</span>
-                </div>
-              </div>
+            <div class="trade-compact-prices">
+              <span class="price-label">${t.entry}:</span>
+              <span class="price-value">${formatCurrencySimple(entryPrice, 2)}</span>
+              <span class="price-arrow">→</span>
+              <span class="price-label">${t.highest}:</span>
+              <span class="price-value">${formatCurrencySimple(highestPrice, 2)}</span>
+              <span class="trade-expiry">${trade.expiry ? new Date(trade.expiry).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' }) : 'N/A'}</span>
+            </div>
+            <div class="trade-profit-row">
+              <span class="profit-badge ${profitClass}">${profitDollars > 0 ? '+' : profitDollars < 0 ? '-' : ''}${formatCurrencySimple(Math.abs(profitDollars), 0)} (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)</span>
             </div>
           </div>
         `;
@@ -647,39 +633,216 @@ function generateReportHTML(data: any): string {
       background: white;
       border: 1px solid #e2e8f0;
       border-radius: 12px;
-      padding: 25px;
-      margin-bottom: 20px;
+      padding: 15px;
+      margin-bottom: 12px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
-    .trade-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
-    .trade-symbol { font-size: 24px; font-weight: 700; color: #2d3748; }
+    .trade-compact-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .trade-symbol-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .trade-symbol { font-size: 18px; font-weight: 700; color: #2d3748; }
+    .trade-strike { font-size: 14px; font-weight: 600; color: #4a5568; }
     .trade-type {
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
       font-weight: 600;
-      margin-${dir === 'rtl' ? 'right' : 'left'}: 10px;
     }
     .trade-type.call { background: #c6f6d5; color: #22543d; }
     .trade-type.put { background: #fed7d7; color: #742a2a; }
-    .trade-status { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .trade-status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
     .trade-status.active { background: #bee3f8; color: #2c5282; }
     .trade-status.closed { background: #c6f6d5; color: #22543d; }
-    .trade-details {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 20px;
+    .trade-compact-prices {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      flex-wrap: wrap;
     }
-    .trade-detail { padding: 15px; background: #f7fafc; border-radius: 8px; }
-    .trade-detail-label { font-size: 12px; color: #718096; margin-bottom: 5px; }
-    .trade-detail-value { font-size: 18px; font-weight: 700; color: #2d3748; }
-    .profit-badge { padding: 8px 16px; border-radius: 8px; font-size: 20px; font-weight: 700; }
+    .price-label { color: #718096; font-weight: 500; }
+    .price-value { color: #2d3748; font-weight: 700; }
+    .price-arrow { color: #a0aec0; font-weight: 700; }
+    .trade-expiry {
+      margin-${dir === 'rtl' ? 'right' : 'left'}: auto;
+      color: #718096;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .trade-profit-row {
+      display: flex;
+      justify-content: flex-end;
+    }
+    .profit-badge { padding: 6px 12px; border-radius: 6px; font-size: 15px; font-weight: 700; }
     .profit-badge.positive { background: #c6f6d5; color: #22543d; }
     .profit-badge.negative { background: #fed7d7; color: #742a2a; }
     .profit-badge.neutral { background: #e2e8f0; color: #4a5568; }
     .no-trades { text-align: center; padding: 60px 20px; color: #718096; }
     .no-trades-icon { font-size: 64px; margin-bottom: 20px; }
     .footer { background: #2d3748; color: white; padding: 30px; text-align: center; }
+
+    /* Mobile Responsive Styles */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      .container {
+        border-radius: 12px;
+      }
+      .header {
+        padding: 20px 15px;
+      }
+      .header h1 {
+        font-size: 24px;
+        margin-bottom: 8px;
+      }
+      .header p {
+        font-size: 14px;
+      }
+      .analyzer-info {
+        gap: 10px;
+        padding: 10px 20px;
+        margin-top: 8px;
+      }
+      .analyzer-name {
+        font-size: 16px;
+      }
+      .net-profit-hero {
+        padding: 25px 15px;
+        margin: 0 15px 15px;
+        border-radius: 12px;
+      }
+      .net-profit-icon {
+        font-size: 32px;
+        margin-bottom: 10px;
+      }
+      .net-profit-value {
+        font-size: 36px;
+        margin-bottom: 8px;
+      }
+      .net-profit-label {
+        font-size: 14px;
+        letter-spacing: 1px;
+      }
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        padding: 0 15px 20px;
+      }
+      .stat-card {
+        padding: 15px 10px;
+        border-radius: 8px;
+      }
+      .stat-value {
+        font-size: 22px;
+        margin-bottom: 4px;
+      }
+      .stat-label {
+        font-size: 11px;
+      }
+      .trades-section {
+        padding: 20px 15px;
+      }
+      .section-title {
+        font-size: 18px;
+        margin-bottom: 15px;
+      }
+      .trade-card {
+        padding: 12px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+      }
+      .trade-compact-row {
+        flex-direction: row;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+      .trade-symbol-group {
+        gap: 6px;
+      }
+      .trade-symbol {
+        font-size: 16px;
+      }
+      .trade-strike {
+        font-size: 13px;
+      }
+      .trade-type, .trade-status {
+        padding: 3px 6px;
+        font-size: 10px;
+      }
+      .trade-compact-prices {
+        gap: 4px;
+        font-size: 12px;
+        margin-bottom: 8px;
+      }
+      .price-label {
+        font-size: 11px;
+      }
+      .price-value {
+        font-size: 12px;
+      }
+      .trade-expiry {
+        font-size: 11px;
+      }
+      .profit-badge {
+        padding: 5px 10px;
+        font-size: 14px;
+      }
+      .no-trades {
+        padding: 40px 15px;
+      }
+      .no-trades-icon {
+        font-size: 48px;
+        margin-bottom: 15px;
+      }
+      .footer {
+        padding: 20px 15px;
+        font-size: 14px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .header h1 {
+        font-size: 20px;
+      }
+      .header p {
+        font-size: 12px;
+      }
+      .analyzer-name {
+        font-size: 14px;
+      }
+      .net-profit-value {
+        font-size: 30px;
+      }
+      .net-profit-label {
+        font-size: 12px;
+      }
+      .stat-value {
+        font-size: 20px;
+      }
+      .stat-label {
+        font-size: 10px;
+      }
+      .section-title {
+        font-size: 16px;
+      }
+      .trade-symbol {
+        font-size: 16px;
+      }
+      .trade-detail-value {
+        font-size: 14px;
+      }
+    }
   </style>
 </head>
 <body>

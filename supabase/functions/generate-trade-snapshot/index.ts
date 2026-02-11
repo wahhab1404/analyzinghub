@@ -60,40 +60,26 @@ Deno.serve(async (req: Request) => {
       entryUnderlying: trade.entry_underlying_snapshot,
     });
 
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
-    const cacheBuster = Date.now();
-    const isNewHighParam = payload.isNewHigh ? '&isNewHigh=true' : '';
-    const newHighPriceParam = payload.newHighPrice ? `&newHighPrice=${payload.newHighPrice}` : '';
-    const htmlPublicUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/snapshot-html?t=${cacheBuster}${isNewHighParam}${newHighPriceParam}`;
-    console.log("[generate-trade-snapshot] HTML endpoint:", htmlPublicUrl, "isNewHigh:", payload.isNewHigh, "newHighPrice:", payload.newHighPrice);
+    const appBaseUrl = Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_APP_URL") || "http://localhost:3000";
+    const isNewHighParam = payload.isNewHigh ? 'isNewHigh=true' : '';
+    const newHighPriceParam = payload.newHighPrice ? `newHighPrice=${payload.newHighPrice}` : '';
+    const queryParams = [isNewHighParam, newHighPriceParam].filter(Boolean).join('&');
+    const imageGenerationUrl = `${appBaseUrl}/api/indices/trades/${payload.tradeId}/generate-image${queryParams ? '?' + queryParams : ''}`;
+    console.log("[generate-trade-snapshot] Local image generation URL:", imageGenerationUrl, "isNewHigh:", payload.isNewHigh, "newHighPrice:", payload.newHighPrice);
 
-    console.log("[generate-trade-snapshot] Using ApiFlash screenshot service...");
+    console.log("[generate-trade-snapshot] Using local image generation...");
 
-    const apiflashKey = Deno.env.get("APIFLASH_KEY") || "8daad83fec0948579f899e3c44dea0c4";
-
-    const screenshotParams = new URLSearchParams({
-      access_key: apiflashKey,
-      url: htmlPublicUrl,
-      width: "1280",
-      height: "720",
-      format: "png",
-      wait_until: "page_loaded",
-      delay: "2",
-      fresh: "true",
-    });
-
-    const fullScreenshotUrl = `https://api.apiflash.com/v1/urltoimage?${screenshotParams.toString()}`;
-    const screenshotResponse = await fetch(fullScreenshotUrl);
+    const screenshotResponse = await fetch(imageGenerationUrl);
 
     if (!screenshotResponse.ok) {
       const errorBody = await screenshotResponse.text();
-      console.error("[generate-trade-snapshot] Screenshot API error:", {
+      console.error("[generate-trade-snapshot] Image generation error:", {
         status: screenshotResponse.status,
         statusText: screenshotResponse.statusText,
         body: errorBody,
       });
 
-      throw new Error(`Screenshot API failed: ${screenshotResponse.statusText} - ${errorBody}`);
+      throw new Error(`Image generation failed: ${screenshotResponse.statusText} - ${errorBody}`);
     }
 
     const imageBlob = await screenshotResponse.blob();

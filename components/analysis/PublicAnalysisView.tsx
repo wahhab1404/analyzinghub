@@ -296,7 +296,7 @@ export function PublicAnalysisView({ analysis }: PublicAnalysisViewProps) {
           <CardHeader className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-lg">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <img src="/logo.png" alt="AnalyzingHub" className="h-10 w-10" />
+                <img src="/analyzer-logo.png" alt="AnalyzingHub" className="h-10 w-10" />
                 <div>
                   <h1 className="text-2xl font-bold">{t.platformName}</h1>
                   <p className="text-sm text-blue-100">{t.platformTagline}</p>

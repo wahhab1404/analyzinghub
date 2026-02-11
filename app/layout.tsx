@@ -17,11 +17,11 @@ export const metadata: Metadata = {
   publisher: 'AnalyzingHub',
   icons: {
     icon: [
-      { url: '/logo.png', sizes: 'any' },
-      { url: '/logo.png', type: 'image/png', sizes: '512x512' },
+      { url: '/analyzer-logo.png', sizes: 'any' },
+      { url: '/analyzer-logo.png', type: 'image/png', sizes: '512x512' },
     ],
     apple: [
-      { url: '/logo.png', sizes: '180x180', type: 'image/png' },
+      { url: '/analyzer-logo.png', sizes: '180x180', type: 'image/png' },
     ],
   },
   openGraph: {
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
     description: 'Auto-validated trading analysis platform. Track stock predictions, follow expert analysts, and see verified success rates.',
     images: [
       {
-        url: '/logo.png',
+        url: '/analyzer-logo.png',
         width: 1200,
         height: 630,
         alt: 'AnalyzingHub - Trading Analysis Platform',
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'AnalyzingHub - Where Trading Analysis Proves Itself',
     description: 'Auto-validated trading analysis platform. Track stock predictions, follow expert analysts, and see verified success rates.',
-    images: ['/logo.png'],
+    images: ['/analyzer-logo.png'],
     creator: '@analyzinghub',
   },
   robots: {
@@ -80,8 +80,8 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="AnalyzingHub" />
         <meta name="format-detection" content="telephone=no" />
-        <link rel="apple-touch-icon" href="/logo.png" />
-        <link rel="apple-touch-startup-image" href="/logo.png" />
+        <link rel="apple-touch-icon" href="/analyzer-logo.png" />
+        <link rel="apple-touch-startup-image" href="/analyzer-logo.png" />
       </head>
       <body className="font-sans">
         <ThemeProvider

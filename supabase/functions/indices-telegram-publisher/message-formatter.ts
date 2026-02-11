@@ -229,13 +229,15 @@ export function formatAnalysisMessage(
 export function formatTradeMessage(
   trade: IndexTrade,
   baseUrl: string,
-  isNewHigh: boolean = false
+  isNewHigh: boolean = false,
+  isTestingMode: boolean = false
 ): { text: string; snapshotImageUrl?: string } {
   console.log('[MessageFormatter] formatTradeMessage called with:', {
     tradeId: trade.id,
     hasContractUrl: !!trade.contract_url,
     contractUrl: trade.contract_url,
     isNewHigh,
+    isTestingMode,
   });
 
   const analysisUrl = trade.analysis ? `${baseUrl}/dashboard/analysis/${trade.analysis.id}` : '#';
@@ -252,7 +254,12 @@ export function formatTradeMessage(
     }
   }
 
-  let message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE</b>\n\n";
+  let message = '';
+  if (isTestingMode) {
+    message = isNewHigh ? "🧪 <b>TEST - NEW HIGH ALERT!</b>\n\n" : "🧪 <b>TEST TRADE</b>\n\n";
+  } else {
+    message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE</b>\n\n";
+  }
   message += `<b>Index:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
   if (trade.analysis) {
     message += `<b>Analysis:</b> ${trade.analysis.title}\n`;

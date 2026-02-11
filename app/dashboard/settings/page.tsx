@@ -10,6 +10,7 @@ import { TelegramSettings } from '@/components/settings/TelegramSettings'
 import { ChannelSettings } from '@/components/settings/ChannelSettings'
 import { PlanManagement } from '@/components/settings/PlanManagement'
 import { AdminSettings } from '@/components/settings/AdminSettings'
+import { TestingChannelsSettings } from '@/components/settings/TestingChannelsSettings'
 import { Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -80,6 +81,7 @@ export default function SettingsPage() {
             <TabsTrigger value="notifications" className="flex-shrink-0">{t.settings.tabs.notifications}</TabsTrigger>
             <TabsTrigger value="telegram" className="flex-shrink-0">{t.settings.tabs.telegram}</TabsTrigger>
             {isAnalyzer && <TabsTrigger value="channel" className="flex-shrink-0">{t.settings.tabs.channel}</TabsTrigger>}
+            {isAnalyzer && <TabsTrigger value="testing" className="flex-shrink-0">Testing</TabsTrigger>}
             {isAnalyzer && <TabsTrigger value="plans" className="flex-shrink-0">{t.settings.tabs.plans}</TabsTrigger>}
             {isAdmin && <TabsTrigger value="admin" className="flex-shrink-0">{t.settings.tabs.admin}</TabsTrigger>}
           </TabsList>
@@ -104,6 +106,12 @@ export default function SettingsPage() {
         {isAnalyzer && (
           <TabsContent value="channel">
             <ChannelSettings />
+          </TabsContent>
+        )}
+
+        {isAnalyzer && (
+          <TabsContent value="testing">
+            <TestingChannelsSettings />
           </TabsContent>
         )}
 

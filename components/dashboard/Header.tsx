@@ -24,6 +24,7 @@ import { useTranslation } from '@/lib/i18n/language-context'
 import { cn } from '@/lib/utils'
 import { usePathname } from 'next/navigation'
 import { navItems } from './Sidebar'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 interface HeaderProps {
   user: SessionUser
@@ -35,6 +36,10 @@ export function Header({ user }: HeaderProps) {
   const { t } = useTranslation()
   const [loading, setLoading] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    'nav.companies': true,
+    'nav.indicesHub': true,
+  })
 
   const handleSignOut = async () => {
     setLoading(true)
@@ -69,6 +74,13 @@ export function Header({ user }: HeaderProps) {
     return value
   }
 
+  const toggleSection = (titleKey: string) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [titleKey]: !prev[titleKey]
+    }))
+  }
+
   return (
     <header className="border-b bg-white dark:bg-slate-950 sticky top-0 z-40 w-full">
       <div className="flex h-16 sm:h-20 items-center px-3 sm:px-6 w-full max-w-full">
@@ -93,7 +105,68 @@ export function Header({ user }: HeaderProps) {
               <nav className="space-y-1 p-4">
                 {filteredNavItems.map((item) => {
                   const Icon = item.icon
-                  const href = typeof item.href === 'function' ? item.href(user.id) : item.href
+
+                  if (item.children) {
+                    const isExpanded = expandedSections[item.titleKey]
+                    const hasActiveChild = item.children.some(child => {
+                      if (child.href) {
+                        const childHref = typeof child.href === 'function' ? child.href(user.id) : child.href
+                        return pathname.startsWith(childHref)
+                      }
+                      return false
+                    })
+
+                    return (
+                      <div key={item.titleKey} className="space-y-1">
+                        <button
+                          onClick={() => toggleSection(item.titleKey)}
+                          className={cn(
+                            'flex items-center gap-3 px-3 py-3 rounded-lg text-base font-medium transition-colors w-full',
+                            hasActiveChild
+                              ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
+                              : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                          )}
+                        >
+                          <Icon className="h-5 w-5" />
+                          <span className="flex-1 text-left">{getTitle(item.titleKey)}</span>
+                          {isExpanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
+
+                        {isExpanded && (
+                          <div className="ml-6 space-y-1 border-l-2 border-slate-200 dark:border-slate-700 pl-3">
+                            {item.children.filter(child => child.roles.includes(user.role)).map(child => {
+                              const ChildIcon = child.icon
+                              const childHref = typeof child.href === 'function' ? child.href(user.id) : child.href!
+                              const isActive = pathname === childHref || pathname.startsWith(childHref)
+
+                              return (
+                                <Link
+                                  key={childHref}
+                                  href={childHref}
+                                  onClick={() => setMobileMenuOpen(false)}
+                                  className={cn(
+                                    'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                                    isActive
+                                      ? 'bg-primary text-primary-foreground'
+                                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                                  )}
+                                >
+                                  <ChildIcon className="h-4 w-4" />
+                                  <span>{getTitle(child.titleKey)}</span>
+                                </Link>
+                              )
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  }
+
+                  const href = typeof item.href === 'function' ? item.href(user.id) : item.href!
                   const isActive = pathname === href
 
                   return (

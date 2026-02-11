@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const symbol = (analysis.symbols as any)?.symbol || 'N/A'
   const analyzerName = (analysis.profiles as any)?.full_name || 'Analyzer'
   const postType = analysis.post_type || 'analysis'
-  const chartImage = analysis.chart_image_url || '/logo.png'
+  const chartImage = analysis.chart_image_url || '/analyzer-logo.png'
 
   const typeLabel = postType === 'news' ? 'Market News' : postType === 'article' ? 'Article' : 'Analysis'
   const title = analysis.title || `${symbol} ${analysis.direction || ''} ${typeLabel}`

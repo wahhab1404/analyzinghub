@@ -86,6 +86,8 @@ export async function POST(request: NextRequest) {
         is_winning_trade: isWinning,
         is_manual_entry: true,
         telegram_send_enabled: false,
+        is_testing: false,
+        testing_channel_ids: []
       })
       .select()
       .single();

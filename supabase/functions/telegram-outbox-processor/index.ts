@@ -170,7 +170,7 @@ function formatMessage(message: any): { text?: string; photo?: string; caption?:
     case 'new_trade':
     case 'new_high':
     case 'winning_trade':
-      return formatTradeMessage(payload, messageType === 'new_high' || messageType === 'winning_trade', messageType === 'winning_trade');
+      return formatTradeMessage(payload, messageType === 'new_high' || messageType === 'winning_trade', messageType === 'winning_trade', payload.isTestingMode || false);
     case 'trade_result':
       return formatTradeResultMessage(payload);
     case 'trade_closed_for_new_entry':
@@ -202,7 +202,7 @@ function formatAnalysisMessage(payload: any): { text: string } {
   return { text: message };
 }
 
-function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean = false): { text?: string; photo?: string; caption?: string } {
+function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean = false, isTestingMode: boolean = false): { text?: string; photo?: string; caption?: string } {
   const trade = payload.trade || payload;
 
   console.log('[OutboxProcessor] formatTradeMessage called:', {
@@ -211,6 +211,7 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
     contractUrl: trade.contract_url,
     isNewHigh,
     isWinning,
+    isTestingMode,
   });
 
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
@@ -230,9 +231,11 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
     const expiryDate = trade.expiry ? new Date(trade.expiry).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) : '';
     const optionType = trade.option_type?.toUpperCase() || trade.direction?.toUpperCase() || '';
 
-    let caption = "🚀 <b>قمة جديدة</b>\n\n";
+    let caption = isTestingMode ? "🧪 <b>اختبار - قمة جديدة</b>\n\n" : "🚀 <b>قمة جديدة</b>\n\n";
     caption += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
     caption += `<b>العقد:</b> ${trade.strike?.toFixed(0)} - ${expiryDate} - ${optionType}\n`;
+    caption += `<b>سعر العقد:</b> $${highPrice.toFixed(2)}\n`;
+    caption += `<b>سعر الدخول:</b> $${entryPrice.toFixed(2)}\n`;
     caption += `<b>المكسب:</b> $${gainDollars}\n`;
 
     if (trade.contract_url) {
@@ -243,9 +246,16 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
   }
 
   // Full format for new trades and winning trades
-  let caption = isWinning
-    ? "🎉 <b>WINNING TRADE | صفقة رابحة!</b>\n\n"
-    : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
+  let caption = '';
+  if (isTestingMode) {
+    caption = isWinning
+      ? "🧪 <b>TEST - WINNING TRADE | اختبار - صفقة رابحة!</b>\n\n"
+      : "🧪 <b>TEST TRADE | صفقة اختبارية</b>\n\n";
+  } else {
+    caption = isWinning
+      ? "🎉 <b>WINNING TRADE | صفقة رابحة!</b>\n\n"
+      : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
+  }
 
   caption += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
   caption += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
@@ -429,11 +439,12 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
 }
 
 async function sendTelegramPhoto(botToken: string, chatId: string, photoUrl: string, caption: string) {
-  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+  console.log('[sendTelegramPhoto] Sending HIGH QUALITY image as document');
+  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
 
   const body = {
     chat_id: chatId,
-    photo: photoUrl,
+    document: photoUrl,
     caption,
     parse_mode: 'HTML',
   };
@@ -446,8 +457,11 @@ async function sendTelegramPhoto(botToken: string, chatId: string, photoUrl: str
 
   if (!response.ok) {
     const error = await response.text();
+    console.error('[sendTelegramPhoto] Telegram API error:', error);
     throw new Error(`Telegram API error: ${error}`);
   }
 
-  return response.json();
+  const result = await response.json();
+  console.log('[sendTelegramPhoto] Successfully sent high quality image');
+  return result;
 }

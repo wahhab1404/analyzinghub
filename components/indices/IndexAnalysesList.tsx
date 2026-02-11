@@ -19,6 +19,8 @@ interface Trade {
   expiry: string | null
   entry_contract_snapshot: { mid: number }
   current_contract: number
+  contract_high_since: number
+  contract_low_since: number
   targets: Array<{ price: number, percentage: number, hit?: boolean }>
   stoploss: { price: number, percentage: number } | null
 }

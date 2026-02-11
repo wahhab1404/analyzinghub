@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 
 export async function GET() {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = await createClient();
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,7 +18,7 @@ export async function GET() {
 
     if (error) throw error;
 
-    return NextResponse.json(channels);
+    return NextResponse.json({ channels: channels || [] });
   } catch (error) {
     console.error('Error fetching ad channels:', error);
     return NextResponse.json(
@@ -32,11 +30,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = await createClient();
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -62,7 +59,7 @@ export async function POST(request: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json(channel);
+    return NextResponse.json({ channel });
   } catch (error) {
     console.error('Error creating ad channel:', error);
     return NextResponse.json(
@@ -74,11 +71,10 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = await createClient();
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -102,7 +98,7 @@ export async function PATCH(request: Request) {
 
     if (error) throw error;
 
-    return NextResponse.json(channel);
+    return NextResponse.json({ channel });
   } catch (error) {
     console.error('Error updating ad channel:', error);
     return NextResponse.json(
@@ -114,11 +110,10 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const cookieStore = cookies();
-    const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+    const supabase = await createClient();
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

@@ -24,6 +24,7 @@ interface PublishRequest {
   data: any;
   channelId?: string;
   isNewHigh?: boolean;
+  isTestingMode?: boolean;
 }
 
 async function sendTelegramMessage(
@@ -167,7 +168,7 @@ Deno.serve(async (req) => {
         message = formatAnalysisMessage(payload.data, BASE_URL);
         break;
       case 'new_trade':
-        message = formatTradeMessage(payload.data, BASE_URL, payload.isNewHigh || false);
+        message = formatTradeMessage(payload.data, BASE_URL, payload.isNewHigh || false, payload.isTestingMode || false);
         break;
       case 'trade_result':
         message = formatTradeResultMessage(payload.data, BASE_URL);
