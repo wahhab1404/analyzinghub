@@ -183,7 +183,7 @@ export async function POST(request: NextRequest) {
           contractSnapshot = {
             bid: optionSnap.quote?.bid,
             ask: optionSnap.quote?.ask,
-            mid: optionSnap.quote?.mid || 0,
+            mid: optionSnap.quote?.mid ?? 0,
             last: optionSnap.quote?.last,
             timestamp: new Date().toISOString(),
             volume: optionSnap.quote?.volume,
@@ -220,7 +220,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.entry_override !== undefined && body.entry_override !== null) {
-      entryContract = body.entry_override;
+      const overrideVal = Number(body.entry_override);
+      if (!Number.isFinite(overrideVal) || overrideVal <= 0) {
+        return NextResponse.json(
+          { error: 'entry_override must be a positive finite number' },
+          { status: 400 }
+        );
+      }
+      entryContract = overrideVal;
       entrySource = 'manual';
       overrideReason = body.entry_override_reason || 'Manual entry override';
     }
@@ -525,15 +532,17 @@ export async function POST(request: NextRequest) {
           console.log('Snapshot generated successfully:', snapshotUrl);
           trade.contract_url = snapshotUrl;
 
-          // Save the snapshot URL to the database
-          await supabase
+          // Save the snapshot URL to the database — await fully before proceeding
+          const { error: urlUpdateError } = await supabase
             .from('index_trades')
             .update({ contract_url: snapshotUrl })
             .eq('id', trade.id);
 
-          console.log(`✅ Updated standalone trade ${trade.id} with snapshot URL in database`);
-
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (urlUpdateError) {
+            console.error('⚠️  Failed to persist snapshot URL:', urlUpdateError.message);
+          } else {
+            console.log(`✅ Updated standalone trade ${trade.id} with snapshot URL in database`);
+          }
         } else {
           const errorText = await snapshotResponse.text();
           console.error('⚠️  Snapshot generation failed (non-critical):', errorText.substring(0, 200));

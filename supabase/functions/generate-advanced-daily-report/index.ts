@@ -117,10 +117,13 @@ Deno.serve(async (req) => {
     });
 
     const enrichedExpiredTrades = expiredTrades.map(trade => {
-      const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-      const highestPrice = trade.contract_high_since || entryPrice;
+      // Fix: use nullish coalescing so a legitimate price of 0 is preserved
+      const entryPrice = trade.entry_contract_snapshot?.price ?? trade.entry_contract_snapshot?.mid ?? trade.entry_contract_snapshot?.last ?? 0;
+      // Fix: for expired trades use contract_high_since; fall back to current_contract, not entryPrice
+      const highestPrice = trade.contract_high_since ?? trade.current_contract ?? entryPrice;
       const qty = trade.qty || 1;
-      const maxProfit = (highestPrice - entryPrice) * qty * 100;
+      const multiplier = trade.contract_multiplier || 100;
+      const maxProfit = (highestPrice - entryPrice) * qty * multiplier;
       
       return {
         ...trade,
@@ -139,25 +142,29 @@ Deno.serve(async (req) => {
     const totalExpired = expiredTrades.length;
 
     const profitableTrades = [...closedTrades, ...enrichedExpiredTrades].filter(t => {
-      const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-      const highestPrice = t.contract_high_since || entryPrice;
+      // Fix: nullish coalescing for legitimate 0 prices
+      const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
+      const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
       const qty = t.qty || 1;
-      const maxProfit = (highestPrice - entryPrice) * qty * 100;
+      const multiplier = t.contract_multiplier || 100;
+      const maxProfit = (highestPrice - entryPrice) * qty * multiplier;
       return maxProfit >= 100;
     });
 
     const avgProfit = allTrades.length > 0
       ? allTrades.reduce((sum, t) => {
-          const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-          const highestPrice = t.contract_high_since || entryPrice;
+          // Fix: nullish coalescing for prices
+          const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
+          const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
           return sum + (entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0);
         }, 0) / allTrades.length
       : 0;
 
     const maxProfit = allTrades.length > 0
       ? Math.max(...allTrades.map(t => {
-          const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-          const highestPrice = t.contract_high_since || entryPrice;
+          // Fix: nullish coalescing for prices
+          const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
+          const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
           return entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
         }))
       : 0;
