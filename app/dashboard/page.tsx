@@ -3,11 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Users, FileText, TrendingUp, Activity, Target, UserPlus, Loader2, DollarSign, BarChart3, TrendingDown, Calendar } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Users, FileText, TrendingUp, Activity, Target, UserPlus, Loader2,
+  DollarSign, BarChart3, TrendingDown, Calendar, ArrowUpRight, ArrowDownRight,
+  Minus
+} from 'lucide-react'
 import { SessionUser } from '@/lib/auth/types'
 import { useLanguage } from '@/lib/i18n/language-context'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { cn } from '@/lib/utils'
 
 interface TradeStats {
   totalTrades: number
@@ -46,6 +51,12 @@ interface ChartDataPoint {
   trades: number
 }
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(value)
+
+const formatCompact = (value: number) =>
+  new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+
 export default function DashboardPage() {
   const router = useRouter()
   const { t } = useLanguage()
@@ -58,448 +69,380 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetch('/api/me', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d) => {
-        if (!d.user) {
-          router.push('/login')
-        } else {
-          setUser(d.user)
-          fetchTradeStats()
-        }
+      .then(r => r.json())
+      .then(d => {
+        if (!d.user) { router.push('/login'); return }
+        setUser(d.user)
+        fetchTradeStats()
       })
-      .catch(() => {
-        router.push('/login')
-      })
-      .finally(() => {
-        setLoading(false)
-      })
+      .catch(() => router.push('/login'))
+      .finally(() => setLoading(false))
   }, [router])
 
   const fetchTradeStats = async () => {
     try {
-      const res = await fetch('/api/dashboard/stats', {
-        credentials: 'include',
-        cache: 'no-store'
-      })
+      const res = await fetch('/api/dashboard/stats', { credentials: 'include', cache: 'no-store' })
       if (res.ok) {
         const data = await res.json()
         setTradeStats(data.summary)
         setRecentTrades(data.recentTrades)
         setChartData(data.chartData)
       }
-    } catch (error) {
-      console.error('Failed to fetch trade stats:', error)
-    } finally {
-      setStatsLoading(false)
-    }
+    } catch {}
+    finally { setStatsLoading(false) }
   }
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mb-4" />
-        <p className="text-muted-foreground">{t.dashboard.loadingDashboard}</p>
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
-  if (!user) {
-    return null
-  }
+  if (!user) return null
 
   const stats = user.stats || {
-    total_analyses: 0,
-    active_analyses: 0,
-    completed_analyses: 0,
-    successful_analyses: 0,
-    success_rate: 0,
-    followers_count: 0,
-    following_count: 0
+    total_analyses: 0, active_analyses: 0, completed_analyses: 0,
+    successful_analyses: 0, success_rate: 0, followers_count: 0, following_count: 0
   }
 
-  const getSuccessRateColor = (rate: number) => {
-    if (rate >= 70) return 'text-green-600 dark:text-green-400'
-    if (rate >= 50) return 'text-yellow-600 dark:text-yellow-400'
-    return 'text-red-600 dark:text-red-400'
-  }
+  const winRateColor = tradeStats
+    ? tradeStats.winRate >= 60 ? 'text-emerald-500' : tradeStats.winRate >= 40 ? 'text-amber-500' : 'text-red-500'
+    : ''
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(value)
-  }
-
-  const getTradeOutcomeBadge = (isWin?: boolean) => {
-    if (isWin === true) {
-      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-    } else if (isWin === false) {
-      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-    }
-    return 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-200'
-  }
-
-  const getTradeOutcomeLabel = (isWin?: boolean) => {
-    if (isWin === true) return 'WIN'
-    if (isWin === false) return 'LOSS'
-    return 'CLOSED'
-  }
-
-  const statCards = [
-    {
-      title: t.dashboard.totalAnalyses,
-      value: stats.total_analyses,
-      icon: FileText,
-      description: t.dashboard.publishedAnalyses,
-      color: 'text-blue-600 dark:text-blue-400',
-      bgColor: 'bg-blue-100 dark:bg-blue-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-    {
-      title: t.dashboard.activeAnalyses,
-      value: stats.active_analyses,
-      icon: Activity,
-      description: t.dashboard.currentlyActive,
-      color: 'text-orange-600 dark:text-orange-400',
-      bgColor: 'bg-orange-100 dark:bg-orange-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-    {
-      title: t.dashboard.successful,
-      value: stats.successful_analyses,
-      icon: Target,
-      description: t.dashboard.hitTargets,
-      color: 'text-green-600 dark:text-green-400',
-      bgColor: 'bg-green-100 dark:bg-green-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-    {
-      title: t.dashboard.successRate,
-      value: `${stats.success_rate}%`,
-      icon: TrendingUp,
-      description: stats.completed_analyses > 0 ? `${stats.completed_analyses} ${t.dashboard.completed}` : t.dashboard.noCompleted,
-      color: getSuccessRateColor(stats.success_rate),
-      bgColor: stats.success_rate >= 70 ? 'bg-green-100 dark:bg-green-950' : stats.success_rate >= 50 ? 'bg-yellow-100 dark:bg-yellow-950' : 'bg-red-100 dark:bg-red-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-    {
-      title: t.dashboard.followers,
-      value: stats.followers_count,
-      icon: Users,
-      description: t.dashboard.usersFollowingYou,
-      color: 'text-pink-600 dark:text-pink-400',
-      bgColor: 'bg-pink-100 dark:bg-pink-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-    {
-      title: t.dashboard.following,
-      value: stats.following_count,
-      icon: UserPlus,
-      description: t.dashboard.analyzersYouFollow,
-      color: 'text-cyan-600 dark:text-cyan-400',
-      bgColor: 'bg-cyan-100 dark:bg-cyan-950',
-      link: `/dashboard/profile/${user.id}`
-    },
-  ]
+  const successRateColor = stats.success_rate >= 70
+    ? 'text-emerald-500'
+    : stats.success_rate >= 50 ? 'text-amber-500' : 'text-red-500'
 
   return (
-    <div className="space-y-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+
+      {/* Page header */}
+      <div className="flex items-end justify-between border-b border-border pb-4">
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 dark:from-blue-400 dark:to-cyan-400 bg-clip-text text-transparent">
-            {t.dashboard.welcomeBack} {user.profile.full_name}
+          <p className="section-label mb-1">TERMINAL</p>
+          <h1 className="text-lg font-bold text-foreground leading-none">
+            {user.profile.full_name}
           </h1>
-          <p className="text-slate-600 dark:text-slate-400 mt-2 text-lg">
-            {t.dashboard.performanceOverview}
-          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">{t.dashboard.performanceOverview}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={cn(
+            'text-[10px] font-bold px-2 py-0.5 border uppercase tracking-wide',
+            user.role === 'Analyzer' ? 'badge-active' : 'badge-neutral'
+          )}>
+            {user.role}
+          </span>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {statCards.map((stat) => {
-          const Icon = stat.icon
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-border rounded-sm overflow-hidden border border-border">
+        {[
+          {
+            label: t.dashboard.totalAnalyses,
+            value: stats.total_analyses,
+            sub: t.dashboard.publishedAnalyses,
+            icon: FileText,
+          },
+          {
+            label: t.dashboard.activeAnalyses,
+            value: stats.active_analyses,
+            sub: t.dashboard.currentlyActive,
+            icon: Activity,
+            highlight: stats.active_analyses > 0 ? 'text-amber-500' : undefined,
+          },
+          {
+            label: t.dashboard.successful,
+            value: stats.successful_analyses,
+            sub: t.dashboard.hitTargets,
+            icon: Target,
+            highlight: stats.successful_analyses > 0 ? 'text-emerald-500' : undefined,
+          },
+          {
+            label: t.dashboard.successRate,
+            value: `${stats.success_rate}%`,
+            sub: `${stats.completed_analyses} ${t.dashboard.completed}`,
+            icon: TrendingUp,
+            highlight: successRateColor,
+          },
+          {
+            label: t.dashboard.followers,
+            value: formatCompact(stats.followers_count),
+            sub: t.dashboard.usersFollowingYou,
+            icon: Users,
+          },
+          {
+            label: t.dashboard.following,
+            value: stats.following_count,
+            sub: t.dashboard.analyzersYouFollow,
+            icon: UserPlus,
+          },
+        ].map((kpi) => {
+          const Icon = kpi.icon
           return (
-            <Link key={stat.title} href={stat.link}>
-              <Card className="hover:shadow-xl hover:scale-105 transition-all duration-300 cursor-pointer border-2 hover:border-primary/50 overflow-hidden group">
-                <div className={`absolute top-0 right-0 w-32 h-32 ${stat.bgColor} rounded-full -mr-16 -mt-16 opacity-20 group-hover:opacity-30 transition-opacity`}></div>
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative">
-                  <CardTitle className="text-sm font-semibold uppercase tracking-wide">
-                    {stat.title}
-                  </CardTitle>
-                  <div className={`h-12 w-12 ${stat.bgColor} rounded-lg flex items-center justify-center`}>
-                    <Icon className={`h-6 w-6 ${stat.color}`} />
-                  </div>
-                </CardHeader>
-                <CardContent className="relative">
-                  <div className={`text-3xl font-bold ${stat.title === 'Success Rate' ? stat.color : 'text-slate-900 dark:text-slate-50'}`}>
-                    {stat.value}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-1 font-medium">
-                    {stat.description}
-                  </p>
-                </CardContent>
-              </Card>
+            <Link
+              key={kpi.label}
+              href={`/dashboard/profile/${user.id}`}
+              className="bg-card p-3 flex flex-col gap-1 hover:bg-muted/30 transition-colors group"
+            >
+              <div className="flex items-center justify-between">
+                <span className="section-label">{kpi.label}</span>
+                <Icon className="h-3 w-3 text-muted-foreground/50" />
+              </div>
+              <span className={cn('kpi-value text-xl', kpi.highlight ?? 'text-foreground')}>
+                {kpi.value}
+              </span>
+              <span className="text-[10px] text-muted-foreground">{kpi.sub}</span>
             </Link>
           )
         })}
       </div>
 
+      {/* Trade performance row */}
       {tradeStats && tradeStats.closedTrades > 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <Card className="border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-green-900 dark:text-green-100">
-                <DollarSign className="h-5 w-5" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Total P&L */}
+          <Card className="terminal-card rounded-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="section-label flex items-center gap-1.5">
+                <DollarSign className="h-3 w-3" />
                 {t.dashboard.totalProfitLoss}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className={`text-3xl font-bold ${tradeStats.totalProfit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {formatCurrency(tradeStats.totalProfit)}
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
+            <CardContent className="px-4 pb-3">
+              <div className="flex items-end gap-2">
+                <span className={cn('kpi-value text-3xl', tradeStats.totalProfit >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                  {tradeStats.totalProfit >= 0 ? '+' : ''}{formatCurrency(tradeStats.totalProfit)}
+                </span>
+                {tradeStats.totalProfit >= 0
+                  ? <ArrowUpRight className="h-4 w-4 text-emerald-500 mb-1" />
+                  : <ArrowDownRight className="h-4 w-4 text-red-500 mb-1" />
+                }
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
                 {tradeStats.closedTrades} {t.dashboard.closedTrades}
               </p>
             </CardContent>
           </Card>
 
-          <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-blue-900 dark:text-blue-100">
-                <TrendingUp className="h-5 w-5" />
+          {/* Win rate */}
+          <Card className="terminal-card rounded-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="section-label flex items-center gap-1.5">
+                <Target className="h-3 w-3" />
                 {t.dashboard.winRate}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className={`text-3xl font-bold ${tradeStats.winRate >= 60 ? 'text-green-600 dark:text-green-400' : tradeStats.winRate >= 40 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
-                {tradeStats.winRate}%
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                {tradeStats.winningTrades} {t.dashboard.winningOf} {tradeStats.closedTrades} {t.dashboard.total}
+            <CardContent className="px-4 pb-3">
+              <div className="flex items-end gap-2">
+                <span className={cn('kpi-value text-3xl', winRateColor)}>
+                  {tradeStats.winRate}%
+                </span>
+                <div className="mb-1 w-24 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full', tradeStats.winRate >= 60 ? 'bg-emerald-500' : tradeStats.winRate >= 40 ? 'bg-amber-500' : 'bg-red-500')}
+                    style={{ width: `${tradeStats.winRate}%` }}
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {tradeStats.winningTrades} {t.dashboard.winningOf} {tradeStats.closedTrades}
               </p>
             </CardContent>
           </Card>
 
-          <Card className="border-purple-200 dark:border-purple-800 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-950/30 dark:to-pink-950/30">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-purple-900 dark:text-purple-100">
-                <Calendar className="h-5 w-5" />
+          {/* This month */}
+          <Card className="terminal-card rounded-sm">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="section-label flex items-center gap-1.5">
+                <Calendar className="h-3 w-3" />
                 {t.dashboard.thisMonth}
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <p className={`text-3xl font-bold ${tradeStats.currentMonthProfit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                {formatCurrency(tradeStats.currentMonthProfit)}
-              </p>
-              <p className="text-sm text-muted-foreground mt-2">
-                {t.dashboard.monthToDatePerformance}
-              </p>
+            <CardContent className="px-4 pb-3">
+              <div className="flex items-end gap-2">
+                <span className={cn('kpi-value text-3xl', tradeStats.currentMonthProfit >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                  {tradeStats.currentMonthProfit >= 0 ? '+' : ''}{formatCurrency(tradeStats.currentMonthProfit)}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">{t.dashboard.monthToDatePerformance}</p>
             </CardContent>
           </Card>
         </div>
       )}
 
-      {chartData && chartData.length > 0 && (
-        <Card className="border-slate-200 dark:border-slate-800">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5" />
-              {t.dashboard.last7DaysPerformance}
-            </CardTitle>
-            <CardDescription>{t.dashboard.dailyProfitLossTrend}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="colorProfit" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
-                <XAxis
-                  dataKey="date"
-                  stroke="#6b7280"
-                  style={{ fontSize: '12px' }}
-                />
-                <YAxis
-                  stroke="#6b7280"
-                  style={{ fontSize: '12px' }}
-                  tickFormatter={(value) => `$${value}`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    color: '#fff'
-                  }}
-                  formatter={(value: any) => [`$${value.toFixed(2)}`, 'Profit']}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="profit"
-                  stroke="#10b981"
-                  strokeWidth={3}
-                  fillOpacity={1}
-                  fill="url(#colorProfit)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      )}
+      {/* Chart + Recent trades grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-3">
 
-      {recentTrades && recentTrades.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="h-5 w-5" />
-              {t.dashboard.last5ClosedTrades}
-            </CardTitle>
-            <CardDescription>{t.dashboard.mostRecentCompletedTrades}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {recentTrades.map((trade) => {
-                const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
-                const qty = trade.qty || 1
-                const multiplier = trade.contract_multiplier || 100
-                const entryCost = entryPrice * qty * multiplier
+        {/* P&L Chart */}
+        {chartData && chartData.length > 0 && (
+          <Card className="terminal-card rounded-sm lg:col-span-3">
+            <CardHeader className="pb-2 pt-3 px-4 border-b border-border">
+              <CardTitle className="section-label flex items-center gap-1.5">
+                <BarChart3 className="h-3 w-3" />
+                {t.dashboard.last7DaysPerformance}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-2 pt-3 pb-2">
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={chartData} margin={{ top: 0, right: 8, left: -8, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="2 4" stroke="hsl(var(--border))" opacity={0.6} />
+                  <XAxis
+                    dataKey="date"
+                    stroke="hsl(var(--muted-foreground))"
+                    style={{ fontSize: '10px', fontVariantNumeric: 'tabular-nums' }}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <YAxis
+                    stroke="hsl(var(--muted-foreground))"
+                    style={{ fontSize: '10px', fontVariantNumeric: 'tabular-nums' }}
+                    tickFormatter={(v) => `$${v}`}
+                    tickLine={false}
+                    axisLine={false}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '2px',
+                      color: 'hsl(var(--foreground))',
+                      fontSize: '11px',
+                    }}
+                    formatter={(value: any) => [`$${Number(value).toFixed(2)}`, 'P&L']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="profit"
+                    stroke="#22c55e"
+                    strokeWidth={1.5}
+                    fill="url(#profitGrad)"
+                    dot={false}
+                    activeDot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
 
-                let profit = 0
-                if (trade.computed_profit_usd != null) {
-                  profit = trade.computed_profit_usd
-                } else if (trade.is_win === false) {
-                  profit = -entryCost
-                }
+        {/* Recent trades table */}
+        {recentTrades && recentTrades.length > 0 && (
+          <Card className="terminal-card rounded-sm lg:col-span-2">
+            <CardHeader className="pb-2 pt-3 px-4 border-b border-border">
+              <CardTitle className="section-label flex items-center gap-1.5">
+                <Activity className="h-3 w-3" />
+                {t.dashboard.last5ClosedTrades}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/20">
+                    <th className="text-left px-3 py-2 section-label font-semibold">SYMBOL</th>
+                    <th className="text-left px-2 py-2 section-label font-semibold">DIR</th>
+                    <th className="text-right px-3 py-2 section-label font-semibold">P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentTrades.map((trade) => {
+                    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
+                    const qty = trade.qty || 1
+                    const multiplier = trade.contract_multiplier || 100
+                    const entryCost = entryPrice * qty * multiplier
+                    let profit = 0
+                    if (trade.computed_profit_usd != null) {
+                      profit = trade.computed_profit_usd
+                    } else if (trade.is_win === false) {
+                      profit = -entryCost
+                    }
+                    const isCall = trade.direction === 'call' || trade.direction === 'bullish'
 
-                const profitPercent = entryCost > 0 ? ((profit / entryCost) * 100).toFixed(1) : '0'
-
-                return (
-                  <Link
-                    key={trade.id}
-                    href={`/dashboard/indices`}
-                    className="block"
-                  >
-                    <div className="flex items-center justify-between p-4 rounded-lg border-2 hover:border-primary/50 transition-all hover:shadow-md bg-slate-50 dark:bg-slate-900/50">
-                      <div className="flex items-center gap-4 flex-1">
-                        <div className={`h-12 w-12 rounded-full flex items-center justify-center ${trade.direction === 'call' || trade.direction === 'bullish' ? 'bg-green-100 dark:bg-green-950' : 'bg-red-100 dark:bg-red-950'}`}>
-                          {trade.direction === 'call' || trade.direction === 'bullish' ? (
-                            <TrendingUp className="h-6 w-6 text-green-600 dark:text-green-400" />
-                          ) : (
-                            <TrendingDown className="h-6 w-6 text-red-600 dark:text-red-400" />
-                          )}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-semibold text-slate-900 dark:text-slate-50">
-                              {trade.underlying_index_symbol}
-                            </h4>
-                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${getTradeOutcomeBadge(trade.is_win)}`}>
-                              {getTradeOutcomeLabel(trade.is_win)}
-                            </span>
+                    return (
+                      <tr key={trade.id} className="data-row">
+                        <td className="px-3 py-2">
+                          <div className="font-bold text-foreground">{trade.underlying_index_symbol}</div>
+                          <div className="text-[10px] text-muted-foreground num">
+                            {trade.option_type?.toUpperCase()} {trade.strike ? `$${trade.strike}` : ''}
                           </div>
-                          <p className="text-sm text-muted-foreground">
-                            {trade.option_type?.toUpperCase()} ${trade.strike} • Exp: {new Date(trade.expiry || '').toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className={`text-xl font-bold ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {profit >= 0 ? '+' : ''}{formatCurrency(profit)}
-                        </p>
-                        <p className={`text-sm font-medium ${profit >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                          {profit >= 0 ? '+' : ''}{profitPercent}%
-                        </p>
-                      </div>
-                    </div>
-                  </Link>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                        </td>
+                        <td className="px-2 py-2">
+                          <span className={isCall ? 'badge-buy' : 'badge-sell'}>
+                            {isCall ? 'CALL' : 'PUT'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <div className={cn('font-bold num', profit >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                            {profit >= 0 ? '+' : ''}{formatCurrency(profit)}
+                          </div>
+                          <div className={cn('text-[10px] num', profit >= 0 ? 'text-emerald-500/70' : 'text-red-500/70')}>
+                            {trade.is_win === true ? 'WIN' : trade.is_win === false ? 'LOSS' : 'CLOSED'}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
-      {stats.completed_analyses > 0 && (
-        <Card className="border-blue-200 dark:border-blue-800 bg-gradient-to-br from-blue-50/80 to-cyan-50/80 dark:from-blue-950/50 dark:to-cyan-950/50">
-          <CardHeader>
-            <CardTitle className="text-blue-900 dark:text-blue-100">{t.dashboard.performanceSummary}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-blue-900 dark:text-blue-100">
-              {t.dashboard.completedAnalyses} <strong>{stats.completed_analyses}</strong> {t.dashboard.analysesWith}{' '}
-              <strong>{stats.successful_analyses}</strong> {t.dashboard.successfullyHitting}
-              {stats.success_rate >= 70 && ` ${t.dashboard.excellentWork}`}
-              {stats.success_rate >= 50 && stats.success_rate < 70 && ` ${t.dashboard.goodPerformance}`}
-              {stats.success_rate < 50 && ` ${t.dashboard.keepLearning}`}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t.dashboard.gettingStarted}</CardTitle>
-          <CardDescription>
-            {t.dashboard.welcomePlatform}
-          </CardDescription>
+      {/* Quick actions panel */}
+      <Card className="terminal-card rounded-sm">
+        <CardHeader className="pb-2 pt-3 px-4 border-b border-border">
+          <CardTitle className="section-label">{t.dashboard.gettingStarted}</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-50">
-              {t.dashboard.yourRole} {user.role}
-            </h3>
-            {user.role === 'SuperAdmin' && (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {t.dashboard.superAdminRole}
-              </p>
-            )}
+        <CardContent className="px-4 py-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <Link
+              href="/dashboard/settings"
+              className="flex items-center gap-2 p-2.5 border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors rounded-sm group"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5 text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              <span className="text-xs font-medium">{t.dashboard.completeProfile}</span>
+            </Link>
             {user.role === 'Analyzer' && (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {t.dashboard.analyzerRole}
-              </p>
+              <Link
+                href="/dashboard/create-analysis"
+                className="flex items-center gap-2 p-2.5 border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors rounded-sm group"
+              >
+                <ArrowUpRight className="h-3.5 w-3.5 text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                <span className="text-xs font-medium">{t.dashboard.createFirstAnalysis}</span>
+              </Link>
             )}
             {user.role === 'Trader' && (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {t.dashboard.traderRole}
-              </p>
+              <Link
+                href="/dashboard/search"
+                className="flex items-center gap-2 p-2.5 border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors rounded-sm group"
+              >
+                <ArrowUpRight className="h-3.5 w-3.5 text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                <span className="text-xs font-medium">{t.dashboard.findAnalyzers}</span>
+              </Link>
             )}
-          </div>
-
-          <div className="space-y-2">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-50">
-              {t.dashboard.quickActions}
-            </h3>
-            <ul className="list-disc list-inside text-sm text-slate-600 dark:text-slate-400 space-y-1">
-              <li>
-                <Link href="/dashboard/settings" className="text-blue-600 hover:underline">
-                  {t.dashboard.completeProfile}
-                </Link>
-              </li>
-              {user.role === 'Analyzer' && (
-                <li>
-                  <Link href="/dashboard/create-analysis" className="text-blue-600 hover:underline">
-                    {t.dashboard.createFirstAnalysis}
-                  </Link>
-                </li>
-              )}
-              {user.role === 'Trader' && (
-                <li>
-                  <Link href="/dashboard/search" className="text-blue-600 hover:underline">
-                    {t.dashboard.findAnalyzers}
-                  </Link>
-                </li>
-              )}
-              <li>
-                <Link href="/dashboard/feed" className="text-blue-600 hover:underline">
-                  {t.dashboard.exploreFeed}
-                </Link>
-              </li>
-            </ul>
+            <Link
+              href="/dashboard/feed"
+              className="flex items-center gap-2 p-2.5 border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors rounded-sm group"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5 text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              <span className="text-xs font-medium">{t.dashboard.exploreFeed}</span>
+            </Link>
+            <Link
+              href="/dashboard/rankings"
+              className="flex items-center gap-2 p-2.5 border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors rounded-sm group"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5 text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+              <span className="text-xs font-medium">View Rankings</span>
+            </Link>
           </div>
         </CardContent>
       </Card>

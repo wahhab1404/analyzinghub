@@ -145,6 +145,26 @@ const navItems: NavItem[] = [
   },
 ]
 
+/* Group definitions — pure visual grouping for Bloomberg-style sidebar */
+const navGroups = [
+  {
+    label: 'OVERVIEW',
+    keys: ['nav.dashboard', 'nav.feed', 'nav.myProfile'],
+  },
+  {
+    label: 'MARKETS',
+    keys: ['nav.companies', 'nav.indicesHub', 'nav.rankings'],
+  },
+  {
+    label: 'ACCOUNT',
+    keys: ['nav.subscriptions', 'nav.subscribers', 'nav.financial', 'nav.activity'],
+  },
+  {
+    label: 'SUPPORT',
+    keys: ['nav.helpTutorials', 'nav.settings', 'nav.admin'],
+  },
+]
+
 interface SidebarProps {
   userRole: RoleName
   userId: string
@@ -160,23 +180,21 @@ export function Sidebar({ userRole, userId, className, onNavigate }: SidebarProp
     'nav.indicesHub': true,
   })
 
-  const filteredNavItems = navItems.filter(item =>
-    item.roles.includes(userRole)
-  )
+  const filteredNavItems = navItems.filter(item => item.roles.includes(userRole))
 
   const getTitle = (titleKey: string) => {
     const keys = titleKey.split('.')
     let value: any = t
     for (const key of keys) {
-      value = value[key]
+      value = value?.[key]
     }
-    return value
+    return value || titleKey
   }
 
   const toggleSection = (titleKey: string) => {
     setExpandedSections(prev => ({
       ...prev,
-      [titleKey]: !prev[titleKey]
+      [titleKey]: !prev[titleKey],
     }))
   }
 
@@ -194,27 +212,26 @@ export function Sidebar({ userRole, userId, className, onNavigate }: SidebarProp
       })
 
       return (
-        <div key={item.titleKey} className="space-y-1">
+        <div key={item.titleKey}>
           <button
             onClick={() => toggleSection(item.titleKey)}
             className={cn(
-              'flex items-center gap-3 px-3 py-3 sm:py-2 rounded-lg text-base sm:text-sm font-medium transition-colors w-full',
+              'flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition-colors w-full group',
               hasActiveChild
-                ? 'bg-slate-200 dark:bg-slate-800 text-slate-900 dark:text-slate-100'
-                : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+                ? 'text-foreground bg-primary/8 border-l-2 border-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40 border-l-2 border-transparent'
             )}
           >
-            <Icon className="h-5 w-5 sm:h-5 sm:w-5" />
-            <span className="flex-1 text-left">{getTitle(item.titleKey)}</span>
-            {isExpanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
+            <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="flex-1 text-left tracking-wide uppercase text-[10px] font-semibold">{getTitle(item.titleKey)}</span>
+            {isExpanded
+              ? <ChevronDown className="h-3 w-3 opacity-50" />
+              : <ChevronRight className="h-3 w-3 opacity-50" />
+            }
           </button>
 
           {isExpanded && (
-            <div className="ml-6 space-y-1 border-l-2 border-slate-200 dark:border-slate-700 pl-3">
+            <div className="ml-3 border-l border-border/50 pl-3 py-0.5 space-y-0.5">
               {item.children.filter(child => child.roles.includes(userRole)).map(child => {
                 const ChildIcon = child.icon
                 const childHref = typeof child.href === 'function' ? child.href(userId) : child.href!
@@ -227,13 +244,13 @@ export function Sidebar({ userRole, userId, className, onNavigate }: SidebarProp
                     onClick={onNavigate}
                     {...(child.tutorialTarget ? { 'data-tutorial': child.tutorialTarget } : {})}
                     className={cn(
-                      'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                      'flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium transition-colors rounded-none',
                       isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                        ? 'text-primary bg-primary/10'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
                     )}
                   >
-                    <ChildIcon className="h-4 w-4" />
+                    <ChildIcon className="h-3 w-3 flex-shrink-0" />
                     <span>{getTitle(child.titleKey)}</span>
                   </Link>
                 )
@@ -254,23 +271,56 @@ export function Sidebar({ userRole, userId, className, onNavigate }: SidebarProp
         onClick={onNavigate}
         {...(item.tutorialTarget ? { 'data-tutorial': item.tutorialTarget } : {})}
         className={cn(
-          'flex items-center gap-3 px-3 py-3 sm:py-2 rounded-lg text-base sm:text-sm font-medium transition-colors',
+          'flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition-colors border-l-2',
           isActive
-            ? 'bg-primary text-primary-foreground'
-            : 'text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+            ? 'border-primary bg-primary/8 text-foreground'
+            : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/40'
         )}
       >
-        <Icon className="h-5 w-5 sm:h-5 sm:w-5" />
+        <Icon className="h-3.5 w-3.5 flex-shrink-0" />
         <span>{getTitle(item.titleKey)}</span>
       </Link>
     )
   }
 
   return (
-    <aside className={cn("w-64 border-r bg-slate-50 dark:bg-slate-900 hidden lg:block", className)}>
-      <nav className="space-y-1 p-4">
-        {filteredNavItems.map(renderNavItem)}
+    <aside className={cn(
+      'w-52 border-r border-border bg-card hidden lg:flex flex-col flex-shrink-0',
+      className
+    )}>
+      {/* Brand strip */}
+      <div className="flex items-center h-12 px-4 border-b border-border bg-background/50">
+        <span className="text-[10px] font-black tracking-[0.2em] text-primary uppercase select-none">
+          ANALYZINGHUB
+        </span>
+      </div>
+
+      {/* Grouped navigation */}
+      <nav className="flex-1 overflow-y-auto py-2 space-y-3">
+        {navGroups.map(group => {
+          const groupItems = filteredNavItems.filter(item => group.keys.includes(item.titleKey))
+          if (groupItems.length === 0) return null
+
+          return (
+            <div key={group.label}>
+              <div className="px-3 py-1.5">
+                <p className="section-label">{group.label}</p>
+              </div>
+              <div className="space-y-0.5">
+                {groupItems.map(renderNavItem)}
+              </div>
+            </div>
+          )
+        })}
       </nav>
+
+      {/* Bottom status strip */}
+      <div className="border-t border-border px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[10px] text-muted-foreground font-medium tracking-wide">LIVE</span>
+        </div>
+      </div>
     </aside>
   )
 }

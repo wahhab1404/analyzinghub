@@ -74,21 +74,21 @@ export default function DashboardLayout({
 
   if (loading || !user) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-950 dark:to-slate-900">
-        <div className="flex flex-col items-center gap-6">
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-4">
           <Image
             src={logoSrc}
             alt="AnalyzingHub Logo"
-            width={200}
-            height={200}
-            className="animate-pulse"
+            width={160}
+            height={160}
+            className="opacity-90"
           />
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-50">AnalyzingHub</h1>
-          <div className="flex gap-2">
-            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-3 h-3 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+          <div className="flex items-center gap-2 mt-2">
+            <div className="h-1 w-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="h-1 w-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '150ms' }} />
+            <div className="h-1 w-1 rounded-full bg-primary animate-bounce" style={{ animationDelay: '300ms' }} />
           </div>
+          <p className="text-xs text-muted-foreground tracking-widest uppercase mt-1">Loading terminal…</p>
         </div>
       </div>
     )
@@ -99,16 +99,15 @@ export default function DashboardLayout({
       <Header user={user} />
       <div className="flex flex-1 overflow-hidden w-full">
         <Sidebar userRole={user.role} userId={user.id} />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-50 dark:bg-slate-900 w-full min-w-0">
-          <div className="container mx-auto p-4 sm:p-6 pb-20 sm:pb-24 max-w-full">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden bg-background w-full min-w-0">
+          <div className="p-4 sm:p-6 pb-16 max-w-full">
             {children}
           </div>
-          <footer className="border-t bg-white dark:bg-slate-950 mt-auto">
-            <div className="container mx-auto px-4 sm:px-6 py-4 max-w-full">
-              <p className="text-xs text-center text-muted-foreground leading-relaxed">
-                <strong>Disclaimer:</strong> All analyses and market predictions on this platform are for educational purposes only.
-                This is not financial advice. Trading and investing involve substantial risk of loss.
-                Always conduct your own research and consult with a qualified financial advisor before making investment decisions.
+          <footer className="border-t border-border bg-card mt-auto">
+            <div className="px-4 sm:px-6 py-3 max-w-full">
+              <p className="text-[10px] text-center text-muted-foreground leading-relaxed">
+                <span className="font-bold text-muted-foreground">DISCLAIMER:</span> All analyses and market predictions are for educational purposes only and do not constitute financial advice.
+                Trading and investing involve substantial risk of loss. Always conduct your own research and consult a qualified financial advisor.
               </p>
             </div>
           </footer>
