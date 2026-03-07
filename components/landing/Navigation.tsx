@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -11,18 +11,48 @@ import { motion } from 'framer-motion'
 import { Menu, TrendingUp, BarChart3, Activity } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
 
-/* Mini market ticker items — purely decorative demo data */
-const TICKERS = [
-  { sym: 'SPY', val: '591.42', chg: '+0.84%', up: true },
-  { sym: 'QQQ', val: '511.78', chg: '+1.12%', up: true },
-  { sym: 'VIX', val: '14.23', chg: '-2.10%', up: false },
-  { sym: 'GLD', val: '241.05', chg: '+0.31%', up: true },
-  { sym: 'DXY', val: '104.21', chg: '-0.18%', up: false },
+interface TickerItem {
+  sym: string
+  val: string
+  chg: string
+  up: boolean
+}
+
+interface MarketStatus {
+  label: string   // 'OPEN' | 'CLOSED' | 'PRE-MKT' | 'AFTER-HRS'
+  isOpen: boolean
+}
+
+const FALLBACK_TICKERS: TickerItem[] = [
+  { sym: 'SPY', val: '—', chg: '—', up: true },
+  { sym: 'QQQ', val: '—', chg: '—', up: true },
+  { sym: 'VIX', val: '—', chg: '—', up: false },
+  { sym: 'GLD', val: '—', chg: '—', up: true },
+  { sym: 'DXY', val: '—', chg: '—', up: true },
 ]
 
 export function Navigation() {
   const { t } = useTranslation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [tickers, setTickers] = useState<TickerItem[]>(FALLBACK_TICKERS)
+  const [marketStatus, setMarketStatus] = useState<MarketStatus>({ label: '...', isOpen: false })
+
+  useEffect(() => {
+    async function fetchTicker() {
+      try {
+        const res = await fetch('/api/market-ticker', { cache: 'no-store' })
+        if (!res.ok) return
+        const data = await res.json()
+        if (data.tickers) setTickers(data.tickers)
+        if (data.marketStatus) setMarketStatus(data.marketStatus)
+      } catch {
+        // silently keep fallback values
+      }
+    }
+    fetchTicker()
+    const id = setInterval(fetchTicker, 30_000)
+    return () => clearInterval(id)
+  }, [])
 
   return (
     <>
@@ -30,19 +60,21 @@ export function Navigation() {
       <div className="fixed top-0 left-0 right-0 z-50 h-7 bg-card border-b border-border overflow-hidden flex items-center">
         <div className="flex items-center gap-4 animate-none px-4 overflow-x-auto scrollbar-hide whitespace-nowrap w-full">
           <span className="section-label flex-shrink-0 text-primary">MARKET</span>
-          {TICKERS.map(t => (
-            <div key={t.sym} className="flex items-center gap-1.5 flex-shrink-0">
-              <span className="text-[10px] font-bold text-foreground">{t.sym}</span>
-              <span className="text-[10px] num text-muted-foreground">{t.val}</span>
-              <span className={`text-[10px] num font-semibold ${t.up ? 'text-emerald-500' : 'text-red-500'}`}>
-                {t.chg}
+          {tickers.map(item => (
+            <div key={item.sym} className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="text-[10px] font-bold text-foreground">{item.sym}</span>
+              <span className="text-[10px] num text-muted-foreground">{item.val}</span>
+              <span className={`text-[10px] num font-semibold ${item.up ? 'text-emerald-500' : 'text-red-500'}`}>
+                {item.chg}
               </span>
             </div>
           ))}
           <div className="flex-1" />
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[10px] font-bold text-emerald-500 tracking-wide">LIVE</span>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className={`h-1.5 w-1.5 rounded-full ${marketStatus.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+            <span className={`text-[10px] font-bold tracking-wide ${marketStatus.isOpen ? 'text-emerald-500' : 'text-amber-500'}`}>
+              {marketStatus.label}
+            </span>
           </div>
         </div>
       </div>
