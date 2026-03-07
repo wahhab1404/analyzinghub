@@ -4,60 +4,159 @@
 
 @layer base {
   :root {
-    /* Bloomberg Professional — Light */
-    --background: 220 20% 96%;
+    /* ============================================
+       LIGHT MODE — Professional Trading Platform
+       ============================================ */
+    --background: 220 20% 97%;
     --foreground: 222 47% 8%;
+
     --card: 0 0% 100%;
     --card-foreground: 222 47% 8%;
+
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 8%;
-    --primary: 25 100% 52%;
+
+    --primary: 217 91% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 20% 91%;
+
+    --secondary: 215 25% 92%;
     --secondary-foreground: 222 47% 11%;
-    --muted: 220 20% 93%;
-    --muted-foreground: 215 20% 42%;
-    --accent: 142 71% 38%;
+
+    --muted: 215 25% 94%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 189 80% 42%;
     --accent-foreground: 0 0% 100%;
+
     --destructive: 0 84% 55%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 20% 86%;
-    --input: 220 20% 88%;
-    --ring: 25 100% 52%;
-    --chart-1: 25 100% 52%;
-    --chart-2: 142 71% 38%;
+
+    --border: 214 25% 88%;
+    --input: 214 25% 91%;
+    --ring: 217 91% 50%;
+
+    /* Chart colors */
+    --chart-1: 217 91% 50%;
+    --chart-2: 160 80% 38%;
     --chart-3: 0 84% 55%;
-    --chart-4: 210 100% 50%;
-    --chart-5: 262 83% 58%;
-    --radius: 0.25rem;
+    --chart-4: 38 92% 50%;
+    --chart-5: 271 76% 53%;
+
+    --radius: 0.5rem;
+
+    /* ============================================
+       TRADING-SPECIFIC TOKENS (Light)
+       ============================================ */
+    --profit: 152 72% 36%;
+    --profit-foreground: 0 0% 100%;
+    --profit-muted: 152 50% 94%;
+
+    --loss: 0 84% 55%;
+    --loss-foreground: 0 0% 100%;
+    --loss-muted: 0 80% 95%;
+
+    --neutral: 215 16% 47%;
+    --neutral-muted: 215 25% 94%;
+
+    --win-badge: 152 72% 36%;
+    --loss-badge: 0 84% 55%;
+    --active-badge: 217 91% 50%;
+    --closed-badge: 215 16% 55%;
+
+    /* Sidebar */
+    --sidebar-bg: 222 47% 11%;
+    --sidebar-fg: 215 20% 75%;
+    --sidebar-active-bg: 217 91% 50%;
+    --sidebar-active-fg: 0 0% 100%;
+    --sidebar-hover-bg: 222 35% 18%;
+    --sidebar-border: 222 35% 17%;
+    --sidebar-section-fg: 215 16% 50%;
+
+    /* Header */
+    --header-bg: 0 0% 100%;
+    --header-border: 214 25% 88%;
+
+    /* Terminal / monospace data */
+    --data-positive: 152 72% 36%;
+    --data-negative: 0 84% 55%;
+    --data-neutral: 215 16% 47%;
   }
 
   .dark {
-    /* Bloomberg Professional — Dark Terminal */
-    --background: 222 47% 4%;
-    --foreground: 210 20% 90%;
-    --card: 220 44% 6%;
-    --card-foreground: 210 20% 90%;
-    --popover: 220 44% 7%;
-    --popover-foreground: 210 20% 90%;
-    --primary: 25 100% 52%;
+    /* ============================================
+       DARK MODE — Bloomberg Terminal Style
+       ============================================ */
+    --background: 222 47% 5%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 40% 8%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 40% 7%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 217 91% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 35% 11%;
-    --secondary-foreground: 210 20% 90%;
-    --muted: 220 35% 9%;
-    --muted-foreground: 215 16% 48%;
-    --accent: 142 71% 45%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84% 60%;
+
+    --secondary: 222 33% 14%;
+    --secondary-foreground: 210 20% 88%;
+
+    --muted: 222 33% 13%;
+    --muted-foreground: 215 20% 58%;
+
+    --accent: 189 80% 45%;
+    --accent-foreground: 222 47% 5%;
+
+    --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 30% 12%;
-    --input: 220 35% 10%;
-    --ring: 25 100% 52%;
-    --chart-1: 25 100% 52%;
-    --chart-2: 142 71% 45%;
-    --chart-3: 0 84% 60%;
-    --chart-4: 210 100% 60%;
-    --chart-5: 262 83% 65%;
+
+    --border: 222 33% 16%;
+    --input: 222 33% 15%;
+    --ring: 217 91% 55%;
+
+    /* Chart colors */
+    --chart-1: 217 91% 55%;
+    --chart-2: 152 72% 45%;
+    --chart-3: 0 72% 55%;
+    --chart-4: 38 92% 55%;
+    --chart-5: 271 76% 60%;
+
+    /* ============================================
+       TRADING-SPECIFIC TOKENS (Dark)
+       ============================================ */
+    --profit: 152 72% 45%;
+    --profit-foreground: 222 47% 5%;
+    --profit-muted: 152 40% 10%;
+
+    --loss: 0 72% 55%;
+    --loss-foreground: 0 0% 100%;
+    --loss-muted: 0 50% 10%;
+
+    --neutral: 215 20% 58%;
+    --neutral-muted: 222 33% 13%;
+
+    --win-badge: 152 72% 45%;
+    --loss-badge: 0 72% 55%;
+    --active-badge: 217 91% 55%;
+    --closed-badge: 215 20% 50%;
+
+    /* Sidebar — deep navy, slightly different from background */
+    --sidebar-bg: 222 50% 7%;
+    --sidebar-fg: 215 20% 65%;
+    --sidebar-active-bg: 217 91% 55%;
+    --sidebar-active-fg: 0 0% 100%;
+    --sidebar-hover-bg: 222 40% 12%;
+    --sidebar-border: 222 33% 12%;
+    --sidebar-section-fg: 215 16% 42%;
+
+    /* Header */
+    --header-bg: 222 47% 6%;
+    --header-border: 222 33% 13%;
+
+    /* Terminal / monospace data */
+    --data-positive: 152 72% 45%;
+    --data-negative: 0 72% 55%;
+    --data-neutral: 215 20% 58%;
   }
 }
 
@@ -105,63 +204,258 @@
   }
 }
 
-@layer utilities {
-  /* Trading number formatting — tabular, tight */
+/* ============================================
+   TRADING PLATFORM UTILITIES
+   ============================================ */
+@layer components {
+
+  /* Professional number display — monospace, right-aligned */
+  .trade-number {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+    font-family: "SF Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+    letter-spacing: -0.01em;
+  }
+
+  /* Bloomberg terminal num alias (used in terminal dashboard) */
   .num {
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.015em;
   }
 
-  /* P&L colors */
-  .profit {
-    color: #22c55e;
+  /* Profit display */
+  .profit-positive {
+    color: hsl(var(--data-positive));
   }
-  .dark .profit {
-    color: #4ade80;
+  .profit-negative {
+    color: hsl(var(--data-negative));
   }
-  .loss {
-    color: #ef4444;
-  }
-  .dark .loss {
-    color: #f87171;
+  .profit-neutral {
+    color: hsl(var(--data-neutral));
   }
 
-  /* Direction badges */
-  .badge-buy {
-    @apply bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/25 text-xs font-bold px-2 py-0.5 uppercase tracking-wide;
+  /* Trade status badges */
+  .badge-win {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--profit-muted));
+    color: hsl(var(--profit));
+    border: 1px solid hsl(var(--profit) / 0.3);
   }
-  .badge-sell {
-    @apply bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/25 text-xs font-bold px-2 py-0.5 uppercase tracking-wide;
+  .badge-loss {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--loss-muted));
+    color: hsl(var(--loss));
+    border: 1px solid hsl(var(--loss) / 0.3);
   }
   .badge-active {
-    @apply bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/25 text-xs font-bold px-2 py-0.5 uppercase tracking-wide;
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(217 91% 55% / 0.12);
+    color: hsl(217 91% 65%);
+    border: 1px solid hsl(217 91% 55% / 0.3);
+  }
+  .badge-closed {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
+  }
+  .badge-draft {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(38 92% 50% / 0.12);
+    color: hsl(38 92% 55%);
+    border: 1px solid hsl(38 92% 50% / 0.3);
+  }
+  .badge-canceled {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
+    opacity: 0.7;
+  }
+
+  /* Direction badges (CALL = buy, PUT = sell) */
+  .badge-buy {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--profit-muted));
+    color: hsl(var(--profit));
+    border: 1px solid hsl(var(--profit) / 0.3);
+  }
+  .badge-sell {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--loss-muted));
+    color: hsl(var(--loss));
+    border: 1px solid hsl(var(--loss) / 0.3);
   }
   .badge-neutral {
-    @apply bg-muted text-muted-foreground border border-border text-xs font-bold px-2 py-0.5 uppercase tracking-wide;
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
   }
 
-  /* Section labels — Bloomberg style */
-  .section-label {
-    @apply text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground;
+  /* Trade card — institutional style */
+  .trade-card {
+    @apply rounded-lg border bg-card transition-all duration-200;
+    border-color: hsl(var(--border));
+  }
+  .trade-card:hover {
+    border-color: hsl(var(--primary) / 0.4);
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 4px 16px hsl(var(--background) / 0.5);
+  }
+  .trade-card.win {
+    border-left: 3px solid hsl(var(--profit));
+  }
+  .trade-card.loss {
+    border-left: 3px solid hsl(var(--loss));
+  }
+  .trade-card.active {
+    border-left: 3px solid hsl(var(--primary));
   }
 
-  /* Data table rows */
-  .data-row {
-    @apply border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors;
-  }
-
-  /* Bloomberg-style flat card */
+  /* Flat terminal card (no rounding) */
   .terminal-card {
-    @apply bg-card border border-border rounded-sm;
+    @apply border bg-card overflow-hidden;
+    border-color: hsl(var(--border));
   }
 
-  /* KPI value — large, monospace feel */
+  /* Stat card */
+  .stat-card {
+    @apply rounded-lg border bg-card p-4 space-y-1;
+  }
+  .stat-label {
+    @apply text-xs font-semibold uppercase tracking-widest;
+    color: hsl(var(--muted-foreground));
+  }
+  /* Section label alias (Bloomberg terminal headers) */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest;
+    color: hsl(var(--muted-foreground));
+  }
+  .stat-value {
+    @apply text-2xl font-bold trade-number;
+  }
+  /* KPI value alias */
   .kpi-value {
-    @apply text-2xl font-bold num tracking-tight;
+    @apply text-2xl font-bold num;
+  }
+  .stat-sub {
+    @apply text-xs;
+    color: hsl(var(--muted-foreground));
   }
 
-  /* Subtle shine on active nav items */
-  .nav-active {
-    @apply border-l-2 border-primary bg-primary/8 text-foreground;
+  /* Data table row (used in terminal panels) */
+  .data-row {
+    @apply border-b last:border-0 transition-colors;
+    border-color: hsl(var(--border) / 0.5);
+  }
+  .data-row:hover {
+    background-color: hsl(var(--muted) / 0.3);
+  }
+
+  /* Sidebar active glow */
+  .sidebar-item-active {
+    background-color: hsl(var(--sidebar-active-bg));
+    color: hsl(var(--sidebar-active-fg));
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.25);
+  }
+
+  /* Professional divider */
+  .section-divider {
+    @apply border-t my-3;
+    border-color: hsl(var(--border));
+  }
+
+  /* Market open indicator */
+  .market-open {
+    @apply inline-flex items-center gap-1.5 text-xs font-semibold;
+    color: hsl(var(--profit));
+  }
+  .market-open::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: hsl(var(--profit));
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+  .market-closed {
+    @apply inline-flex items-center gap-1.5 text-xs font-semibold;
+    color: hsl(var(--muted-foreground));
+  }
+  .market-closed::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: hsl(var(--muted-foreground));
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.85); }
+  }
+
+  /* Professional table */
+  .trading-table {
+    @apply w-full text-sm;
+  }
+  .trading-table th {
+    @apply text-left py-2 px-3 text-xs font-semibold uppercase tracking-widest;
+    color: hsl(var(--muted-foreground));
+    border-bottom: 1px solid hsl(var(--border));
+  }
+  .trading-table td {
+    @apply py-2.5 px-3;
+    border-bottom: 1px solid hsl(var(--border) / 0.5);
+  }
+  .trading-table tr:last-child td {
+    border-bottom: none;
+  }
+  .trading-table tr:hover td {
+    background-color: hsl(var(--muted) / 0.5);
+  }
+
+  /* P&L display */
+  .pnl-display {
+    @apply trade-number font-bold;
+  }
+  .pnl-display.positive {
+    color: hsl(var(--data-positive));
+  }
+  .pnl-display.negative {
+    color: hsl(var(--data-negative));
+  }
+
+  /* Ticker chip */
+  .ticker-chip {
+    @apply inline-flex items-center rounded px-2 py-0.5 text-xs font-bold tracking-wider trade-number;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+  }
+
+  /* Option contract display */
+  .contract-info {
+    @apply text-xs trade-number;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Win rate meter */
+  .win-rate-high { color: hsl(var(--data-positive)); }
+  .win-rate-mid  { color: hsl(38 92% 55%); }
+  .win-rate-low  { color: hsl(var(--data-negative)); }
+
+  /* Skeleton loader */
+  .skeleton {
+    @apply animate-pulse rounded;
+    background-color: hsl(var(--muted));
+  }
+
+  /* Dashboard welcome gradient */
+  .welcome-gradient {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(189 80% 50%) 100%);
   }
 }
