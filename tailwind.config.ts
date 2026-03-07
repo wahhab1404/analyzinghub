@@ -26,6 +26,7 @@ const config: Config = {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+        none: '0',
       },
       colors: {
         background: 'hsl(var(--background))',
@@ -67,6 +68,22 @@ const config: Config = {
           '3': 'hsl(var(--chart-3))',
           '4': 'hsl(var(--chart-4))',
           '5': 'hsl(var(--chart-5))',
+        },
+        /* Trading-specific semantic colors */
+        profit: {
+          DEFAULT: '#22c55e',
+          dark: '#4ade80',
+          muted: 'rgba(34,197,94,0.1)',
+        },
+        loss: {
+          DEFAULT: '#ef4444',
+          dark: '#f87171',
+          muted: 'rgba(239,68,68,0.1)',
+        },
+        bloomberg: {
+          orange: '#FF6B00',
+          navy: '#060c19',
+          panel: '#0a1220',
         },
       },
       keyframes: {

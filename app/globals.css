@@ -217,6 +217,12 @@
     letter-spacing: -0.01em;
   }
 
+  /* Bloomberg terminal num alias (used in terminal dashboard) */
+  .num {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.015em;
+  }
+
   /* Profit display */
   .profit-positive {
     color: hsl(var(--data-positive));
@@ -267,6 +273,26 @@
     opacity: 0.7;
   }
 
+  /* Direction badges (CALL = buy, PUT = sell) */
+  .badge-buy {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--profit-muted));
+    color: hsl(var(--profit));
+    border: 1px solid hsl(var(--profit) / 0.3);
+  }
+  .badge-sell {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--loss-muted));
+    color: hsl(var(--loss));
+    border: 1px solid hsl(var(--loss) / 0.3);
+  }
+  .badge-neutral {
+    @apply inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-bold tracking-wider uppercase;
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border: 1px solid hsl(var(--border));
+  }
+
   /* Trade card — institutional style */
   .trade-card {
     @apply rounded-lg border bg-card transition-all duration-200;
@@ -286,6 +312,12 @@
     border-left: 3px solid hsl(var(--primary));
   }
 
+  /* Flat terminal card (no rounding) */
+  .terminal-card {
+    @apply border bg-card overflow-hidden;
+    border-color: hsl(var(--border));
+  }
+
   /* Stat card */
   .stat-card {
     @apply rounded-lg border bg-card p-4 space-y-1;
@@ -294,12 +326,30 @@
     @apply text-xs font-semibold uppercase tracking-widest;
     color: hsl(var(--muted-foreground));
   }
+  /* Section label alias (Bloomberg terminal headers) */
+  .section-label {
+    @apply text-xs font-semibold uppercase tracking-widest;
+    color: hsl(var(--muted-foreground));
+  }
   .stat-value {
     @apply text-2xl font-bold trade-number;
+  }
+  /* KPI value alias */
+  .kpi-value {
+    @apply text-2xl font-bold num;
   }
   .stat-sub {
     @apply text-xs;
     color: hsl(var(--muted-foreground));
+  }
+
+  /* Data table row (used in terminal panels) */
+  .data-row {
+    @apply border-b last:border-0 transition-colors;
+    border-color: hsl(var(--border) / 0.5);
+  }
+  .data-row:hover {
+    background-color: hsl(var(--muted) / 0.3);
   }
 
   /* Sidebar active glow */
@@ -408,4 +458,190 @@
     @apply bg-clip-text text-transparent;
     background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(189 80% 50%) 100%);
   }
+}
+
+/* ============================================
+   OPTIONS CONTRACT ANALYTICS SYSTEM
+   Professional TOS / Bloomberg options display
+   ============================================ */
+@layer components {
+
+  /* ── Options contract card (full view) ──────── */
+  .opt-card {
+    @apply border bg-card overflow-hidden;
+    border-color: hsl(var(--border));
+    border-left-width: 3px;
+  }
+  .opt-card-hover {
+    @apply transition-all duration-150;
+  }
+  .opt-card-hover:hover {
+    border-color: hsl(var(--primary) / 0.35);
+    box-shadow: 0 2px 12px hsl(var(--background) / 0.4);
+  }
+
+  /* ── Compact row card ───────────────────────── */
+  .opt-row {
+    @apply flex items-center gap-2 px-3 py-2.5 border-b transition-colors;
+    border-color: hsl(var(--border) / 0.5);
+    border-left-width: 3px;
+  }
+  .opt-row:last-child {
+    border-bottom: none;
+  }
+  .opt-row:hover {
+    background-color: hsl(var(--muted) / 0.25);
+  }
+
+  /* ── CALL / PUT direction badges ────────────── */
+  .opt-dir-badge {
+    @apply inline-flex items-center px-2 py-0.5 text-[10px] font-black tracking-widest border;
+  }
+  .opt-dir-badge-sm {
+    @apply inline-flex items-center px-1.5 py-0.5 text-[9px] font-black tracking-widest border flex-shrink-0;
+  }
+  .opt-dir-call {
+    background-color: hsl(var(--profit) / 0.12);
+    color: hsl(var(--profit));
+    border-color: hsl(var(--profit) / 0.3);
+  }
+  .opt-dir-put {
+    background-color: hsl(var(--loss) / 0.12);
+    color: hsl(var(--loss));
+    border-color: hsl(var(--loss) / 0.3);
+  }
+
+  /* ── Status badges ──────────────────────────── */
+  .opt-status-badge {
+    @apply inline-flex items-center px-1.5 py-0.5 text-[9px] font-black tracking-widest border;
+  }
+  .opt-status-active {
+    background-color: hsl(38 92% 50% / 0.12);
+    color: hsl(38 92% 55%);
+    border-color: hsl(38 92% 50% / 0.3);
+  }
+  .opt-status-win {
+    background-color: hsl(var(--profit) / 0.12);
+    color: hsl(var(--profit));
+    border-color: hsl(var(--profit) / 0.3);
+  }
+  .opt-status-loss {
+    background-color: hsl(var(--loss) / 0.12);
+    color: hsl(var(--loss));
+    border-color: hsl(var(--loss) / 0.3);
+  }
+  .opt-status-neutral {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--muted-foreground));
+    border-color: hsl(var(--border));
+  }
+
+  /* ── Price metric cells ─────────────────────── */
+  .opt-metric-label {
+    @apply text-[8px] font-bold uppercase tracking-widest leading-none mb-1;
+    color: hsl(var(--muted-foreground) / 0.7);
+  }
+  .opt-metric-value {
+    @apply text-sm font-bold num leading-none;
+  }
+
+  /* ── Polygon ticker display ─────────────────── */
+  .opt-ticker-text {
+    @apply text-[9px] font-mono;
+    color: hsl(var(--muted-foreground) / 0.6);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Options chain table ────────────────────── */
+  .opt-chain-table {
+    @apply w-full;
+    border-collapse: collapse;
+  }
+  .opt-chain-table thead tr {
+    border-bottom: 1px solid hsl(var(--border));
+    background-color: hsl(var(--muted) / 0.2);
+  }
+  .opt-chain-table thead th {
+    @apply py-1.5 px-2 text-[9px] font-bold uppercase tracking-widest text-left;
+    color: hsl(var(--muted-foreground));
+    white-space: nowrap;
+  }
+  .opt-chain-table thead th:last-child {
+    @apply pr-3;
+  }
+  .opt-chain-table thead th:first-child {
+    @apply pl-3;
+  }
+  .opt-chain-row {
+    @apply border-b transition-colors;
+    border-color: hsl(var(--border) / 0.4);
+  }
+  .opt-chain-row:last-child {
+    border-bottom: none;
+  }
+  .opt-chain-row:hover {
+    background-color: hsl(var(--muted) / 0.35);
+  }
+  /* Subtle row tinting for profitable/losing positions */
+  .opt-chain-row-profit {
+    background-color: hsl(var(--profit) / 0.03);
+  }
+  .opt-chain-row-profit:hover {
+    background-color: hsl(var(--profit) / 0.07);
+  }
+  .opt-chain-row-loss {
+    background-color: hsl(var(--loss) / 0.03);
+  }
+  .opt-chain-row-loss:hover {
+    background-color: hsl(var(--loss) / 0.07);
+  }
+
+  /* ── Greeks display panel ───────────────────── */
+  .opt-greeks-panel {
+    @apply flex items-center justify-around py-2 px-3 border-t;
+    border-color: hsl(var(--border) / 0.6);
+    background-color: hsl(var(--muted) / 0.05);
+  }
+  .opt-greek-cell {
+    @apply flex flex-col items-center gap-0.5;
+  }
+  .opt-greek-label {
+    @apply text-[8px] font-bold uppercase tracking-widest;
+    color: hsl(var(--muted-foreground) / 0.7);
+  }
+  .opt-greek-value {
+    @apply text-[11px] font-bold num leading-none;
+  }
+
+  /* IV color levels */
+  .opt-iv-low   { color: hsl(var(--data-positive)); }       /* IV < 25% — calm */
+  .opt-iv-mid   { color: hsl(var(--foreground)); }           /* IV 25–40% — normal */
+  .opt-iv-high  { color: hsl(38 92% 55%); }                  /* IV 40–60% — elevated */
+  .opt-iv-crush { color: hsl(var(--data-negative)); }        /* IV > 60% — extreme */
+
+  /* Delta levels */
+  .opt-delta-atm  { color: hsl(217 91% 65%); }              /* |Δ| 0.4–0.6 (ATM) */
+  .opt-delta-itm  { color: hsl(var(--foreground)); }         /* |Δ| > 0.6 (deep ITM) */
+  .opt-delta-otm  { color: hsl(var(--muted-foreground)); }   /* |Δ| < 0.3 (OTM) */
+
+  /* Theta severity */
+  .opt-theta-mild   { color: hsl(var(--muted-foreground)); }
+  .opt-theta-moderate { color: hsl(38 92% 55%); }
+  .opt-theta-severe { color: hsl(var(--data-negative)); }
+
+  /* ── P&L visualization ──────────────────────── */
+  .opt-pnl-bar {
+    @apply h-1 overflow-hidden bg-muted/50 w-full;
+  }
+  .opt-pnl-bar-fill-profit {
+    @apply h-full bg-emerald-500 transition-all;
+  }
+  .opt-pnl-bar-fill-loss {
+    @apply h-full bg-red-500 transition-all;
+  }
+
+  /* DTE urgency badges */
+  .opt-dte-normal  { @apply text-muted-foreground; }
+  .opt-dte-week    { color: hsl(38 92% 55%); }               /* 1–7 days */
+  .opt-dte-urgent  { color: hsl(var(--data-negative)); }     /* 0–2 days */
 }
