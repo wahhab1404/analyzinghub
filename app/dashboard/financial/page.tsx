@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { DollarSign, TrendingUp, Users, CreditCard, ArrowUpRight, ArrowDownRight, Calendar } from 'lucide-react'
+import { DollarSign, TrendingUp, Users, CreditCard, ArrowUpRight, ArrowDownRight, Calendar, BarChart2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useLanguage } from '@/lib/i18n/language-context'
 
 interface EarningsData {
@@ -39,16 +40,47 @@ interface Transaction {
   status: string
 }
 
+interface PlanEarnings {
+  planId: string
+  planName: string
+  description?: string
+  priceCents: number
+  billingInterval: string
+  activeSubscribers: number
+  totalRevenue: number
+  platformFee: number
+  netEarnings: number
+  averageRevenuePerUser: number
+}
+
+interface DateEarnings {
+  date: string
+  gross: number
+  platformFee: number
+  net: number
+  newSubscribers: number
+}
+
 export default function FinancialDashboard() {
   const { t } = useLanguage()
   const [loading, setLoading] = useState(true)
   const [earningsData, setEarningsData] = useState<EarningsData | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [planEarnings, setPlanEarnings] = useState<PlanEarnings[]>([])
+  const [dateEarnings, setDateEarnings] = useState<DateEarnings[]>([])
+  const [datePeriod, setDatePeriod] = useState<'day' | 'week' | 'month' | 'year'>('month')
+  const [loadingPlanEarnings, setLoadingPlanEarnings] = useState(false)
+  const [loadingDateEarnings, setLoadingDateEarnings] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
     fetchTransactions()
+    fetchPlanEarnings()
   }, [])
+
+  useEffect(() => {
+    fetchDateEarnings()
+  }, [datePeriod])
 
   const fetchDashboardData = async () => {
     try {
@@ -73,6 +105,36 @@ export default function FinancialDashboard() {
       }
     } catch (error) {
       console.error('Error fetching transactions:', error)
+    }
+  }
+
+  const fetchPlanEarnings = async () => {
+    setLoadingPlanEarnings(true)
+    try {
+      const response = await fetch('/api/financial/analyst/earnings-by-plan')
+      if (response.ok) {
+        const data = await response.json()
+        setPlanEarnings(data.plans || [])
+      }
+    } catch (error) {
+      console.error('Error fetching plan earnings:', error)
+    } finally {
+      setLoadingPlanEarnings(false)
+    }
+  }
+
+  const fetchDateEarnings = async () => {
+    setLoadingDateEarnings(true)
+    try {
+      const response = await fetch(`/api/financial/analyst/earnings-by-date?period=${datePeriod}`)
+      if (response.ok) {
+        const data = await response.json()
+        setDateEarnings(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching date earnings:', error)
+    } finally {
+      setLoadingDateEarnings(false)
     }
   }
 
@@ -250,9 +312,11 @@ export default function FinancialDashboard() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-2xl grid-cols-4">
           <TabsTrigger value="overview">{t.financialDashboard.overview}</TabsTrigger>
           <TabsTrigger value="transactions">{t.financialDashboard.transactions}</TabsTrigger>
+          <TabsTrigger value="by-plan">By Plan</TabsTrigger>
+          <TabsTrigger value="by-date">By Date</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -274,7 +338,7 @@ export default function FinancialDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Platform Fee (15%)</span>
+                    <span className="text-sm text-muted-foreground">Platform Fee</span>
                     <span className="font-semibold text-lg text-orange-600 dark:text-orange-500">
                       -{formatCurrency(earningsData.earnings.allTime.platformFee)}
                     </span>
@@ -295,7 +359,7 @@ export default function FinancialDashboard() {
                   <Calendar className="h-5 w-5 text-blue-600" />
                   This Year
                 </CardTitle>
-                <CardDescription>Current year performance (2025)</CardDescription>
+                <CardDescription>Current year performance ({new Date().getFullYear()})</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
                 <div className="space-y-4">
@@ -306,7 +370,7 @@ export default function FinancialDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Platform Fee (15%)</span>
+                    <span className="text-sm text-muted-foreground">Platform Fee</span>
                     <span className="font-semibold text-lg text-orange-600 dark:text-orange-500">
                       -{formatCurrency(earningsData.earnings.thisYear.platformFee)}
                     </span>
@@ -380,7 +444,7 @@ export default function FinancialDashboard() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {transactions.map((txn, index) => (
+                  {transactions.map((txn) => (
                     <div
                       key={txn.id}
                       className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
@@ -419,6 +483,140 @@ export default function FinancialDashboard() {
                         <div className="text-xs text-muted-foreground">
                           from {formatCurrency(txn.gross)}
                         </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="by-plan" className="space-y-6">
+          <Card className="shadow-sm">
+            <CardHeader className="border-b bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-950/20 dark:to-blue-950/20">
+              <CardTitle className="flex items-center gap-2">
+                <BarChart2 className="h-5 w-5 text-indigo-600" />
+                Earnings by Plan
+              </CardTitle>
+              <CardDescription>Revenue breakdown across your subscription plans</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {loadingPlanEarnings ? (
+                <div className="space-y-4">
+                  {[1, 2, 3].map((i) => (
+                    <Skeleton key={i} className="h-20 w-full" />
+                  ))}
+                </div>
+              ) : planEarnings.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="rounded-full bg-muted p-4 mb-4">
+                    <BarChart2 className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">No Plans Yet</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    Create subscription plans to start tracking earnings per plan.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {planEarnings.map((plan) => (
+                    <div key={plan.planId} className="p-4 rounded-lg border bg-card">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h4 className="font-semibold text-base">{plan.planName}</h4>
+                          <p className="text-xs text-muted-foreground capitalize">
+                            {formatCurrency(plan.priceCents)} / {plan.billingInterval}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="text-purple-600 border-purple-300">
+                          <Users className="h-3 w-3 mr-1" />
+                          {plan.activeSubscribers} active
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 pt-3 border-t">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Total Revenue</p>
+                          <p className="font-semibold text-sm">{formatCurrency(plan.totalRevenue)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Platform Fee</p>
+                          <p className="font-semibold text-sm text-orange-600">-{formatCurrency(plan.platformFee)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Net Earnings</p>
+                          <p className="font-semibold text-sm text-green-600">{formatCurrency(plan.netEarnings)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="by-date" className="space-y-6">
+          <Card className="shadow-sm">
+            <CardHeader className="border-b bg-gradient-to-r from-teal-50 to-green-50 dark:from-teal-950/20 dark:to-green-950/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-teal-600" />
+                    Earnings Over Time
+                  </CardTitle>
+                  <CardDescription>Revenue trends grouped by time period</CardDescription>
+                </div>
+                <Select value={datePeriod} onValueChange={(v) => setDatePeriod(v as any)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Daily</SelectItem>
+                    <SelectItem value="week">Weekly</SelectItem>
+                    <SelectItem value="month">Monthly</SelectItem>
+                    <SelectItem value="year">Yearly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-6">
+              {loadingDateEarnings ? (
+                <div className="space-y-4">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <Skeleton key={i} className="h-16 w-full" />
+                  ))}
+                </div>
+              ) : dateEarnings.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="rounded-full bg-muted p-4 mb-4">
+                    <TrendingUp className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">No Earnings Data</h3>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    Earnings data will appear here once you start receiving payments.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {dateEarnings.slice().reverse().map((entry) => (
+                    <div key={entry.date} className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-900/20">
+                          <Calendar className="h-4 w-4 text-teal-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">{entry.date}</p>
+                          {entry.newSubscribers > 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              +{entry.newSubscribers} new subscriber{entry.newSubscribers > 1 ? 's' : ''}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-green-600 dark:text-green-500">{formatCurrency(entry.net)}</p>
+                        <p className="text-xs text-muted-foreground">from {formatCurrency(entry.gross)}</p>
                       </div>
                     </div>
                   ))}
