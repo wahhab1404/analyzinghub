@@ -46,6 +46,11 @@ interface Trade {
     bid?: number
     ask?: number
     timestamp?: string
+    implied_volatility?: number
+    delta?: number
+    gamma?: number
+    theta?: number
+    vega?: number
   }
   current_contract: number
   contract_high_since: number
@@ -213,6 +218,69 @@ function TradeCard({
           </div>
         </div>
       </div>
+
+      {/* ── Options Greeks ────────────────────────────── */}
+      {trade.instrument_type === 'options' && (() => {
+        const snap = trade.entry_contract_snapshot
+        const iv = snap?.implied_volatility
+        const delta = snap?.delta
+        const gamma = snap?.gamma
+        const theta = snap?.theta
+        const vega = snap?.vega
+        if (!iv && !delta && !gamma && !theta && !vega) return null
+        return (
+          <div className="border-t border-[hsl(var(--border)/0.6)] px-4 py-2.5 bg-muted/5">
+            <p className="stat-label mb-2 flex items-center gap-1.5">
+              <span className="text-[8px] text-primary/60">◆</span>
+              OPTIONS GREEKS
+            </p>
+            <div className="grid grid-cols-5 gap-1 text-center">
+              {iv != null && (
+                <div className="space-y-0.5">
+                  <p className="opt-greek-label">IV</p>
+                  <p className={cn('opt-greek-value',
+                    iv > 0.6 ? 'text-red-500' : iv > 0.4 ? 'text-amber-500' : iv > 0.25 ? 'text-foreground' : 'text-emerald-500/80'
+                  )}>
+                    {(iv * 100).toFixed(1)}%
+                  </p>
+                </div>
+              )}
+              {delta != null && (
+                <div className="space-y-0.5">
+                  <p className="opt-greek-label">Δ DELTA</p>
+                  <p className={cn('opt-greek-value',
+                    Math.abs(delta) >= 0.5 ? 'text-blue-400' : Math.abs(delta) >= 0.3 ? 'text-foreground' : 'text-muted-foreground'
+                  )}>
+                    {delta.toFixed(2)}
+                  </p>
+                </div>
+              )}
+              {gamma != null && (
+                <div className="space-y-0.5">
+                  <p className="opt-greek-label">Γ GAMMA</p>
+                  <p className="opt-greek-value text-purple-400/80">{gamma.toFixed(4)}</p>
+                </div>
+              )}
+              {theta != null && (
+                <div className="space-y-0.5">
+                  <p className="opt-greek-label">Θ THETA</p>
+                  <p className={cn('opt-greek-value',
+                    theta < -5 ? 'text-red-500' : theta < -2 ? 'text-amber-500' : 'text-muted-foreground'
+                  )}>
+                    {theta.toFixed(2)}
+                  </p>
+                </div>
+              )}
+              {vega != null && (
+                <div className="space-y-0.5">
+                  <p className="opt-greek-label">V VEGA</p>
+                  <p className="opt-greek-value text-cyan-400/80">{vega.toFixed(2)}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── Targets + Stop loss ───────────────────────── */}
       {(trade.targets.length > 0 || trade.stoploss) && (

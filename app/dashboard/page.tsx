@@ -7,14 +7,14 @@ import { cn } from '@/lib/utils'
 import {
   Activity, TrendingUp, TrendingDown, Loader2, RefreshCw,
   Trophy, Target, BarChart3, DollarSign, Zap, ArrowUpRight,
-  Users, FileText
+  Users, FileText, LayoutList, Table2
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  BarChart, Bar, Cell
 } from 'recharts'
 import { SessionUser } from '@/lib/auth/types'
 import { useLanguage } from '@/lib/i18n/language-context'
+import { OptionsContractCard, OptionsChainTable } from '@/components/indices/OptionsContractCard'
 
 /* ─── Type definitions ──────────────────────────────────────────────────── */
 
@@ -35,16 +35,21 @@ interface Trade {
   underlying_index_symbol: string
   instrument_type: string
   option_type?: string
+  polygon_option_ticker?: string | null
   strike?: number
   expiry?: string
   qty: number
   contract_multiplier: number | string
   entry_contract_snapshot: {
     mid: number
+    bid?: number
+    ask?: number
     last?: number
     implied_volatility?: number
     delta?: number
+    gamma?: number
     theta?: number
+    vega?: number
   }
   entry_underlying_snapshot?: { price: number }
   current_contract: number
@@ -215,6 +220,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [optionsView, setOptionsView] = useState<'table' | 'cards'>('table')
 
   const fetchTrades = useCallback(async () => {
     const [aRes, cRes] = await Promise.all([
@@ -617,70 +623,92 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* OPTIONS ACTIVITY TABLE */}
+          {/* OPTIONS ACTIVITY — Bloomberg/TOS-style analytics */}
           <div className="terminal-card">
-            <PanelHeader label="OPTIONS ACTIVITY" count={optionTrades.length} />
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[560px]">
-                <thead>
-                  <tr className="border-b border-border bg-muted/20">
-                    <th className="text-left px-3 py-1.5 section-label text-[9px]">UNDERLYING</th>
-                    <th className="text-left px-2 py-1.5 section-label text-[9px]">OPT</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">STRIKE</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">EXPIRY</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">ENTRY $</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">CURR $</th>
-                    <th className="text-right px-3 py-1.5 section-label text-[9px]">P&L %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {optionTrades.length === 0
-                    ? <EmptyRow cols={7} msg="No options positions" />
-                    : optionTrades.map(trade => {
-                        const { pct, entry, current } = computeOpenPnL(trade)
-                        const iv = trade.entry_contract_snapshot?.implied_volatility
-                        const delta = trade.entry_contract_snapshot?.delta
-                        const expDate = trade.expiry
-                          ? new Date(trade.expiry).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
-                          : '—'
+            <PanelHeader
+              label="OPTIONS ACTIVITY"
+              count={optionTrades.length}
+              right={
+                optionTrades.length > 0 ? (
+                  <div className="flex items-center gap-0.5 border border-border overflow-hidden">
+                    <button
+                      onClick={() => setOptionsView('table')}
+                      className={cn(
+                        'flex items-center gap-1 px-2 py-1 text-[9px] font-bold transition-colors',
+                        optionsView === 'table' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <Table2 className="h-2.5 w-2.5" />
+                      TABLE
+                    </button>
+                    <button
+                      onClick={() => setOptionsView('cards')}
+                      className={cn(
+                        'flex items-center gap-1 px-2 py-1 text-[9px] font-bold transition-colors',
+                        optionsView === 'cards' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      <LayoutList className="h-2.5 w-2.5" />
+                      CARDS
+                    </button>
+                  </div>
+                ) : undefined
+              }
+            />
 
-                        return (
-                          <tr key={trade.id} className="data-row">
-                            <td className="px-3 py-2">
-                              <div className="font-black text-foreground leading-none">{trade.underlying_index_symbol}</div>
-                              {iv && <div className="text-[9px] text-muted-foreground num leading-none">IV {(iv * 100).toFixed(1)}%{delta ? ` · Δ${delta.toFixed(2)}` : ''}</div>}
-                            </td>
-                            <td className="px-2 py-2">
-                              <DirPill dir={trade.option_type || trade.direction} />
-                            </td>
-                            <td className="px-2 py-2 text-right">
-                              <span className="num font-semibold text-foreground">
-                                {trade.strike ? `$${trade.strike.toLocaleString()}` : '—'}
-                              </span>
-                            </td>
-                            <td className="px-2 py-2 text-right">
-                              <span className="num text-muted-foreground text-[10px]">{expDate}</span>
-                            </td>
-                            <td className="px-2 py-2 text-right">
-                              <span className="num text-muted-foreground">${entry.toFixed(2)}</span>
-                            </td>
-                            <td className="px-2 py-2 text-right">
-                              <span className={cn('num font-semibold', current > entry ? 'text-emerald-500' : 'text-red-500')}>
-                                ${current.toFixed(2)}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <span className={cn('num font-black text-sm', pct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
-                                {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
-                              </span>
-                            </td>
-                          </tr>
-                        )
-                      })
-                  }
-                </tbody>
-              </table>
-            </div>
+            {/* TABLE VIEW — compact, scannable options chain */}
+            {optionsView === 'table' && (
+              <OptionsChainTable
+                trades={optionTrades}
+                emptyMessage="No options positions on the platform"
+                showActions
+              />
+            )}
+
+            {/* CARDS VIEW — full TOS/OptionStrat-style cards */}
+            {optionsView === 'cards' && (
+              <div className="divide-y divide-border/30">
+                {optionTrades.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-[11px] text-muted-foreground">
+                    No options positions on the platform
+                  </div>
+                ) : optionTrades.map(trade => (
+                  <OptionsContractCard
+                    key={trade.id}
+                    trade={trade}
+                    compact={false}
+                    monitorHref={`/dashboard/indices?trade=${trade.id}`}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Footer */}
+            {optionTrades.length > 0 && (
+              <div className="px-3 py-1.5 border-t border-border bg-muted/10 flex justify-between items-center">
+                <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
+                  <span>
+                    {optionTrades.filter(t => (t.option_type || t.direction) === 'call').length}C
+                    {' / '}
+                    {optionTrades.filter(t => (t.option_type || t.direction) === 'put').length}P
+                  </span>
+                  {optionTrades.some(t => t.entry_contract_snapshot?.implied_volatility) && (
+                    <span>
+                      Avg IV:{' '}
+                      {(
+                        optionTrades
+                          .filter(t => t.entry_contract_snapshot?.implied_volatility)
+                          .reduce((s, t) => s + (t.entry_contract_snapshot.implied_volatility! * 100), 0) /
+                        optionTrades.filter(t => t.entry_contract_snapshot?.implied_volatility).length
+                      ).toFixed(1)}%
+                    </span>
+                  )}
+                </div>
+                <Link href="/dashboard/indices" className="text-[10px] text-primary hover:underline">
+                  Full options hub →
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* RECENT CLOSED TRADES */}
