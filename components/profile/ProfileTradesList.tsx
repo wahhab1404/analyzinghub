@@ -1,23 +1,13 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import {
-  TrendingUp,
-  TrendingDown,
-  Calendar,
-  DollarSign,
-  Target,
-  Activity,
-  Clock,
-  BarChart3,
-  Lock,
-  Loader2
+  TrendingUp, TrendingDown, Calendar, DollarSign,
+  Target, Activity, Clock, BarChart3, Lock, Loader2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 
 interface Trade {
   id: string
@@ -47,15 +37,16 @@ interface ProfileTradesListProps {
   hasSubscription: boolean
 }
 
+const usd = (v: number) =>
+  v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: ProfileTradesListProps) {
-  const [trades, setTrades] = useState<Trade[]>([])
+  const [trades, setTrades]   = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats]     = useState<any>(null)
   const [showLocked, setShowLocked] = useState(false)
 
-  useEffect(() => {
-    fetchTrades()
-  }, [profileId])
+  useEffect(() => { fetchTrades() }, [profileId])
 
   const fetchTrades = async () => {
     try {
@@ -78,51 +69,6 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     }
   }
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { color: string; label: string; icon: any }> = {
-      active: { color: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200', label: 'Active', icon: Activity },
-      closed: { color: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200', label: 'Closed', icon: Clock },
-      expired: { color: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200', label: 'Expired', icon: Calendar }
-    }
-    const variant = variants[status] || variants.closed
-    const Icon = variant.icon
-    return (
-      <Badge className={`${variant.color} gap-1`}>
-        <Icon className="h-3 w-3" />
-        {variant.label}
-      </Badge>
-    )
-  }
-
-  const getOutcomeBadge = (isWin?: boolean | null) => {
-    if (isWin === true) {
-      return (
-        <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 gap-1">
-          <TrendingUp className="h-3 w-3" />
-          WIN
-        </Badge>
-      )
-    } else if (isWin === false) {
-      return (
-        <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 gap-1">
-          <TrendingDown className="h-3 w-3" />
-          LOSS
-        </Badge>
-      )
-    }
-    return (
-      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 gap-1">
-        <Clock className="h-3 w-3" />
-        Pending
-      </Badge>
-    )
-  }
-
-  const formatCurrency = (value: number) => {
-    const sign = value >= 0 ? '+' : ''
-    return `${sign}$${value.toFixed(2)}`
-  }
-
   const calculateProfit = (trade: Trade) => {
     const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
     const multiplier = trade.contract_multiplier || 100
@@ -130,11 +76,8 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     const entryCost = entryPrice * multiplier * qty
 
     if (trade.status === 'closed') {
-      if (trade.computed_profit_usd != null) {
-        return parseFloat(trade.computed_profit_usd.toString())
-      } else if (trade.is_win === false) {
-        return -entryCost
-      }
+      if (trade.computed_profit_usd != null) return parseFloat(trade.computed_profit_usd.toString())
+      if (trade.is_win === false) return -entryCost
       return 0
     } else {
       const peakPrice = trade.peak_price_after_entry || trade.contract_high_since || entryPrice
@@ -142,215 +85,253 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
     }
   }
 
-  const calculatePercentageReturn = (trade: Trade) => {
-    if (!trade.entry_contract_snapshot?.mid && !trade.entry_contract_snapshot?.last) return null
-    const entryPrice = trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last
-    if (entryPrice === 0) return null
-
+  const calculatePct = (trade: Trade) => {
+    const entryPrice = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last
+    if (!entryPrice || entryPrice === 0) return null
     const multiplier = trade.contract_multiplier || 100
     const qty = trade.qty || 1
     const entryCost = entryPrice * multiplier * qty
-
-    const profitValue = calculateProfit(trade)
-    const percentReturn = (profitValue / entryCost) * 100
-    return percentReturn
+    return (calculateProfit(trade) / entryCost) * 100
   }
 
+  // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     )
   }
 
+  // ── Locked ───────────────────────────────────────────────────────────────────
   if (showLocked) {
     return (
-      <Card className="border-2 border-dashed">
-        <CardContent className="py-12 text-center">
-          <Lock className="h-16 w-16 mx-auto text-muted-foreground opacity-30 mb-4" />
-          <h3 className="text-xl font-semibold mb-2">Active Trades Locked</h3>
-          <p className="text-muted-foreground mb-6 max-w-md mx-auto">
-            Subscribe to this analyst to view their active trades and receive real-time updates
-          </p>
-          <Button asChild>
-            <Link href="#subscription-plans">
-              View Subscription Plans
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="bg-card border border-border rounded-sm p-10 text-center">
+        <div className="h-12 w-12 rounded-full bg-muted/30 flex items-center justify-center mx-auto mb-4">
+          <Lock className="h-5 w-5 text-muted-foreground" />
+        </div>
+        <h3 className="text-base font-bold text-foreground mb-1">Active Trades Locked</h3>
+        <p className="text-sm text-muted-foreground mb-5 max-w-xs mx-auto">
+          Subscribe to this analyst to view live trades and real-time alerts.
+        </p>
+        <Button asChild size="sm" className="rounded-sm text-xs">
+          <Link href="#subscription-plans">View Plans</Link>
+        </Button>
+      </div>
     )
   }
 
+  // ── Empty ────────────────────────────────────────────────────────────────────
   if (trades.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <BarChart3 className="h-12 w-12 mx-auto text-muted-foreground opacity-50 mb-3" />
-          <p className="text-muted-foreground">
-            {isOwnProfile ? "You haven't created any trades yet" : "No trades available"}
-          </p>
-        </CardContent>
-      </Card>
+      <div className="bg-card border border-border rounded-sm p-10 text-center">
+        <BarChart3 className="h-8 w-8 mx-auto text-muted-foreground opacity-40 mb-3" />
+        <p className="text-sm text-muted-foreground">
+          {isOwnProfile ? "You haven't created any trades yet." : 'No trades available.'}
+        </p>
+      </div>
     )
   }
 
+  // ── Stats bar ────────────────────────────────────────────────────────────────
+  const statItems = stats ? [
+    { icon: BarChart3, label: 'Total Trades', value: stats.total_trades,     color: '#58A6FF' },
+    { icon: Target,    label: 'Win Rate',     value: `${stats.win_rate}%`,   color: stats.win_rate >= 50 ? '#3FB950' : '#F85149' },
+    { icon: DollarSign,label: 'Total P/L',
+      value: `${stats.total_pnl >= 0 ? '+' : ''}${usd(stats.total_pnl)}`,
+      color: stats.total_pnl >= 0 ? '#3FB950' : '#F85149' },
+    { icon: Activity,  label: 'Active',       value: stats.active_trades,    color: '#E3B341' },
+  ] : []
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+
+      {/* Stats strip */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total Trades</p>
-                  <p className="text-2xl font-bold">{stats.total_trades}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {statItems.map(s => {
+            const Icon = s.icon
+            return (
+              <div key={s.label}
+                className="bg-card border border-border rounded-sm px-3 py-2.5 flex items-center gap-2.5">
+                <div className="h-7 w-7 rounded flex items-center justify-center flex-shrink-0"
+                  style={{ background: `${s.color}15` }}>
+                  <Icon className="h-3.5 w-3.5" style={{ color: s.color }} />
                 </div>
-                <BarChart3 className="h-8 w-8 text-blue-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Win Rate</p>
-                  <p className={`text-2xl font-bold ${stats.win_rate >= 50 ? 'text-green-600' : 'text-red-600'}`}>
-                    {stats.win_rate}%
-                  </p>
+                <div className="min-w-0">
+                  <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{s.label}</div>
+                  <div className="text-sm font-black num leading-tight" style={{ color: s.color }}>{s.value}</div>
                 </div>
-                <Target className="h-8 w-8 text-green-500 opacity-20" />
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Total P/L</p>
-                  <p className={`text-2xl font-bold ${stats.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {formatCurrency(stats.total_pnl)}
-                  </p>
-                </div>
-                <DollarSign className="h-8 w-8 text-purple-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Active</p>
-                  <p className="text-2xl font-bold">{stats.active_trades}</p>
-                </div>
-                <Activity className="h-8 w-8 text-orange-500 opacity-20" />
-              </div>
-            </CardContent>
-          </Card>
+            )
+          })}
         </div>
       )}
 
-      <div className="space-y-3">
-        {trades.map((trade) => {
-          const percentReturn = calculatePercentageReturn(trade)
-          const profitValue = calculateProfit(trade)
-          const isActive = trade.status === 'active'
+      {/* Trades table */}
+      <div className="bg-card border border-border rounded-sm overflow-hidden">
+        {/* Table header */}
+        <div className="hidden sm:grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-x-4 px-4 py-2 border-b border-border bg-muted/10">
+          {['Contract', 'Details', 'Entry', 'High', 'P/L $', 'P/L %', 'Status'].map(h => (
+            <div key={h} className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">{h}</div>
+          ))}
+        </div>
 
-          return (
-            <Card key={trade.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-3">
-                      <h3 className="text-lg font-semibold">
-                        {trade.underlying_index_symbol} {trade.strike}{trade.option_type?.toUpperCase()}
-                      </h3>
-                      {getStatusBadge(trade.status)}
-                      {trade.status === 'closed' && getOutcomeBadge(trade.is_win)}
-                    </div>
+        <div className="divide-y divide-border">
+          {trades.map(trade => {
+            const pnl     = calculateProfit(trade)
+            const pct     = calculatePct(trade)
+            const isActive = trade.status === 'active'
+            const isCall  = trade.option_type?.toUpperCase() === 'C'
+            const pnlColor = isActive
+              ? (pnl >= 0 ? '#58A6FF' : '#E3B341')
+              : (pnl >= 0 ? '#3FB950' : '#F85149')
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <p className="text-muted-foreground mb-1">Direction</p>
-                        <Badge variant={trade.option_type?.toUpperCase() === 'C' ? 'default' : 'destructive'}>
-                          {trade.option_type?.toUpperCase() === 'C' ? '📈 CALL' : '📉 PUT'}
-                        </Badge>
-                      </div>
+            const entryPrice  = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0
+            const highPrice   = trade.peak_price_after_entry || trade.contract_high_since || trade.current_contract || 0
 
-                      <div>
-                        <p className="text-muted-foreground mb-1">Expiry</p>
-                        <div className="flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          <span className="font-medium">{format(new Date(trade.expiry), 'MMM dd, yyyy')}</span>
-                        </div>
-                      </div>
+            const statusConfig: Record<string, { color: string; label: string }> = {
+              active:  { color: '#58A6FF', label: 'Active'  },
+              closed:  { color: '#8B949E', label: 'Closed'  },
+              expired: { color: '#E3B341', label: 'Expired' },
+            }
+            const sc = statusConfig[trade.status] || statusConfig.closed
 
-                      <div>
-                        <p className="text-muted-foreground mb-1">Entry Price</p>
-                        <span className="font-medium">
-                          ${(trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0).toFixed(2)}
+            const outcomeColor = trade.is_win === true ? '#3FB950' : trade.is_win === false ? '#F85149' : '#E3B341'
+            const outcomeLabel = trade.is_win === true ? 'WIN' : trade.is_win === false ? 'LOSS' : 'Open'
+
+            return (
+              <div key={trade.id}
+                className="px-4 py-3 hover:bg-muted/10 transition-colors">
+
+                {/* Mobile layout */}
+                <div className="sm:hidden">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="text-sm font-black text-foreground">
+                          {trade.underlying_index_symbol}
+                        </span>
+                        <span className="text-xs font-bold text-muted-foreground">
+                          {trade.strike}{trade.option_type?.toUpperCase()}
+                        </span>
+                        <span
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                          style={{
+                            color: isCall ? '#3FB950' : '#F85149',
+                            background: isCall ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)'
+                          }}>
+                          {isCall ? 'CALL' : 'PUT'}
                         </span>
                       </div>
-
-                      <div>
-                        <p className="text-muted-foreground mb-1">Highest Price</p>
-                        <span className="font-medium">
-                          ${(trade.peak_price_after_entry || trade.contract_high_since || trade.current_contract || 0).toFixed(2)}
-                        </span>
-                        {trade.peak_price_after_entry && trade.entry_contract_snapshot && (
-                          <span className={`text-xs ml-1 ${
-                            trade.peak_price_after_entry >= (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last)
-                              ? 'text-green-600'
-                              : 'text-red-600'
-                          }`}>
-                            {trade.peak_price_after_entry >= (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last) ? '+' : ''}
-                            ${(trade.peak_price_after_entry - (trade.entry_contract_snapshot.mid || trade.entry_contract_snapshot.last)).toFixed(2)}
-                          </span>
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <Calendar className="h-2.5 w-2.5" />
+                        {format(new Date(trade.expiry), 'MMM dd, yy')}
+                        {trade.closed_at && (
+                          <span>· Closed {format(new Date(trade.closed_at), 'MMM dd')}</span>
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className={`text-2xl font-bold ${
-                      isActive
-                        ? profitValue >= 0 ? 'text-blue-600' : 'text-orange-600'
-                        : profitValue >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {formatCurrency(profitValue)}
+                    <div className="text-right">
+                      <div className="text-base font-black num" style={{ color: pnlColor }}>
+                        {pnl >= 0 ? '+' : ''}{usd(pnl)}
+                      </div>
+                      {pct !== null && (
+                        <div className="text-[10px] font-bold num" style={{ color: pnlColor }}>
+                          {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                        </div>
+                      )}
                     </div>
-                    {percentReturn !== null && (
-                      <p className={`text-sm ${percentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ({percentReturn >= 0 ? '+' : ''}{percentReturn.toFixed(1)}%)
-                      </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                      style={{ color: sc.color, background: `${sc.color}12`, borderColor: `${sc.color}30` }}>
+                      {sc.label}
+                    </span>
+                    {trade.status === 'closed' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                        style={{ color: outcomeColor, background: `${outcomeColor}12`, borderColor: `${outcomeColor}30` }}>
+                        {outcomeLabel}
+                      </span>
                     )}
-                    {trade.closed_at && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        Closed {format(new Date(trade.closed_at), 'MMM dd')}
-                      </p>
+                    {trade.analysis_id && (
+                      <Link href={`/dashboard/analysis/${trade.analysis_id}`}
+                        className="text-[10px] text-primary hover:underline flex items-center gap-0.5 ml-auto">
+                        <Target className="h-2.5 w-2.5" />
+                        Analysis
+                      </Link>
                     )}
                   </div>
                 </div>
 
-                {trade.analysis_id && (
-                  <div className="mt-4 pt-4 border-t">
-                    <Link
-                      href={`/dashboard/analysis/${trade.analysis_id}`}
-                      className="text-sm text-primary hover:underline flex items-center gap-1"
-                    >
-                      <Target className="h-3 w-3" />
-                      View related analysis
-                    </Link>
+                {/* Desktop table row */}
+                <div className="hidden sm:grid grid-cols-[auto_1fr_auto_auto_auto_auto_auto] gap-x-4 items-center">
+                  {/* Contract */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-black text-foreground">{trade.underlying_index_symbol}</span>
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={{
+                        color: isCall ? '#3FB950' : '#F85149',
+                        background: isCall ? 'rgba(63,185,80,0.12)' : 'rgba(248,81,73,0.12)'
+                      }}>
+                      {isCall ? 'CALL' : 'PUT'}
+                    </span>
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          )
-        })}
+
+                  {/* Details */}
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-foreground truncate">
+                      {trade.strike}{trade.option_type?.toUpperCase()} · Exp {format(new Date(trade.expiry), 'MMM dd, yy')}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                      <Clock className="h-2.5 w-2.5" />
+                      {format(new Date(trade.created_at), 'MMM dd, yy')}
+                      {trade.analysis_id && (
+                        <Link href={`/dashboard/analysis/${trade.analysis_id}`}
+                          className="text-primary hover:underline ml-1">· Analysis</Link>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Entry */}
+                  <div className="text-xs font-bold num text-foreground text-right">
+                    ${entryPrice.toFixed(2)}
+                  </div>
+
+                  {/* High */}
+                  <div className="text-xs font-bold num text-right" style={{ color: '#3FB950' }}>
+                    ${highPrice.toFixed(2)}
+                  </div>
+
+                  {/* P/L $ */}
+                  <div className="text-sm font-black num text-right" style={{ color: pnlColor }}>
+                    {pnl >= 0 ? '+' : ''}{usd(pnl)}
+                  </div>
+
+                  {/* P/L % */}
+                  <div className="text-xs font-bold num text-right" style={{ color: pnlColor }}>
+                    {pct !== null ? `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : '—'}
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex flex-col items-end gap-1">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                      style={{ color: sc.color, background: `${sc.color}12`, borderColor: `${sc.color}30` }}>
+                      {sc.label}
+                    </span>
+                    {trade.status === 'closed' && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border"
+                        style={{ color: outcomeColor, background: `${outcomeColor}12`, borderColor: `${outcomeColor}30` }}>
+                        {outcomeLabel}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
