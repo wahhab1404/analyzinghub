@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
             tradeId: trade.id,
             isNewHigh: true,
             newHighPrice: highNum,
+            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
           }),
         });
 

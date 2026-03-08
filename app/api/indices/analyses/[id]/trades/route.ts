@@ -327,6 +327,7 @@ export async function POST(
           body: JSON.stringify({
             tradeId: trade.id,
             isNewHigh: false,
+            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
           }),
         });
 

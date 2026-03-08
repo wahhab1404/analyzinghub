@@ -139,6 +139,7 @@ export async function PATCH(
             tradeId: id,
             isNewHigh: true,
             newHighPrice: highWatermark,
+            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
           }),
         });
 

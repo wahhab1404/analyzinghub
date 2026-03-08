@@ -2,64 +2,94 @@
 
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, TrendingUp } from 'lucide-react'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { useTranslation } from '@/lib/i18n/language-context'
+
+const PROOF_POINTS = [
+  'Free to get started',
+  'Auto-validated signals',
+  'Real-time Telegram alerts',
+  'Analyst performance rankings',
+]
 
 export function FinalCTA() {
   const { t } = useTranslation()
 
   return (
     <section className="py-24 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-accent/10 to-transparent" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-primary/30 via-transparent to-transparent" />
+      {/* Background */}
+      <div className="absolute inset-0 bg-card/40" />
+      <div
+        className="absolute inset-0 opacity-[0.06] pointer-events-none"
+        style={{
+          backgroundImage: `linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)`,
+          backgroundSize: '40px 40px',
+        }}
+      />
+      {/* Top glow */}
+      <div
+        className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[200px] opacity-[0.08] pointer-events-none"
+        style={{ background: 'radial-gradient(ellipse at center, hsl(var(--primary)), transparent 70%)' }}
+      />
 
-      <div className="container relative mx-auto px-4">
+      <div className="container relative mx-auto px-4 sm:px-6">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          whileInView={{ opacity: 1, scale: 1 }}
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="mx-auto max-w-4xl text-center"
+          className="max-w-3xl mx-auto text-center"
         >
-          <div className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary to-accent">
-            <TrendingUp className="h-8 w-8 text-white" />
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 border border-primary/30 bg-primary/5 rounded-sm mb-6">
+            <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-[10px] font-bold text-primary tracking-widest uppercase">Ready to level up?</span>
           </div>
 
-          <h2 className="mb-6 text-4xl font-bold text-foreground sm:text-5xl lg:text-6xl">
+          {/* Headline */}
+          <h2 className="text-4xl sm:text-5xl font-black text-foreground tracking-tight leading-[1.05] mb-4">
             {t.landing.cta.heading}{' '}
-            <span className="bg-gradient-to-r from-primary via-accent to-green-500 bg-clip-text text-transparent">
-              {t.landing.cta.headingHighlight}
-            </span>
+            <span className="text-primary">{t.landing.cta.headingHighlight}</span>
           </h2>
 
-          <p className="mb-10 text-xl text-muted-foreground leading-relaxed">
+          <p className="text-muted-foreground text-sm sm:text-base leading-relaxed max-w-xl mx-auto mb-8">
             {t.landing.cta.description}
           </p>
 
-          <div className="flex flex-wrap justify-center gap-4">
+          {/* Proof points */}
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 mb-10">
+            {PROOF_POINTS.map(p => (
+              <div key={p} className="flex items-center gap-1.5">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0" />
+                <span className="text-xs text-muted-foreground">{p}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* CTA buttons */}
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <Link href="/register">
-              <Button size="lg" className="bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 text-lg px-8">
+              <Button
+                size="lg"
+                className="h-12 px-10 rounded-sm bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-sm tracking-wide gap-2 w-full sm:w-auto"
+              >
                 {t.landing.cta.joinTrader}
-                <ArrowRight className="ms-2 h-5 w-5" />
+                <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
             <Link href="/register">
-              <Button size="lg" variant="outline" className="border-border text-foreground hover:bg-muted/10 text-lg px-8">
+              <Button
+                size="lg"
+                variant="outline"
+                className="h-12 px-10 rounded-sm text-sm font-medium border-border hover:border-primary/40 hover:bg-primary/5 w-full sm:w-auto"
+              >
                 {t.landing.cta.joinAnalyzer}
               </Button>
             </Link>
           </div>
 
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-8 text-sm text-muted-foreground"
-          >
-            {t.landing.cta.subtitle}
-          </motion.p>
+          <p className="mt-6 text-[11px] text-muted-foreground">{t.landing.cta.subtitle}</p>
         </motion.div>
       </div>
     </section>
