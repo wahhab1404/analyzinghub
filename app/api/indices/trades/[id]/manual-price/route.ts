@@ -214,6 +214,7 @@ export async function POST(
             tradeId: id,
             isNewHigh: true,
             newHighPrice: newHigh,
+            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
           }),
         });
 

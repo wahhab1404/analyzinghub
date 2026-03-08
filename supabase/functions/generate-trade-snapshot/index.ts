@@ -11,6 +11,7 @@ interface SnapshotRequest {
   tradeId: string;
   isNewHigh?: boolean;
   newHighPrice?: number;
+  appBaseUrl?: string;
 }
 
 Deno.serve(async (req: Request) => {
@@ -60,7 +61,8 @@ Deno.serve(async (req: Request) => {
       entryUnderlying: trade.entry_underlying_snapshot,
     });
 
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_APP_URL") || "http://localhost:3000";
+    const appBaseUrl = payload.appBaseUrl || Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_APP_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "http://localhost:3000";
+    console.log("[generate-trade-snapshot] appBaseUrl resolved to:", appBaseUrl, "(from payload:", !!payload.appBaseUrl, "/ env:", !!Deno.env.get("APP_BASE_URL"), ")");
     const isNewHighParam = payload.isNewHigh ? 'isNewHigh=true' : '';
     const newHighPriceParam = payload.newHighPrice ? `newHighPrice=${payload.newHighPrice}` : '';
     const queryParams = [isNewHighParam, newHighPriceParam].filter(Boolean).join('&');

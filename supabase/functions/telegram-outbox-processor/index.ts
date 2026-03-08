@@ -73,6 +73,30 @@ Deno.serve(async (req) => {
           .update({ status: 'processing' })
           .eq('id', message.id);
 
+        // For image-bearing message types, re-fetch contract_url from DB so we
+        // always use the latest value even if the snapshot was generated after
+        // the outbox row was inserted (race condition guard).
+        if (['new_trade', 'new_high', 'winning_trade'].includes(message.message_type)) {
+          const trade = message.payload?.trade || message.payload;
+          if (trade?.id && !trade.contract_url) {
+            const { data: freshTrade } = await supabase
+              .from('index_trades')
+              .select('contract_url')
+              .eq('id', trade.id)
+              .maybeSingle();
+            if (freshTrade?.contract_url) {
+              console.log(`[outbox] Re-fetched contract_url for trade ${trade.id}: ${freshTrade.contract_url}`);
+              if (message.payload?.trade) {
+                message.payload.trade.contract_url = freshTrade.contract_url;
+              } else {
+                message.payload.contract_url = freshTrade.contract_url;
+              }
+            } else {
+              console.log(`[outbox] No contract_url found for trade ${trade.id} — will send text-only`);
+            }
+          }
+        }
+
         const formattedMessage = formatMessage(message);
 
         let telegramResult;
