@@ -2,116 +2,123 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { Twitter, Github, Linkedin, Mail } from 'lucide-react'
+import { Twitter, Github, Linkedin, Mail, ExternalLink } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/language-context'
+
+const FOOTER_COLS = [
+  {
+    heading: 'Platform',
+    links: [
+      { label: 'Market Analyses',    href: '/dashboard/feed' },
+      { label: 'Live Trades',        href: '/dashboard/feed' },
+      { label: 'Options Signals',    href: '/dashboard/feed' },
+      { label: 'Analyst Rankings',   href: '/dashboard/feed' },
+      { label: 'Pricing',            href: '#pricing'        },
+    ],
+  },
+  {
+    heading: 'Markets',
+    links: [
+      { label: 'S&P 500 (SPX)',      href: '/dashboard/feed' },
+      { label: 'NASDAQ (NDX)',       href: '/dashboard/feed' },
+      { label: 'Dow Jones (DJI)',    href: '/dashboard/feed' },
+      { label: 'Stocks',            href: '/dashboard/feed' },
+      { label: 'Options',           href: '/dashboard/feed' },
+    ],
+  },
+  {
+    heading: 'Analysts',
+    links: [
+      { label: 'Become an Analyst',  href: '/register'       },
+      { label: 'Top Leaderboard',    href: '/dashboard/feed' },
+      { label: 'How it Works',       href: '#how-it-works'   },
+      { label: 'Performance Metrics',href: '/dashboard/feed' },
+    ],
+  },
+  {
+    heading: 'Legal',
+    links: [
+      { label: 'Privacy Policy',     href: '#' },
+      { label: 'Terms of Service',   href: '#' },
+      { label: 'Disclaimer',         href: '#' },
+      { label: 'Cookie Policy',      href: '#' },
+    ],
+  },
+]
 
 export function Footer() {
   const { t } = useTranslation()
 
   return (
-    <footer className="border-t border-border bg-background py-12">
-      <div className="container mx-auto px-4">
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+    <footer className="border-t border-border bg-card/30">
+      <div className="container mx-auto px-4 sm:px-6">
+
+        {/* Main grid */}
+        <div className="py-12 grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
+
+          {/* Brand column */}
           <div>
-            <Link href="/" className="mb-4 flex items-center gap-2">
+            <Link href="/" className="inline-block mb-4">
               <Image
                 src="/analyzer-logo.png"
                 alt="AnalyzingHub Logo"
-                width={200}
-                height={67}
-                className="h-14 w-auto"
+                width={160}
+                height={53}
+                className="h-9 w-auto"
               />
             </Link>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {t.landing.hero.description}
+            <p className="text-xs text-muted-foreground leading-relaxed mb-5 max-w-[220px]">
+              Professional trading analysis platform. Market analyses, live trade tracking, and options intelligence — all in one place.
             </p>
-          </div>
-
-          <div>
-            <h3 className="mb-4 text-sm font-semibold text-foreground">{t.landing.footer.features}</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>
-                <Link href="#features" className="hover:text-foreground transition-colors">
-                  {t.landing.footer.features}
-                </Link>
-              </li>
-              <li>
-                <Link href="#how-it-works" className="hover:text-foreground transition-colors">
-                  {t.landing.howItWorks.title}
-                </Link>
-              </li>
-              <li>
-                <Link href="#pricing" className="hover:text-foreground transition-colors">
-                  {t.landing.footer.pricing}
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="mb-4 text-sm font-semibold text-foreground">{t.search.search}</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>
-                <Link href="#faq" className="hover:text-foreground transition-colors">
-                  FAQ
-                </Link>
-              </li>
-              <li>
-                <Link href="/dashboard/feed" className="hover:text-foreground transition-colors">
-                  {t.analysis.title}
-                </Link>
-              </li>
-              <li>
-                <Link href="/register" className="hover:text-foreground transition-colors">
-                  {t.landing.hero.getStarted}
-                </Link>
-              </li>
-              <li>
-                <Link href="/login" className="hover:text-foreground transition-colors">
-                  {t.auth.signIn}
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          <div>
-            <h3 className="mb-4 text-sm font-semibold text-foreground">{t.landing.footer.contact}</h3>
-            <div className="flex gap-3">
-              <a
-                href="#"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/10 text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
-                aria-label="Twitter"
-              >
-                <Twitter className="h-4 w-4" />
-              </a>
-              <a
-                href="#"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/10 text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
-                aria-label="GitHub"
-              >
-                <Github className="h-4 w-4" />
-              </a>
-              <a
-                href="#"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/10 text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
-                aria-label="LinkedIn"
-              >
-                <Linkedin className="h-4 w-4" />
-              </a>
-              <a
-                href="#"
-                className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted/10 text-muted-foreground transition-colors hover:bg-muted/20 hover:text-foreground"
-                aria-label="Email"
-              >
-                <Mail className="h-4 w-4" />
-              </a>
+            {/* Social icons */}
+            <div className="flex gap-2">
+              {[
+                { icon: Twitter,  label: 'Twitter',  href: '#' },
+                { icon: Github,   label: 'GitHub',   href: '#' },
+                { icon: Linkedin, label: 'LinkedIn', href: '#' },
+                { icon: Mail,     label: 'Email',    href: '#' },
+              ].map(s => (
+                <a
+                  key={s.label}
+                  href={s.href}
+                  aria-label={s.label}
+                  className="h-7 w-7 flex items-center justify-center rounded border border-border bg-card text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                >
+                  <s.icon className="h-3.5 w-3.5" />
+                </a>
+              ))}
             </div>
           </div>
+
+          {/* Link columns */}
+          {FOOTER_COLS.map(col => (
+            <div key={col.heading}>
+              <h4 className="text-[10px] font-bold text-foreground uppercase tracking-widest mb-4">{col.heading}</h4>
+              <ul className="space-y-2.5">
+                {col.links.map(link => (
+                  <li key={link.label}>
+                    <Link
+                      href={link.href}
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 group"
+                    >
+                      {link.label}
+                      {link.href.startsWith('/dashboard') && (
+                        <ExternalLink className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
 
-        <div className="mt-12 border-t border-border pt-8 text-center text-sm text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} AnalyzingHub. All rights reserved.</p>
-          <p className="mt-2">
+        {/* Bottom bar */}
+        <div className="border-t border-border py-5 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground">
+            &copy; {new Date().getFullYear()} AnalyzingHub. All rights reserved.
+          </p>
+          <p className="text-[11px] text-muted-foreground text-center sm:text-right">
             Educational content only. Not financial advice. Trade responsibly.
           </p>
         </div>
