@@ -25,8 +25,9 @@ function setCache(key: string, data: Candle[], ttlMs: number) {
 }
 
 // Timeframe config → Polygon multiplier + timespan + lookback days + cache TTL
+// 1D: 15-min bars → ~26 bars per full session; look back 7 days to cover weekends/holidays
 const TF_CONFIG = {
-  '1D': { multiplier: 5,  timespan: 'minute', daysBack: 1,   ttl: 60_000  },
+  '1D': { multiplier: 15, timespan: 'minute', daysBack: 7,   ttl: 60_000  },
   '1W': { multiplier: 1,  timespan: 'hour',   daysBack: 7,   ttl: 300_000 },
   '1M': { multiplier: 1,  timespan: 'day',    daysBack: 30,  ttl: 600_000 },
   '3M': { multiplier: 1,  timespan: 'day',    daysBack: 90,  ttl: 600_000 },
@@ -64,9 +65,6 @@ export async function GET(
     const from = new Date(now)
     from.setDate(now.getDate() - config.daysBack)
 
-    // For 1D, go back 2 days to handle weekends / pre-market
-    if (tf === '1D') from.setDate(now.getDate() - 3)
-
     const fromStr = toDateStr(from)
     const toStr   = toDateStr(now)
 
@@ -88,15 +86,16 @@ export async function GET(
 
     const results: any[] = data.results || []
 
-    // For 1D, only keep the most recent session (deduplicate across days)
+    // For 1D, show the most recent trading session's bars.
+    // A full session at 15-min is ~26 bars. If the latest session has fewer than
+    // 10 bars (market just opened, holiday, etc.) fall back to the last 30 bars
+    // so we always show a meaningful amount of candles.
     let candles: Candle[]
     if (tf === '1D' && results.length > 0) {
-      // Find the most recent date in results
-      const latestTs = results[results.length - 1].t
-      const latestDate = new Date(latestTs)
-      const latestDay  = latestDate.toDateString()
+      const latestTs  = results[results.length - 1].t
+      const latestDay = new Date(latestTs).toDateString()
       const sessionBars = results.filter(r => new Date(r.t).toDateString() === latestDay)
-      candles = (sessionBars.length > 0 ? sessionBars : results.slice(-80)).map(r => ({
+      candles = (sessionBars.length >= 10 ? sessionBars : results.slice(-30)).map(r => ({
         t: r.t, o: r.o, h: r.h, l: r.l, c: r.c, v: r.v
       }))
     } else {
