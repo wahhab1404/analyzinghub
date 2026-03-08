@@ -12,7 +12,7 @@
  * Uses `nodejs` runtime for maximum compatibility on Netlify.
  */
 
-import { ImageResponse } from 'next/og';
+import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
