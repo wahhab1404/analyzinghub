@@ -1,13 +1,23 @@
+/**
+ * GET /api/indices/trades/[id]/snapshot-html
+ *
+ * Returns a standalone HTML page rendering the trade alert card.
+ * Used as a web preview and by screenshot services.
+ * Dark, Webull-inspired professional design.
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-function formatNumber(num: number): string {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  } else if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toLocaleString();
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function safeNum(v: any, fallback = 0): number {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 export async function GET(
@@ -15,7 +25,6 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    console.log('[snapshot-html] Request received');
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -25,21 +34,17 @@ export async function GET(
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const params = await context.params;
-    const tradeId = params.id;
+    const { id: tradeId } = await context.params;
     const { searchParams } = new URL(request.url);
     const isNewHigh = searchParams.get('isNewHigh') === 'true';
-    const newHighPriceParam = searchParams.get('newHighPrice');
-    const newHighPrice = newHighPriceParam ? parseFloat(newHighPriceParam) : null;
-    console.log('[snapshot-html] Generating snapshot for trade:', tradeId, 'isNewHigh:', isNewHigh, 'newHighPrice:', newHighPrice);
+    const rawHP = searchParams.get('newHighPrice');
+    const newHighPrice = rawHP ? safeNum(rawHP) : null;
+
+    console.log('[snapshot-html] Trade:', tradeId, { isNewHigh, newHighPrice });
 
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
-      .select(`
-        *,
-        author:profiles!author_id(id, full_name)
-      `)
+      .select('*, author:profiles!author_id(id, full_name)')
       .eq('id', tradeId)
       .single();
 
@@ -47,249 +52,153 @@ export async function GET(
       return new NextResponse('Trade not found', { status: 404 });
     }
 
-    let analysis = null;
+    let analysis: { id: string; title: string; index_symbol: string } | null = null;
     if (trade.analysis_id) {
-      const { data: analysisData } = await supabase
+      const { data } = await supabase
         .from('index_analyses')
         .select('id, title, index_symbol')
         .eq('id', trade.analysis_id)
         .maybeSingle();
-      analysis = analysisData;
+      analysis = data;
     }
 
-    const entryPrice = trade.entry_contract_snapshot?.price ||
-                        trade.entry_contract_snapshot?.mid ||
-                        trade.entry_contract_snapshot?.last || 0;
-    const currentPrice = trade.current_contract || entryPrice;
+    // ── Derived values ────────────────────────────────────────────────────────
+    const snap = trade.entry_contract_snapshot ?? {};
+    const entryPrice = safeNum(snap.price ?? snap.mid ?? snap.last);
+    const currentPrice = safeNum(trade.current_contract, entryPrice);
+    const highSince = safeNum(trade.contract_high_since, currentPrice);
+    const lowSince = safeNum(trade.contract_low_since, currentPrice);
     const priceChange = currentPrice - entryPrice;
-    const priceChangePercent = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;
+    const priceChangePct = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;
 
-    const highSinceEntry = trade.contract_high_since || currentPrice;
-    const lowSinceEntry = trade.contract_low_since || currentPrice;
-
-    const qty = trade.qty || 1;
-    const multiplier = trade.contract_multiplier || 100;
+    const qty = safeNum(trade.qty, 1) || 1;
+    const multiplier = safeNum(trade.contract_multiplier, 100) || 100;
     const netPnl = priceChange * multiplier * qty;
 
-    const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
-    const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
-    const underlyingChange = underlyingPrice - underlyingEntryPrice;
-    const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
+    const underlyingSymbol = analysis?.index_symbol ?? trade.underlying_index_symbol ?? 'SPX';
+    const underlyingPrice = safeNum(trade.current_underlying ?? trade.entry_underlying_snapshot?.price);
+    const underlyingEntry = safeNum(trade.entry_underlying_snapshot?.price, underlyingPrice);
+    const underlyingChangePct = underlyingEntry > 0
+      ? ((underlyingPrice - underlyingEntry) / underlyingEntry) * 100 : 0;
 
-    // Use CURRENT snapshot data if available, fallback to entry
-    const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
-    const mid = currentSnapshot?.mid || currentPrice;
-    const bid = currentSnapshot?.bid || 0;
-    const ask = currentSnapshot?.ask || 0;
-    const openInterest = currentSnapshot?.open_interest || 0;
-    const volume = currentSnapshot?.volume || 0;
+    const currentSnap = trade.current_contract_snapshot ?? trade.entry_contract_snapshot ?? {};
+    const bid = safeNum(currentSnap.bid);
+    const ask = safeNum(currentSnap.ask);
+    const openInterest = safeNum(currentSnap.open_interest);
+    const volume = safeNum(currentSnap.volume);
 
+    const strike = safeNum(trade.strike);
+    const optionType = (trade.option_type ?? trade.direction ?? 'call').toLowerCase();
+    const isCall = optionType === 'call';
+    const expiry = trade.expiry ?? new Date().toISOString();
+
+    const targets: any[] = Array.isArray(trade.targets) ? trade.targets : [];
+    const t1: number | null = safeNum(targets[0]?.level ?? targets[0]?.price) || null;
+    const t2: number | null = safeNum(targets[1]?.level ?? targets[1]?.price) || null;
+    const stop: number | null = safeNum(trade.stoploss?.level ?? trade.stoploss?.price) || null;
+
+    const analystName: string = (trade.author as any)?.full_name ?? 'Analyst';
     const now = new Date();
-    const timestamp = `Open, ${now.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })} ${now.toLocaleDateString('en-US', {
-      day: '2-digit',
-      month: '2-digit',
-    })} ET`;
+    const timeStr = now.toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York',
+    });
 
-    const isPriceUp = priceChange > 0;
-    const priceColor = isPriceUp ? '#10b981' : (priceChange < 0 ? '#ef4444' : '#8e8e93');
-    const priceArrow = isPriceUp ? '▲' : (priceChange < 0 ? '▼' : '');
-    const priceSign = isPriceUp ? '+' : '';
-    const isUnderlyingUp = underlyingChange >= 0;
-
-    const formatExpiry = (expiry: string) => {
-      const date = new Date(expiry);
-      return date.toLocaleDateString('en-US', {
-        day: '2-digit',
-        month: 'short',
-        year: '2-digit',
-      });
-    };
-
-    const strike = trade.strike || 0;
-    const expiry = trade.expiry || new Date().toISOString();
-    const optionType = trade.option_type === 'call' ? 'Call' : 'Put';
-    const underlyingSymbol = analysis?.index_symbol || trade.underlying_index_symbol || 'SPX';
-
-    // Extract clean symbol from polygon ticker (e.g., "O:SPX251231C06090000" -> "SPX")
-    let cleanSymbol = underlyingSymbol;
+    let sym = underlyingSymbol;
     if (trade.polygon_option_ticker) {
-      const parts = trade.polygon_option_ticker.split(':');
-      if (parts.length > 1) {
-        // Extract just the index name (SPX, NDX, etc.) from the date/strike combo
-        const tickerPart = parts[1];
-        cleanSymbol = tickerPart.replace(/\d{6}[CP]\d{8}$/, '');
-      }
+      const parts = (trade.polygon_option_ticker as string).split(':');
+      if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, '');
     }
 
-    const pnlColor = netPnl >= 0 ? '#10b981' : '#ef4444';
-    const pnlSign = netPnl >= 0 ? '+' : '';
+    const fmtExpiry = (d: string) => new Date(d).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: '2-digit',
+    });
 
-    // If this is a new high alert, use a special template
+    const accent = isCall ? '#3FB950' : '#F85149';
+    const accentBg = isCall ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.10)';
+    const accentBd = isCall ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)';
+    const priceColor = priceChange > 0 ? '#3FB950' : priceChange < 0 ? '#F85149' : '#8B949E';
+    const pnlColor = netPnl >= 0 ? '#3FB950' : '#F85149';
+
+    // ── NEW HIGH template ─────────────────────────────────────────────────────
     if (isNewHigh) {
-      const displayHighPrice = newHighPrice || highSinceEntry;
-      const displayGainPercent = ((displayHighPrice - entryPrice) / entryPrice * 100);
-      const displayPnl = (displayHighPrice - entryPrice) * multiplier * qty;
+      const dispHigh = newHighPrice ?? highSince;
+      const gainPct = entryPrice > 0 ? ((dispHigh - entryPrice) / entryPrice) * 100 : 0;
+      const gainUsd = (dispHigh - entryPrice) * qty * multiplier;
 
       const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', sans-serif;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      width: 1280px;
-      height: 720px;
-      padding: 40px;
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica',sans-serif;
+      background:#0D1117;
+      width:1200px;height:675px;overflow:hidden;position:relative;
+      display:flex;flex-direction:column;
     }
-    .card {
-      background: white;
-      border-radius: 32px;
-      padding: 60px;
-      width: 100%;
-      max-width: 1100px;
-      box-shadow: 0 25px 80px rgba(0,0,0,0.4);
-      text-align: center;
-    }
-    .badge {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      color: white;
-      padding: 16px 40px;
-      border-radius: 50px;
-      font-size: 32px;
-      font-weight: 800;
-      display: inline-block;
-      margin-bottom: 32px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
-    }
-    .new-high-price {
-      font-size: 180px;
-      font-weight: 900;
-      color: #10b981;
-      line-height: 1;
-      margin: 32px 0;
-      letter-spacing: -5px;
-      text-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
-    }
-    .price-label {
-      font-size: 36px;
-      color: #6b7280;
-      font-weight: 600;
-      margin-bottom: 16px;
-      text-transform: uppercase;
-      letter-spacing: 3px;
-    }
-    .trade-info {
-      display: flex;
-      justify-content: center;
-      gap: 48px;
-      margin: 40px 0;
-      padding: 32px;
-      background: #f9fafb;
-      border-radius: 20px;
-    }
-    .info-item {
-      text-align: center;
-    }
-    .info-label {
-      font-size: 18px;
-      color: #9ca3af;
-      font-weight: 600;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .info-value {
-      font-size: 32px;
-      color: #1f2937;
-      font-weight: 700;
-    }
-    .info-value.gain {
-      color: #10b981;
-      font-size: 36px;
-    }
-    .footer-info {
-      margin-top: 32px;
-      padding-top: 28px;
-      border-top: 3px solid #e5e7eb;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .contract-details {
-      font-size: 24px;
-      color: #4b5563;
-      font-weight: 600;
-    }
-    .analyst {
-      font-size: 22px;
-      color: #6b7280;
-      font-weight: 500;
-    }
-    .branding {
-      position: absolute;
-      top: 40px;
-      right: 60px;
-      font-size: 28px;
-      font-weight: 800;
-      color: white;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.3);
-    }
-    .sparkle {
-      display: inline-block;
-      animation: sparkle 1.5s infinite;
-    }
-    @keyframes sparkle {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.7; transform: scale(1.1); }
-    }
+    .accent-bar{position:absolute;top:0;left:0;right:0;height:5px;background:#E3B341}
+    .inner{display:flex;flex-direction:column;flex:1;padding:52px 64px 44px}
+    .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:36px}
+    .badge{background:rgba(227,179,65,0.12);border:1px solid rgba(227,179,65,0.30);border-radius:7px;
+           padding:6px 16px;color:#E3B341;font-size:19px;font-weight:700;letter-spacing:.06em}
+    .alert-badge{background:rgba(227,179,65,0.12);border:1px solid rgba(227,179,65,0.30);border-radius:7px;
+                 padding:8px 20px;color:#E3B341;font-size:20px;font-weight:800;letter-spacing:.05em}
+    .sym{font-size:80px;font-weight:900;color:#E6EDF3;line-height:1;letter-spacing:-2px}
+    .contract{font-size:26px;color:#8B949E;margin-top:8px;font-weight:500}
+    .label{font-size:12px;color:#6E7681;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px}
+    .high-price{font-size:100px;font-weight:900;color:#E3B341;line-height:1;letter-spacing:-3px;margin-bottom:32px}
+    .stat-grid{display:flex;gap:18px;margin-bottom:auto}
+    .stat-box{flex:1;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column}
+    .stat-box.neutral{background:#1C2128;border:1px solid #30363D}
+    .stat-box.gold{background:rgba(227,179,65,0.12);border:1px solid rgba(227,179,65,0.30)}
+    .stat-val{font-size:30px;font-weight:700}
+    .stat-val.muted{color:#8B949E}
+    .stat-val.gold{color:#E3B341;font-weight:800}
+    .footer{display:flex;justify-content:space-between;align-items:center;
+            padding-top:20px;margin-top:24px;border-top:1px solid #30363D}
+    .underlying{display:flex;gap:10px;align-items:center;font-size:18px;font-weight:700;color:#8B949E}
+    .underlying .up{color:#3FB950;font-weight:600}
+    .underlying .dn{color:#F85149;font-weight:600}
+    .meta{font-size:17px;color:#6E7681}
   </style>
 </head>
 <body>
-  <div class="branding">AnalyzingHub</div>
-  <div class="card">
-    <div class="badge">
-      <span class="sparkle">🚀</span> NEW HIGH ALERT! <span class="sparkle">🚀</span>
+  <div class="accent-bar"></div>
+  <div class="inner">
+    <div class="row">
+      <span class="badge">AnalyzingHub</span>
+      <span class="alert-badge">🚀 NEW HIGH ALERT</span>
     </div>
-    <div class="price-label">New High Price</div>
-    <div class="new-high-price">$${displayHighPrice.toFixed(2)}</div>
-
-    <div class="trade-info">
-      <div class="info-item">
-        <div class="info-label">Entry</div>
-        <div class="info-value">$${entryPrice.toFixed(2)}</div>
+    <div class="sym">${sym}</div>
+    ${strike > 0 ? `<div class="contract">$${strike.toLocaleString()} ${isCall ? 'Call' : 'Put'}${expiry ? ` · ${fmtExpiry(expiry)}` : ''}</div>` : ''}
+    <div style="margin-top:20px">
+      <div class="label">New High Price</div>
+      <div class="high-price">$${dispHigh.toFixed(2)}</div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-box neutral">
+        <div class="label">Entry</div>
+        <div class="stat-val muted">$${entryPrice.toFixed(2)}</div>
       </div>
-      <div class="info-item">
-        <div class="info-label">Current</div>
-        <div class="info-value">$${currentPrice.toFixed(2)}</div>
+      <div class="stat-box gold">
+        <div class="label">Gain</div>
+        <div class="stat-val gold">+${gainPct.toFixed(2)}%</div>
       </div>
-      <div class="info-item">
-        <div class="info-label">Gain</div>
-        <div class="info-value gain">+${displayGainPercent.toFixed(2)}%</div>
-      </div>
-      <div class="info-item">
-        <div class="info-label">P/L</div>
-        <div class="info-value gain">+$${displayPnl.toFixed(2)}</div>
+      <div class="stat-box gold">
+        <div class="label">P/L (1 lot)</div>
+        <div class="stat-val gold">+$${gainUsd.toFixed(0)}</div>
       </div>
     </div>
-
-    <div class="footer-info">
-      <div class="contract-details">
-        ${cleanSymbol} $${strike.toLocaleString()} ${optionType} • ${formatExpiry(expiry)}
+    <div class="footer">
+      <div class="underlying">
+        <span>${underlyingSymbol}</span>
+        <span class="${underlyingChangePct >= 0 ? 'up' : 'dn'}">
+          $${underlyingPrice.toFixed(2)} ${underlyingChangePct >= 0 ? '▲' : '▼'}${Math.abs(underlyingChangePct).toFixed(2)}%
+        </span>
       </div>
-      <div class="analyst">${trade.author.full_name}</div>
+      <div class="meta">${analystName} · ${timeStr} ET</div>
     </div>
   </div>
 </body>
@@ -304,229 +213,135 @@ export async function GET(
       });
     }
 
+    // ── NEW TRADE template ────────────────────────────────────────────────────
     const html = `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica', sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      width: 1280px;
-      height: 720px;
-      padding: 40px;
-      position: relative;
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Helvetica',sans-serif;
+      background:#0D1117;
+      width:1200px;height:675px;overflow:hidden;position:relative;
+      display:flex;
     }
-    .card {
-      background: white;
-      border-radius: 24px;
-      padding: 48px;
-      height: 100%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      display: flex;
-      flex-direction: column;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 40px;
-      padding-bottom: 32px;
-      border-bottom: 3px solid #f0f0f5;
-    }
-    .title-section { }
-    .title {
-      font-size: 52px;
-      font-weight: 700;
-      color: #1a1a1a;
-      margin-bottom: 8px;
-      letter-spacing: -1px;
-    }
-    .subtitle {
-      font-size: 24px;
-      color: #8e8e93;
-      font-weight: 500;
-    }
-    .status-badge {
-      background: ${priceColor};
-      color: white;
-      padding: 12px 24px;
-      border-radius: 12px;
-      font-size: 20px;
-      font-weight: 600;
-      text-align: center;
-    }
-    .main-content {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 48px;
-      flex: 1;
-      margin-bottom: 32px;
-    }
-    .price-section {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-    }
-    .current-price {
-      font-size: 120px;
-      font-weight: 800;
-      color: ${priceColor};
-      line-height: 1;
-      margin-bottom: 20px;
-      letter-spacing: -3px;
-    }
-    .price-details {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-    .price-change {
-      display: flex;
-      gap: 20px;
-      align-items: center;
-      font-size: 36px;
-      font-weight: 600;
-      color: ${priceColor};
-    }
-    .pnl-display {
-      font-size: 32px;
-      font-weight: 700;
-      color: ${pnlColor};
-      margin-top: 8px;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 24px;
-    }
-    .stat-box {
-      background: #f8f9fa;
-      padding: 20px;
-      border-radius: 16px;
-      border: 2px solid #e9ecef;
-    }
-    .stat-label {
-      font-size: 18px;
-      color: #8e8e93;
-      font-weight: 500;
-      margin-bottom: 8px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .stat-value {
-      font-size: 32px;
-      color: #1a1a1a;
-      font-weight: 700;
-    }
-    .stat-value.positive { color: #10b981; }
-    .stat-value.negative { color: #ef4444; }
-    .footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-top: 28px;
-      border-top: 3px solid #f0f0f5;
-    }
-    .underlying-info {
-      display: flex;
-      gap: 32px;
-      align-items: center;
-      background: #f8f9fa;
-      padding: 16px 28px;
-      border-radius: 12px;
-    }
-    .underlying-symbol {
-      font-size: 28px;
-      color: #1a1a1a;
-      font-weight: 700;
-    }
-    .underlying-price {
-      font-size: 28px;
-      color: ${isUnderlyingUp ? '#10b981' : '#ef4444'};
-      font-weight: 700;
-    }
-    .timestamp {
-      font-size: 22px;
-      color: #8e8e93;
-      font-weight: 500;
-    }
-    .branding {
-      position: absolute;
-      top: 32px;
-      right: 48px;
-      font-size: 24px;
-      font-weight: 700;
-      color: white;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.2);
-    }
+    .accent-bar{position:absolute;top:0;left:0;right:0;height:5px;background:${accent}}
+    /* LEFT */
+    .left{width:460px;display:flex;flex-direction:column;padding:52px 36px 40px 56px;
+          border-right:1px solid #30363D}
+    .hrow{display:flex;justify-content:space-between;align-items:center;margin-bottom:32px}
+    .brand{background:${accentBg};border:1px solid ${accentBd};border-radius:7px;
+           padding:5px 14px;color:${accent};font-size:17px;font-weight:700;letter-spacing:.05em}
+    .dir-badge{background:${accentBg};border:1px solid ${accentBd};border-radius:7px;
+               padding:7px 16px;color:${accent};font-size:17px;font-weight:800;letter-spacing:.09em}
+    .sym{font-size:84px;font-weight:900;color:#E6EDF3;line-height:1;letter-spacing:-2px;margin-bottom:8px}
+    .strike{font-size:36px;font-weight:700;color:${accent};margin-bottom:4px}
+    .expiry{font-size:20px;color:#8B949E;margin-bottom:22px}
+    .entry-box{background:#1C2128;border:1px solid #30363D;border-radius:14px;padding:20px 22px;margin-bottom:16px}
+    .label{font-size:12px;color:#6E7681;font-weight:600;letter-spacing:.14em;text-transform:uppercase;margin-bottom:8px}
+    .entry-price{font-size:52px;font-weight:800;color:#E6EDF3;line-height:1}
+    .qty{font-size:14px;color:#6E7681;margin-top:6px}
+    .underlying-row{display:flex;align-items:center;gap:10px;background:#1C2128;
+                    border:1px solid #30363D;border-radius:12px;padding:13px 18px;margin-top:auto}
+    .u-sym{font-size:16px;font-weight:700;color:#8B949E}
+    .u-price{font-size:16px;font-weight:600;color:${underlyingChangePct >= 0 ? '#3FB950' : '#F85149'}}
+    /* RIGHT */
+    .right{display:flex;flex-direction:column;flex:1;padding:52px 52px 40px 40px}
+    .status-row{display:flex;justify-content:flex-end;margin-bottom:26px}
+    .status-badge{background:rgba(88,166,255,0.10);border:1px solid rgba(88,166,255,0.28);
+                  border-radius:8px;padding:7px 18px;color:#58A6FF;font-size:15px;font-weight:700;letter-spacing:.07em}
+    .targets{display:flex;flex-direction:column;gap:12px}
+    .target-row{border-radius:14px;padding:16px 22px;display:flex;justify-content:space-between;align-items:center}
+    .target-row.t1{background:rgba(63,185,80,0.10);border:1px solid rgba(63,185,80,0.28)}
+    .target-row.t2{background:rgba(63,185,80,0.06);border:1px solid rgba(63,185,80,0.18)}
+    .target-row.stop{background:rgba(248,81,73,0.10);border:1px solid rgba(248,81,73,0.28)}
+    .target-row.current{background:#1C2128;border:1px solid #30363D}
+    .target-row.empty{background:#1C2128;border:1px solid #30363D}
+    .row-label{font-size:13px;color:#6E7681;letter-spacing:.12em;text-transform:uppercase}
+    .row-val{font-size:34px;font-weight:800}
+    .row-val.green{color:#3FB950}
+    .row-val.red{color:#F85149}
+    .row-val.neutral{color:#E6EDF3}
+    .row-val .sub{font-size:18px;font-weight:600;margin-left:6px}
+    .analyst-row{margin-top:auto;padding-top:18px;border-top:1px solid #30363D;
+                 display:flex;justify-content:space-between;align-items:flex-end}
+    .analyst-label{font-size:12px;color:#6E7681;letter-spacing:.12em;text-transform:uppercase;margin-bottom:4px}
+    .analyst-name{font-size:24px;font-weight:700;color:#E6EDF3}
+    .timestamp{font-size:16px;color:#6E7681}
   </style>
 </head>
 <body>
-  <div class="branding">AnalyzingHub</div>
-  <div class="card">
-    <div class="header">
-      <div class="title-section">
-        <div class="title">${cleanSymbol} $${strike.toLocaleString()}</div>
-        <div class="subtitle">${formatExpiry(expiry)} • ${optionType} • ${trade.author.full_name}</div>
-      </div>
-      <div class="status-badge">
-        ${priceArrow} ${priceSign}${Math.abs(priceChangePercent).toFixed(2)}%
-      </div>
+  <div class="accent-bar"></div>
+
+  <!-- LEFT PANEL -->
+  <div class="left">
+    <div class="hrow">
+      <span class="brand">AnalyzingHub</span>
+      <span class="dir-badge">${isCall ? 'CALL' : 'PUT'}</span>
     </div>
-
-    <div class="main-content">
-      <div class="price-section">
-        <div class="current-price">$${currentPrice.toFixed(2)}</div>
-        <div class="price-details">
-          <div class="price-change">
-            <span>${priceArrow} ${priceSign}$${Math.abs(priceChange).toFixed(2)}</span>
-          </div>
-          <div class="pnl-display">
-            P/L: ${pnlSign}$${Math.abs(netPnl).toFixed(2)}
-          </div>
-        </div>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-box">
-          <div class="stat-label">Entry Price</div>
-          <div class="stat-value">$${entryPrice.toFixed(2)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Quantity</div>
-          <div class="stat-value">${qty}x</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">High Since Entry</div>
-          <div class="stat-value positive">$${highSinceEntry.toFixed(2)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Low Since Entry</div>
-          <div class="stat-value negative">$${lowSinceEntry.toFixed(2)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Bid / Ask</div>
-          <div class="stat-value">${bid.toFixed(2)} / ${ask.toFixed(2)}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Volume</div>
-          <div class="stat-value">${formatNumber(Math.abs(volume))}</div>
-        </div>
-      </div>
+    <div class="sym">${sym}</div>
+    ${strike > 0 ? `
+      <div class="strike">$${strike.toLocaleString()}</div>
+      <div class="expiry">${isCall ? 'Call' : 'Put'}${expiry ? ` · Exp ${fmtExpiry(expiry)}` : ''}</div>
+    ` : `<div class="expiry" style="margin-bottom:22px">${isCall ? 'Long' : 'Short'} Position</div>`}
+    <div class="entry-box">
+      <div class="label">Entry Price</div>
+      <div class="entry-price">$${entryPrice.toFixed(2)}</div>
+      <div class="qty">${qty} contract${qty !== 1 ? 's' : ''}</div>
     </div>
+    <div class="underlying-row">
+      <span class="u-sym">${underlyingSymbol}</span>
+      <span class="u-price">$${underlyingPrice.toFixed(2)} ${underlyingChangePct >= 0 ? '▲' : '▼'}${Math.abs(underlyingChangePct).toFixed(2)}%</span>
+    </div>
+  </div>
 
-    <div class="footer">
-      <div class="underlying-info">
-        <span class="underlying-symbol">${underlyingSymbol}</span>
-        <span class="underlying-price">
-          $${underlyingPrice.toFixed(2)}
-          ${underlyingChangePercent >= 0 ? '▲' : '▼'}${Math.abs(underlyingChangePercent).toFixed(2)}%
-        </span>
+  <!-- RIGHT PANEL -->
+  <div class="right">
+    <div class="status-row">
+      <span class="status-badge">● ${(trade.status ?? 'active').toUpperCase().replace('_', ' ')}</span>
+    </div>
+    <div class="targets">
+      ${t1 !== null ? `
+        <div class="target-row t1">
+          <span class="row-label">Target 1</span>
+          <span class="row-val green">$${t1.toFixed(2)}</span>
+        </div>` : ''}
+      ${t2 !== null ? `
+        <div class="target-row t2">
+          <span class="row-label">Target 2</span>
+          <span class="row-val green">$${t2.toFixed(2)}</span>
+        </div>` : ''}
+      ${t1 === null && t2 === null ? `
+        <div class="target-row empty">
+          <span class="row-label">Targets not yet set</span>
+        </div>` : ''}
+      ${stop !== null ? `
+        <div class="target-row stop">
+          <span class="row-label">Stop Loss</span>
+          <span class="row-val red">$${stop.toFixed(2)}</span>
+        </div>` : ''}
+      ${bid > 0 && ask > 0 ? `
+        <div class="target-row current">
+          <span class="row-label">Bid / Ask</span>
+          <span class="row-val neutral" style="font-size:26px">$${bid.toFixed(2)} / $${ask.toFixed(2)}</span>
+        </div>` : ''}
+      ${Math.abs(priceChangePct) > 0.2 ? `
+        <div class="target-row current">
+          <span class="row-label">Current</span>
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span class="row-val ${priceChangePct >= 0 ? 'green' : 'red'}">$${currentPrice.toFixed(2)}</span>
+            <span style="font-size:18px;font-weight:600;color:${priceColor}">(${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(2)}%)</span>
+          </div>
+        </div>` : ''}
+    </div>
+    <div class="analyst-row">
+      <div>
+        <div class="analyst-label">Analyst</div>
+        <div class="analyst-name">${analystName}</div>
       </div>
-      <div class="timestamp">${timestamp}</div>
+      <div class="timestamp">${timeStr} ET</div>
     </div>
   </div>
 </body>
@@ -540,7 +355,7 @@ export async function GET(
       },
     });
   } catch (error: any) {
-    console.error('Error generating snapshot HTML:', error);
+    console.error('[snapshot-html] Error:', error);
     return new NextResponse('Internal server error', { status: 500 });
   }
 }

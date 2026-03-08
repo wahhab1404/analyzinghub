@@ -67,49 +67,51 @@ export class DailyReportGenerator {
   }
 
   /**
-   * Format profit with color coding
+   * Format profit with dark-theme color coding
    */
   static formatProfit(profit: number): { text: string, color: string, bgColor: string } {
     const formatted = profit >= 0 ? `+$${profit.toFixed(2)}` : `-$${Math.abs(profit).toFixed(2)}`
 
     if (profit >= 100) {
-      return { text: formatted, color: '#065f46', bgColor: '#d1fae5' }
+      return { text: formatted, color: '#3FB950', bgColor: 'rgba(63,185,80,0.12)' }
     } else if (profit >= 20) {
-      return { text: formatted, color: '#047857', bgColor: '#d1fae5' }
+      return { text: formatted, color: '#3FB950', bgColor: 'rgba(63,185,80,0.08)' }
     } else if (profit >= -20) {
-      return { text: formatted, color: '#92400e', bgColor: '#fef3c7' }
+      return { text: formatted, color: '#E3B341', bgColor: 'rgba(227,179,65,0.12)' }
     } else if (profit >= -50) {
-      return { text: formatted, color: '#b91c1c', bgColor: '#fee2e2' }
+      return { text: formatted, color: '#F85149', bgColor: 'rgba(248,81,73,0.10)' }
     } else {
-      return { text: formatted, color: '#991b1b', bgColor: '#fecaca' }
+      return { text: formatted, color: '#F85149', bgColor: 'rgba(248,81,73,0.15)' }
     }
   }
 
   /**
-   * Get outcome badge styling
+   * Get outcome badge styling (dark theme)
    */
   static getOutcomeBadge(outcome: string): { text: string, color: string, bgColor: string, icon: string } {
     switch (outcome) {
       case 'big_win':
-        return { text: 'Big Win 🎯', color: '#065f46', bgColor: '#d1fae5', icon: '🎯' }
+        return { text: 'Big Win', color: '#3FB950', bgColor: 'rgba(63,185,80,0.15)', icon: '🎯' }
       case 'small_win':
-        return { text: 'Win ✅', color: '#047857', bgColor: '#d1fae5', icon: '✅' }
+        return { text: 'Win', color: '#3FB950', bgColor: 'rgba(63,185,80,0.12)', icon: '✓' }
       case 'breakeven':
-        return { text: 'Breakeven ⚪', color: '#92400e', bgColor: '#fef3c7', icon: '⚪' }
+        return { text: 'Breakeven', color: '#E3B341', bgColor: 'rgba(227,179,65,0.12)', icon: '—' }
       case 'small_loss':
-        return { text: 'Loss ⚠️', color: '#b91c1c', bgColor: '#fee2e2', icon: '⚠️' }
+        return { text: 'Loss', color: '#F85149', bgColor: 'rgba(248,81,73,0.12)', icon: '!' }
       case 'big_loss':
-        return { text: 'Big Loss ❌', color: '#991b1b', bgColor: '#fecaca', icon: '❌' }
+        return { text: 'Big Loss', color: '#F85149', bgColor: 'rgba(248,81,73,0.15)', icon: '✕' }
       default:
-        return { text: 'Pending ⏳', color: '#1e40af', bgColor: '#dbeafe', icon: '⏳' }
+        return { text: 'Active', color: '#58A6FF', bgColor: 'rgba(88,166,255,0.12)', icon: '•' }
     }
   }
 
   /**
-   * Generate HTML for daily trade report
+   * Generate HTML for daily trade report (dark premium theme)
    */
   static generateHTML(trades: TradeReportData[], date: string, analysisTitle?: string): string {
     const summary = this.generateSummary(trades)
+    const profitColor = summary.total_profit >= 0 ? '#3FB950' : '#F85149'
+    const profitSign = summary.total_profit >= 0 ? '+' : ''
 
     return `
 <!DOCTYPE html>
@@ -119,323 +121,380 @@ export class DailyReportGenerator {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daily Trade Report - ${date}</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 40px 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+      background: #0D1117;
+      color: #E6EDF3;
+      padding: 32px 20px;
+      min-height: 100vh;
     }
 
     .container {
       max-width: 1200px;
       margin: 0 auto;
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
+      background: #0D1117;
     }
 
+    /* Top accent bar */
+    .accent-bar {
+      height: 3px;
+      background: linear-gradient(90deg, #58A6FF 0%, #3FB950 50%, #E3B341 100%);
+      border-radius: 2px;
+      margin-bottom: 28px;
+    }
+
+    /* Header */
     .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 40px;
-      text-align: center;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding: 0 0 24px 0;
+      border-bottom: 1px solid #21262D;
+      margin-bottom: 24px;
     }
 
-    .header h1 {
-      font-size: 32px;
-      font-weight: 800;
-      margin-bottom: 10px;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-
-    .header .date {
-      font-size: 18px;
-      opacity: 0.9;
-      font-weight: 500;
-    }
-
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      padding: 30px 40px;
-      background: #f9fafb;
-      border-bottom: 2px solid #e5e7eb;
-    }
-
-    .summary-card {
-      background: white;
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-      text-align: center;
-      transition: transform 0.2s;
-    }
-
-    .summary-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    }
-
-    .summary-card .label {
-      font-size: 13px;
-      color: #6b7280;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
-
-    .summary-card .value {
-      font-size: 28px;
-      font-weight: 800;
-      color: #111827;
-    }
-
-    .summary-card.profit .value {
-      color: #059669;
-    }
-
-    .summary-card.loss .value {
-      color: #dc2626;
-    }
-
-    .summary-card.win-rate .value {
-      color: #667eea;
-    }
-
-    .trades-section {
-      padding: 40px;
-    }
-
-    .section-title {
-      font-size: 24px;
+    .header-left h1 {
+      font-size: 22px;
       font-weight: 700;
-      color: #111827;
-      margin-bottom: 20px;
-      padding-bottom: 10px;
-      border-bottom: 3px solid #667eea;
+      color: #E6EDF3;
+      letter-spacing: -0.3px;
+    }
+
+    .header-left .subtitle {
+      font-size: 13px;
+      color: #8B949E;
+      margin-top: 4px;
+    }
+
+    .brand-badge {
+      background: #161B22;
+      border: 1px solid #30363D;
+      border-radius: 6px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #58A6FF;
+      letter-spacing: 0.5px;
+    }
+
+    /* KPI row */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .kpi-card {
+      background: #161B22;
+      border: 1px solid #21262D;
+      border-radius: 8px;
+      padding: 18px 20px;
+    }
+
+    .kpi-card.wide {
+      border-color: #30363D;
+    }
+
+    .kpi-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6E7681;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 6px;
+    }
+
+    .kpi-value {
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+
+    .kpi-sub {
+      font-size: 12px;
+      color: #6E7681;
+      margin-top: 4px;
+    }
+
+    /* Counts row */
+    .counts-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .count-card {
+      background: #161B22;
+      border: 1px solid #21262D;
+      border-radius: 6px;
+      padding: 12px 10px;
+      text-align: center;
+    }
+
+    .count-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6E7681;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      margin-bottom: 4px;
+    }
+
+    .count-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: #E6EDF3;
+    }
+
+    /* Trades table */
+    .section-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: #8B949E;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 10px;
     }
 
     .trades-table {
       width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      margin-top: 20px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-      border-radius: 12px;
-      overflow: hidden;
+      border-collapse: collapse;
     }
 
-    .trades-table thead {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
+    .trades-table thead tr {
+      border-bottom: 1px solid #21262D;
     }
 
     .trades-table th {
-      padding: 16px 12px;
+      padding: 10px 12px;
       text-align: left;
-      font-weight: 700;
-      font-size: 13px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #6E7681;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
+      letter-spacing: 0.6px;
     }
 
     .trades-table tbody tr {
-      background: white;
-      transition: all 0.2s;
-    }
-
-    .trades-table tbody tr:nth-child(even) {
-      background: #f9fafb;
+      border-bottom: 1px solid #161B22;
+      transition: background 0.15s;
     }
 
     .trades-table tbody tr:hover {
-      background: #f3f4f6;
-      transform: scale(1.01);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      background: #161B22;
     }
 
     .trades-table td {
-      padding: 16px 12px;
-      font-size: 14px;
-      color: #374151;
-      border-bottom: 1px solid #e5e7eb;
+      padding: 12px 12px;
+      font-size: 13px;
+      color: #C9D1D9;
+      vertical-align: middle;
     }
 
-    .badge {
+    .symbol-cell strong {
+      font-size: 14px;
+      font-weight: 700;
+      color: #E6EDF3;
+    }
+
+    .dir-badge {
       display: inline-block;
-      padding: 6px 12px;
-      border-radius: 20px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+
+    .dir-call { background: rgba(63,185,80,0.15); color: #3FB950; }
+    .dir-put  { background: rgba(248,81,73,0.15);  color: #F85149; }
+    .dir-long { background: rgba(63,185,80,0.15);  color: #3FB950; }
+    .dir-short{ background: rgba(248,81,73,0.15);  color: #F85149; }
+
+    .profit-pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .outcome-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .sub-text {
+      font-size: 11px;
+      color: #6E7681;
+      margin-top: 2px;
+    }
+
+    .time-text {
       font-size: 12px;
-      font-weight: 700;
-      text-align: center;
+      color: #6E7681;
+      font-variant-numeric: tabular-nums;
     }
 
-    .direction-long {
-      background: #d1fae5;
-      color: #065f46;
-    }
-
-    .direction-short {
-      background: #fee2e2;
-      color: #991b1b;
-    }
-
-    .profit-cell {
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-weight: 700;
-      font-size: 15px;
-    }
-
+    /* Footer */
     .footer {
-      background: #f9fafb;
-      padding: 30px 40px;
+      margin-top: 28px;
+      padding-top: 16px;
+      border-top: 1px solid #21262D;
       text-align: center;
-      color: #6b7280;
-      font-size: 14px;
-      border-top: 2px solid #e5e7eb;
-    }
-
-    .footer strong {
-      color: #111827;
+      font-size: 12px;
+      color: #6E7681;
     }
 
     .no-trades {
       text-align: center;
       padding: 60px 40px;
-      color: #6b7280;
-      font-size: 18px;
-    }
-
-    .contract-details {
-      font-size: 12px;
-      color: #6b7280;
-      margin-top: 4px;
-    }
-
-    .time {
-      font-size: 12px;
-      color: #9ca3af;
+      color: #6E7681;
+      font-size: 16px;
+      background: #161B22;
+      border: 1px solid #21262D;
+      border-radius: 8px;
     }
   </style>
 </head>
 <body>
   <div class="container">
+    <div class="accent-bar"></div>
+
     <div class="header">
-      <h1>📊 Daily Options Trading Report</h1>
-      <div class="date">${date}${analysisTitle ? ` • ${analysisTitle}` : ''}</div>
+      <div class="header-left">
+        <h1>Daily Trading Report</h1>
+        <div class="subtitle">${date}${analysisTitle ? ` &bull; ${analysisTitle}` : ''}</div>
+      </div>
+      <div class="brand-badge">ANALYZINGHUB</div>
     </div>
 
-    <div class="summary">
-      <div class="summary-card">
-        <div class="label">Total Trades</div>
-        <div class="value">${summary.total_trades}</div>
+    <!-- KPI row -->
+    <div class="kpi-grid">
+      <div class="kpi-card wide">
+        <div class="kpi-label">Net Profit / Loss</div>
+        <div class="kpi-value" style="color: ${profitColor};">${profitSign}$${summary.total_profit.toFixed(2)}</div>
+        <div class="kpi-sub">Across ${summary.total_trades} trade${summary.total_trades !== 1 ? 's' : ''}</div>
       </div>
-      <div class="summary-card">
-        <div class="label">Winning</div>
-        <div class="value" style="color: #059669;">${summary.winning_trades}</div>
+      <div class="kpi-card">
+        <div class="kpi-label">Win Rate</div>
+        <div class="kpi-value" style="color: #58A6FF;">${formatPercent(summary.win_rate, 'rounded')}</div>
+        <div class="kpi-sub">${summary.winning_trades}W / ${summary.losing_trades}L</div>
       </div>
-      <div class="summary-card">
-        <div class="label">Losing</div>
-        <div class="value" style="color: #dc2626;">${summary.losing_trades}</div>
-      </div>
-      <div class="summary-card win-rate">
-        <div class="label">Win Rate</div>
-        <div class="value">${formatPercent(summary.win_rate, 'rounded')}</div>
-      </div>
-      <div class="summary-card ${summary.total_profit >= 0 ? 'profit' : 'loss'}">
-        <div class="label">Total P&L</div>
-        <div class="value">${summary.total_profit >= 0 ? '+' : ''}$${summary.total_profit.toFixed(2)}</div>
-      </div>
-      <div class="summary-card profit">
-        <div class="label">Biggest Win</div>
-        <div class="value">+$${summary.biggest_win.toFixed(2)}</div>
+      <div class="kpi-card">
+        <div class="kpi-label">Best Trade</div>
+        <div class="kpi-value" style="color: #3FB950;">+$${summary.biggest_win.toFixed(2)}</div>
+        <div class="kpi-sub">Biggest win</div>
       </div>
     </div>
 
-    <div class="trades-section">
-      ${trades.length === 0 ? `
-        <div class="no-trades">
-          No trades recorded for this date
-        </div>
-      ` : `
-        <h2 class="section-title">Trade Details</h2>
-        <table class="trades-table">
-          <thead>
-            <tr>
-              <th>Symbol</th>
-              <th>Direction</th>
-              <th>Contract</th>
-              <th>Entry</th>
-              <th>Current</th>
-              <th>Max Price</th>
-              <th>Profit</th>
-              <th>Max Profit</th>
-              <th>Status</th>
-              <th>Time</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${trades.map(trade => {
-              const profitStyle = this.formatProfit(trade.profit_from_entry)
-              const maxProfitStyle = this.formatProfit(trade.max_profit)
-              const outcome = this.getOutcomeBadge(trade.trade_outcome)
-              const entryTime = new Date(trade.entry_time).toLocaleTimeString('en-US', {
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'America/New_York'
-              })
-
-              return `
-                <tr>
-                  <td><strong>${trade.underlying_symbol}</strong></td>
-                  <td>
-                    <span class="badge ${trade.direction === 'LONG' ? 'direction-long' : 'direction-short'}">
-                      ${trade.direction === 'LONG' ? '📈 LONG' : '📉 SHORT'}
-                    </span>
-                  </td>
-                  <td>
-                    <div><strong>$${trade.strike}</strong> ${trade.option_type}</div>
-                    <div class="contract-details">${new Date(trade.expiry).toLocaleDateString()}</div>
-                  </td>
-                  <td>${trade.entry_contract_price?.toFixed(2) || 'N/A'}</td>
-                  <td>${trade.current_contract_price?.toFixed(2) || 'N/A'}</td>
-                  <td>${trade.max_contract_price?.toFixed(2) || 'N/A'}</td>
-                  <td>
-                    <div class="profit-cell" style="color: ${profitStyle.color}; background: ${profitStyle.bgColor};">
-                      ${profitStyle.text}
-                    </div>
-                  </td>
-                  <td>
-                    <div class="profit-cell" style="color: ${maxProfitStyle.color}; background: ${maxProfitStyle.bgColor};">
-                      ${maxProfitStyle.text}
-                    </div>
-                  </td>
-                  <td>
-                    <span class="badge" style="color: ${outcome.color}; background: ${outcome.bgColor};">
-                      ${outcome.text}
-                    </span>
-                  </td>
-                  <td class="time">${entryTime}</td>
-                </tr>
-              `
-            }).join('')}
-          </tbody>
-        </table>
-      `}
+    <!-- Counts row -->
+    <div class="counts-grid">
+      <div class="count-card">
+        <div class="count-label">Total</div>
+        <div class="count-value">${summary.total_trades}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Won</div>
+        <div class="count-value" style="color: #3FB950;">${summary.winning_trades}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Lost</div>
+        <div class="count-value" style="color: #F85149;">${summary.losing_trades}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Even</div>
+        <div class="count-value" style="color: #E3B341;">${summary.breakeven_trades}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Active</div>
+        <div class="count-value" style="color: #58A6FF;">${trades.filter(t => t.status === 'active' || t.trade_outcome === 'pending').length}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Best</div>
+        <div class="count-value" style="color: #3FB950; font-size: 14px;">+$${summary.biggest_win.toFixed(0)}</div>
+      </div>
+      <div class="count-card">
+        <div class="count-label">Worst</div>
+        <div class="count-value" style="color: #F85149; font-size: 14px;">${summary.biggest_loss < 0 ? '-' : ''}$${Math.abs(summary.biggest_loss).toFixed(0)}</div>
+      </div>
     </div>
+
+    <!-- Trades table -->
+    ${trades.length === 0 ? `
+      <div class="no-trades">No trades recorded for this date</div>
+    ` : `
+      <div class="section-title">Trade Details</div>
+      <table class="trades-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Direction</th>
+            <th>Strike / Expiry</th>
+            <th>Entry</th>
+            <th>High</th>
+            <th>Max P/L</th>
+            <th>Outcome</th>
+            <th>Time (ET)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${trades.map(trade => {
+            const maxProfitStyle = this.formatProfit(trade.max_profit)
+            const outcome = this.getOutcomeBadge(trade.trade_outcome)
+            const isCall = trade.option_type?.toUpperCase().includes('CALL') || trade.direction === 'LONG'
+            const dirClass = trade.option_type?.toUpperCase().includes('CALL') ? 'dir-call'
+              : trade.option_type?.toUpperCase().includes('PUT') ? 'dir-put'
+              : trade.direction === 'LONG' ? 'dir-long' : 'dir-short'
+            const dirLabel = trade.option_type?.toUpperCase().includes('CALL') ? 'CALL'
+              : trade.option_type?.toUpperCase().includes('PUT') ? 'PUT'
+              : trade.direction
+            const entryTime = new Date(trade.entry_time).toLocaleTimeString('en-US', {
+              hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York'
+            })
+
+            return `
+              <tr>
+                <td class="symbol-cell">
+                  <strong>${trade.underlying_symbol}</strong>
+                </td>
+                <td>
+                  <span class="dir-badge ${dirClass}">${dirLabel}</span>
+                </td>
+                <td>
+                  <div style="font-weight:600;">$${trade.strike}</div>
+                  <div class="sub-text">${new Date(trade.expiry).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'2-digit' })}</div>
+                </td>
+                <td style="font-variant-numeric: tabular-nums;">${trade.entry_contract_price != null ? '$' + trade.entry_contract_price.toFixed(2) : '—'}</td>
+                <td style="font-variant-numeric: tabular-nums;">${trade.max_contract_price != null ? '$' + trade.max_contract_price.toFixed(2) : '—'}</td>
+                <td>
+                  <span class="profit-pill" style="color:${maxProfitStyle.color}; background:${maxProfitStyle.bgColor};">
+                    ${maxProfitStyle.text}
+                  </span>
+                </td>
+                <td>
+                  <span class="outcome-pill" style="color:${outcome.color}; background:${outcome.bgColor};">
+                    ${outcome.text}
+                  </span>
+                </td>
+                <td class="time-text">${entryTime}</td>
+              </tr>
+            `
+          }).join('')}
+        </tbody>
+      </table>
+    `}
 
     <div class="footer">
-      <strong>Note:</strong> Winning trades are those with max profit exceeding $100.
-      All times in ET. Report generated automatically at end of trading day.
+      Win = max profit &ge; $100 &bull; All times ET &bull; Auto-generated end of session
     </div>
   </div>
 </body>

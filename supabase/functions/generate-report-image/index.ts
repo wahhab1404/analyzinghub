@@ -1,3 +1,11 @@
+/**
+ * Supabase Edge Function: generate-report-image
+ *
+ * Generates a professional PNG trade report image using @vercel/og.
+ * Dark, premium design inspired by professional trading dashboards.
+ * Returns raw PNG bytes (Content-Type: image/png).
+ */
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { ImageResponse } from 'npm:@vercel/og@0.6.2';
@@ -8,23 +16,43 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-interface GenerateImageRequest {
+// ─── Design tokens ──────────────────────────────────────────────────────────
+const C = {
+  bg: '#0D1117',
+  card: '#161B22',
+  elevated: '#1C2128',
+  border: '#30363D',
+  text: '#E6EDF3',
+  textSub: '#8B949E',
+  textMuted: '#6E7681',
+  call: '#3FB950',
+  put: '#F85149',
+  blue: '#58A6FF',
+  gold: '#E3B341',
+};
+
+function safeNum(v: any, fallback = 0): number {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+interface ReportRequest {
   report_id: string;
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const data: GenerateImageRequest = await req.json();
+    const data: ReportRequest = await req.json();
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('[Report Image] Fetching report data for:', data.report_id);
+    console.log('[generate-report-image] Fetching report:', data.report_id);
 
     const { data: report, error: reportError } = await supabase
       .from('daily_trade_reports')
@@ -33,511 +61,276 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (reportError || !report) {
-      console.error('[Report Image] Report error:', reportError);
+      console.error('[generate-report-image] Report not found:', reportError);
       throw new Error('Report not found');
     }
 
-    console.log('[Report Image] Report found:', report.id, report.report_date);
-    console.log('[Report Image] Report details:', {
-      author_id: report.author_id,
-      generated_by: report.generated_by,
-      period_type: report.period_type,
-      start_date: report.start_date,
-      end_date: report.end_date
-    });
+    console.log('[generate-report-image] Report:', report.id, report.report_date, report.period_type);
 
-    const summary = report.summary || {};
-    const totalTrades = summary.total_trades || 0;
-    const activeTrades = summary.active_trades || 0;
-    const closedTrades = summary.closed_trades || 0;
-    const expiredTrades = summary.expired_trades || 0;
-    const winningTrades = summary.winning_trades || 0;
-    const losingTrades = summary.losing_trades || 0;
-    const totalProfit = summary.total_profit_dollars || summary.total_profit || 0;
-    const totalLoss = summary.total_loss || 0;
-    const netProfit = summary.net_profit || (totalProfit - totalLoss);
-    const winRate = (winningTrades + losingTrades) > 0
-      ? (winningTrades / (winningTrades + losingTrades) * 100)
-      : 0;
+    // ── Summary metrics ─────────────────────────────────────────────────────
+    const summary = report.summary ?? {};
+    const totalTrades = safeNum(summary.total_trades);
+    const activeTrades = safeNum(summary.active_trades);
+    const closedTrades = safeNum(summary.closed_trades);
+    const winningTrades = safeNum(summary.winning_trades);
+    const losingTrades = safeNum(summary.losing_trades);
+    const totalProfit = safeNum(summary.total_profit_dollars ?? summary.total_profit);
+    const totalLoss = safeNum(summary.total_loss);
+    const netProfit = safeNum(summary.net_profit, totalProfit - totalLoss);
+    const winRate =
+      winningTrades + losingTrades > 0
+        ? (winningTrades / (winningTrades + losingTrades)) * 100
+        : 0;
+    const avgWin = safeNum(summary.avg_profit_per_winning_trade);
+    const bestTrade = safeNum(summary.best_trade);
+    const worstTrade = safeNum(summary.worst_trade);
 
-    const analystId = report.author_id || report.generated_by;
+    // ── Fetch recent trades ──────────────────────────────────────────────────
+    const analystId = report.author_id ?? report.generated_by;
+    const startDate = report.start_date ?? report.report_date;
+    const endDate = report.end_date ?? report.report_date;
+    const periodStart = new Date(startDate + 'T00:00:00.000Z');
+    const periodEnd = new Date(endDate + 'T23:59:59.999Z');
 
-    const startDate = report.start_date || report.report_date;
-    const endDate = report.end_date || report.report_date;
-    const startOfPeriod = new Date(startDate + 'T00:00:00.000Z');
-    const endOfPeriod = new Date(endDate + 'T23:59:59.999Z');
-
-    console.log('[Report Image] Period query:', {
-      startOfPeriod: startOfPeriod.toISOString(),
-      endOfPeriod: endOfPeriod.toISOString()
-    });
-
-    const { data: allTrades, error: tradesQueryError } = await supabase
+    const { data: allTrades } = await supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analystId);
 
-    if (tradesQueryError) {
-      console.error('[Report Image] Error fetching trades:', tradesQueryError);
-    }
+    const periodTrades = (allTrades ?? [])
+      .filter((t: any) => {
+        const created = new Date(t.created_at);
+        const closed = t.closed_at ? new Date(t.closed_at) : null;
+        return (
+          (created >= periodStart && created <= periodEnd) ||
+          (closed && closed >= periodStart && closed <= periodEnd) ||
+          (t.status === 'active' && created <= periodEnd)
+        );
+      })
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 5);
 
-    console.log('[Report Image] All trades count:', allTrades?.length || 0);
+    console.log('[generate-report-image] Period trades:', periodTrades.length);
 
-    const trades = allTrades?.filter((t: any) => {
-      const createdAt = new Date(t.created_at);
-      const closedAt = t.closed_at ? new Date(t.closed_at) : null;
-      const expiryDate = t.expiry ? new Date(t.expiry) : null;
-
-      const matchCreated = createdAt >= startOfPeriod && createdAt <= endOfPeriod;
-      const matchClosed = closedAt && closedAt >= startOfPeriod && closedAt <= endOfPeriod;
-      const matchExpiry = expiryDate && expiryDate >= startOfPeriod && expiryDate <= endOfPeriod;
-      const matchActive = t.status === 'active' && createdAt <= endOfPeriod;
-
-      return matchCreated || matchClosed || matchExpiry || matchActive;
-    }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 8) || [];
-
-    console.log('[Report Image] Filtered trades count:', trades?.length || 0);
-
-    const tradesError = null;
-
-    if (tradesError) {
-      console.error('[Report Image] Trades query error:', tradesError);
-    }
-
-    console.log('[Report Image] Trades found:', trades?.length || 0);
-    if (trades && trades.length > 0) {
-      console.log('[Report Image] First trade:', trades[0]);
-    }
-
-    const tradesData = (trades || []).map(t => {
-      // Calculate profit with proper priority
+    const tradesData = periodTrades.map((t: any) => {
       let profit = 0;
-      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
-        profit = parseFloat(t.pnl_usd.toString());
-      } else if (t.final_profit !== null && t.final_profit !== undefined) {
-        profit = parseFloat(t.final_profit.toString());
-      } else if (t.max_profit !== null && t.max_profit !== undefined) {
-        profit = parseFloat(t.max_profit.toString());
-      } else {
-        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-        const highestPrice = t.contract_high_since || 0;
-        const qty = t.qty || 1;
-        const multiplier = t.contract_multiplier || 100;
-        profit = (highestPrice - entryPrice) * qty * multiplier;
+      if (t.pnl_usd != null) profit = safeNum(t.pnl_usd);
+      else if (t.final_profit != null) profit = safeNum(t.final_profit);
+      else if (t.max_profit != null) profit = safeNum(t.max_profit);
+      else {
+        const ep = safeNum(t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
+        const hp = safeNum(t.contract_high_since);
+        profit = (hp - ep) * safeNum(t.qty, 1) * safeNum(t.contract_multiplier, 100);
       }
 
-      const status = t.status === 'active' ? '🟢' :
-                     t.is_winning_trade || profit >= 100 ? '✅' :
-                     profit < -20 ? '❌' : '⏰';
-      const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}` : '-';
-      const displaySymbol = t.underlying_index_symbol || t.symbol || 'N/A';
-      const strike = t.strike || 0;
-      const entry = t.entry_contract_snapshot?.price || t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-      const high = t.contract_high_since || t.current_contract || entry;
-      return {
-        symbol: displaySymbol,
-        status,
-        profit: profitStr,
-        strike: strike.toFixed(0),
-        entry: entry.toFixed(2),
-        high: high.toFixed(2)
-      };
+      let sym = t.underlying_index_symbol ?? 'N/A';
+      if (t.polygon_option_ticker) {
+        const parts = String(t.polygon_option_ticker).split(':');
+        if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, '');
+      }
+
+      const isActive = t.status === 'active';
+      const isWin = t.is_winning_trade || profit >= 100;
+      const isLoss = profit < -20;
+
+      const statusColor = isActive ? C.blue : isWin ? C.call : isLoss ? C.put : C.textSub;
+      const statusIcon = isActive ? '●' : isWin ? '✓' : isLoss ? '✗' : '○';
+      const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(0)}` : '—';
+      const profitColor = profit > 0 ? C.call : profit < 0 ? C.put : C.textSub;
+
+      const entry = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
+      const high = safeNum(t.contract_high_since ?? t.current_contract, entry);
+      const strike = safeNum(t.strike);
+      const dir = (t.option_type ?? t.direction ?? 'call').toUpperCase().slice(0, 4);
+
+      return { sym, strike: strike > 0 ? `$${strike.toFixed(0)}` : '—',
+               entry: entry > 0 ? `$${entry.toFixed(2)}` : '—',
+               high: high > 0 ? `$${high.toFixed(2)}` : '—',
+               profitStr, profitColor, statusColor, statusIcon, dir };
     });
 
-    console.log('[Report Image] Trades data for image:', tradesData);
+    // ── Period title ─────────────────────────────────────────────────────────
+    const periodLabel =
+      report.period_type === 'weekly' ? 'Weekly Report' :
+      report.period_type === 'monthly' ? 'Monthly Report' : 'Daily Report';
 
-    const avgProfitPerWinningTrade = summary.avg_profit_per_winning_trade || 0;
-    const avgLossPerLosingTrade = summary.avg_loss_per_losing_trade || 0;
-    const bestTrade = summary.best_trade || 0;
-    const worstTrade = summary.worst_trade || 0;
+    const dateLabel =
+      report.period_type === 'daily' ? report.report_date : `${startDate} – ${endDate}`;
 
-    const periodTypeTextEn = report.period_type === 'weekly' ? 'Weekly Report' :
-                             report.period_type === 'monthly' ? 'Monthly Report' :
-                             'Daily Report';
+    const netColor = netProfit >= 0 ? C.call : C.put;
+    const netSign = netProfit >= 0 ? '+' : '';
 
-    const dateText = report.period_type === 'custom' || report.period_type === 'weekly' || report.period_type === 'monthly'
-      ? `${startDate} - ${endDate}`
-      : report.report_date;
+    console.log('[generate-report-image] Generating image...');
 
-    console.log('[Report Image] Generating image with @vercel/og...');
-
+    // ── vdom (object notation for Deno edge compatibility) ───────────────────
     const imageResponse = new ImageResponse(
       {
         type: 'div',
         props: {
           style: {
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            flexDirection: 'column',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            padding: '80px',
-            fontFamily: 'system-ui, sans-serif',
-            color: 'white',
+            width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
+            background: C.bg, fontFamily: 'system-ui, sans-serif',
+            position: 'relative', overflow: 'hidden',
           },
           children: [
+            // Top accent
+            { type: 'div', props: { style: { position: 'absolute', top: 0, left: 0, right: 0, height: 5, background: C.blue } } },
+            // Main content
             {
               type: 'div',
               props: {
-                style: {
-                  fontSize: '64px',
-                  fontWeight: 'bold',
-                  marginBottom: '24px',
-                  textAlign: 'center',
-                },
-                children: `📊 ${periodTypeTextEn}`,
-              },
-            },
-            {
-              type: 'div',
-              props: {
-                style: {
-                  fontSize: '36px',
-                  opacity: 0.9,
-                  marginBottom: '60px',
-                  textAlign: 'center',
-                },
-                children: dateText,
-              },
-            },
-            {
-              type: 'div',
-              props: {
-                style: {
-                  display: 'flex',
-                  gap: '40px',
-                  marginBottom: '40px',
-                },
+                style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '44px 52px 36px' },
                 children: [
+                  // Header
                   {
                     type: 'div',
                     props: {
-                      style: {
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        background: 'rgba(255, 255, 255, 0.15)',
-                        borderRadius: '20px',
-                        padding: '32px',
-                      },
+                      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
                       children: [
                         {
                           type: 'div',
                           props: {
-                            style: { fontSize: '26px', opacity: 0.8, marginBottom: '12px', textAlign: 'center' },
-                            children: 'Net Profit',
+                            style: { display: 'flex', flexDirection: 'column', gap: 4 },
+                            children: [
+                              { type: 'div', props: { style: { fontSize: 34, fontWeight: 800, color: C.text, letterSpacing: '-0.5px' }, children: `📊 ${periodLabel}` } },
+                              { type: 'div', props: { style: { fontSize: 19, color: C.textSub }, children: dateLabel } },
+                            ],
                           },
                         },
                         {
                           type: 'div',
                           props: {
-                            style: { fontSize: '56px', fontWeight: 'bold', color: netProfit >= 0 ? '#4ade80' : '#f87171', textAlign: 'center' },
-                            children: `${netProfit >= 0 ? '+' : ''}$${netProfit.toFixed(0)}`,
+                            style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.28)', borderRadius: 8, padding: '6px 16px', color: C.blue, fontSize: 16, fontWeight: 700, letterSpacing: '0.06em' },
+                            children: 'AnalyzingHub',
                           },
                         },
                       ],
                     },
                   },
+                  // KPI row
                   {
                     type: 'div',
                     props: {
-                      style: {
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        background: 'rgba(255, 255, 255, 0.15)',
-                        borderRadius: '20px',
-                        padding: '32px',
-                      },
+                      style: { display: 'flex', gap: 14, marginBottom: 14 },
                       children: [
+                        // Net profit (wide)
                         {
                           type: 'div',
                           props: {
-                            style: { fontSize: '26px', opacity: 0.8, marginBottom: '12px', textAlign: 'center' },
-                            children: 'Win Rate',
+                            style: {
+                              flex: 2, background: netProfit >= 0 ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)',
+                              border: `1px solid ${netProfit >= 0 ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)'}`,
+                              borderRadius: 14, padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 4,
+                            },
+                            children: [
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Net Profit' } },
+                              { type: 'div', props: { style: { fontSize: 46, fontWeight: 900, color: netColor, lineHeight: 1, letterSpacing: '-1px' }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
+                            ],
                           },
                         },
+                        // Win rate
                         {
                           type: 'div',
                           props: {
-                            style: { fontSize: '56px', fontWeight: 'bold', textAlign: 'center' },
-                            children: `${winRate.toFixed(0)}%`,
+                            style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
+                            children: [
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Win Rate' } },
+                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: winRate >= 50 ? C.call : C.put, lineHeight: 1 }, children: `${winRate.toFixed(0)}%` } },
+                            ],
+                          },
+                        },
+                        // Avg win
+                        {
+                          type: 'div',
+                          props: {
+                            style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
+                            children: [
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Avg Win' } },
+                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: C.call, lineHeight: 1 }, children: `+$${avgWin.toFixed(0)}` } },
+                            ],
                           },
                         },
                       ],
                     },
                   },
+                  // Counts row
                   {
                     type: 'div',
                     props: {
-                      style: {
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        background: 'rgba(255, 255, 255, 0.15)',
-                        borderRadius: '20px',
-                        padding: '32px',
-                      },
-                      children: [
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '26px', opacity: 0.8, marginBottom: '12px', textAlign: 'center' },
-                            children: 'Avg Win',
-                          },
-                        },
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '56px', fontWeight: 'bold', textAlign: 'center' },
-                            children: `+$${avgProfitPerWinningTrade.toFixed(0)}`,
-                          },
-                        },
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-            {
-              type: 'div',
-              props: {
-                style: {
-                  display: 'flex',
-                  gap: '32px',
-                  marginBottom: '40px',
-                },
-                children: [
-                  {
-                    type: 'div',
-                    props: {
-                      style: {
-                        flex: 1,
-                        background: 'rgba(255, 255, 255, 0.12)',
-                        borderRadius: '16px',
-                        padding: '28px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '8px',
-                      },
-                      children: [
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '28px', opacity: 0.85 },
-                            children: 'Winners',
-                          },
-                        },
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '48px', fontWeight: 'bold' },
-                            children: winningTrades.toString(),
-                          },
-                        },
-                      ],
-                    },
-                  },
-                  {
-                    type: 'div',
-                    props: {
-                      style: {
-                        flex: 1,
-                        background: 'rgba(255, 255, 255, 0.12)',
-                        borderRadius: '16px',
-                        padding: '28px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '8px',
-                      },
-                      children: [
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '28px', opacity: 0.85 },
-                            children: 'Losers',
-                          },
-                        },
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '48px', fontWeight: 'bold' },
-                            children: losingTrades.toString(),
-                          },
-                        },
-                      ],
-                    },
-                  },
-                  {
-                    type: 'div',
-                    props: {
-                      style: {
-                        flex: 1,
-                        background: 'rgba(255, 255, 255, 0.12)',
-                        borderRadius: '16px',
-                        padding: '28px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '8px',
-                      },
-                      children: [
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '28px', opacity: 0.85 },
-                            children: 'Total',
-                          },
-                        },
-                        {
-                          type: 'div',
-                          props: {
-                            style: { fontSize: '48px', fontWeight: 'bold' },
-                            children: totalTrades.toString(),
-                          },
-                        },
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-            {
-              type: 'div',
-              props: {
-                style: {
-                  display: 'flex',
-                  flexDirection: 'column',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  borderRadius: '16px',
-                  padding: '28px',
-                },
-                children: [
-                  {
-                    type: 'div',
-                    props: {
-                      style: { fontSize: '38px', fontWeight: 'bold', marginBottom: '24px', textAlign: 'center' },
-                      children: 'Recent Trades',
-                    },
-                  },
-                  {
-                    type: 'div',
-                    props: {
-                      style: {
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px',
-                      },
-                      children: tradesData.length > 0 ? tradesData.slice(0, 5).map((trade) => ({
+                      style: { display: 'flex', gap: 10, marginBottom: 14 },
+                      children: (
+                        [
+                          ['Total', String(totalTrades), C.text],
+                          ['Active', String(activeTrades), C.blue],
+                          ['Closed', String(closedTrades), C.textSub],
+                          ['Won', String(winningTrades), C.call],
+                          ['Lost', String(losingTrades), C.put],
+                          ['Best', `+$${bestTrade.toFixed(0)}`, C.call],
+                          ['Worst', `$${worstTrade.toFixed(0)}`, C.put],
+                        ] as const
+                      ).map(([label, value, color]) => ({
                         type: 'div',
                         props: {
-                          style: {
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            background: 'rgba(255, 255, 255, 0.08)',
-                            borderRadius: '12px',
-                            padding: '16px 20px',
-                          },
+                          style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 3 },
                           children: [
-                            {
-                              type: 'div',
-                              props: {
-                                style: { display: 'flex', gap: '12px', alignItems: 'center', flex: 1 },
-                                children: [
-                                  {
-                                    type: 'div',
-                                    props: {
-                                      style: { fontSize: '24px' },
-                                      children: trade.status,
-                                    },
-                                  },
-                                  {
-                                    type: 'div',
-                                    props: {
-                                      style: { fontSize: '22px', fontWeight: 'bold' },
-                                      children: trade.symbol,
-                                    },
-                                  },
-                                ],
-                              },
-                            },
-                            {
-                              type: 'div',
-                              props: {
-                                style: { display: 'flex', gap: '20px', fontSize: '18px', opacity: 0.9 },
-                                children: [
-                                  {
-                                    type: 'div',
-                                    props: {
-                                      children: `Strike: ${trade.strike}`,
-                                    },
-                                  },
-                                  {
-                                    type: 'div',
-                                    props: {
-                                      children: `Entry: ${trade.entry}`,
-                                    },
-                                  },
-                                  {
-                                    type: 'div',
-                                    props: {
-                                      children: `High: ${trade.high}`,
-                                    },
-                                  },
-                                ],
-                              },
-                            },
-                            {
-                              type: 'div',
-                              props: {
-                                style: { fontSize: '24px', fontWeight: 'bold', minWidth: '100px', textAlign: 'right' },
-                                children: trade.profit,
-                              },
-                            },
+                            { type: 'div', props: { style: { fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.10em', textTransform: 'uppercase' }, children: label } },
+                            { type: 'div', props: { style: { fontSize: 20, fontWeight: 800, color }, children: value } },
                           ],
                         },
-                      })) : [
+                      })),
+                    },
+                  },
+                  // Trades table
+                  {
+                    type: 'div',
+                    props: {
+                      style: { flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
+                      children: [
+                        // Table header
                         {
                           type: 'div',
                           props: {
-                            style: { fontSize: '22px', opacity: 0.7, textAlign: 'center', padding: '20px 0' },
-                            children: 'No trades',
+                            style: { display: 'flex', background: C.elevated, padding: '10px 18px', borderBottom: `1px solid ${C.border}` },
+                            children: (
+                              [['Symbol', 2], ['Strike', 1], ['Entry', 1], ['High', 1], ['P/L', 1]] as const
+                            ).map(([label, flex]) => ({
+                              type: 'div',
+                              props: { style: { flex, fontSize: 11, color: C.textMuted, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase' }, children: label },
+                            })),
                           },
                         },
+                        // Rows
+                        ...tradesData.map((t: any) => ({
+                          type: 'div',
+                          props: {
+                            style: { display: 'flex', padding: '10px 18px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' },
+                            children: [
+                              {
+                                type: 'div',
+                                props: {
+                                  style: { flex: 2, display: 'flex', alignItems: 'center', gap: 8 },
+                                  children: [
+                                    { type: 'div', props: { style: { fontSize: 13, fontWeight: 700, color: t.statusColor }, children: t.statusIcon } },
+                                    { type: 'div', props: { style: { fontSize: 16, fontWeight: 800, color: C.text }, children: t.sym } },
+                                    { type: 'div', props: { style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.22)', borderRadius: 4, padding: '2px 6px', fontSize: 11, fontWeight: 700, color: C.blue }, children: t.dir } },
+                                  ],
+                                },
+                              },
+                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.textSub, fontWeight: 600 }, children: t.strike } },
+                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.textSub }, children: t.entry } },
+                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.call }, children: t.high } },
+                              { type: 'div', props: { style: { flex: 1, fontSize: 15, fontWeight: 800, color: t.profitColor }, children: t.profitStr } },
+                            ],
+                          },
+                        })),
+                        ...(tradesData.length === 0 ? [{
+                          type: 'div',
+                          props: {
+                            style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 17, padding: '20px' },
+                            children: 'No trades in this period',
+                          },
+                        }] : []),
                       ],
-                    },
-                  },
-                ],
-              },
-            },
-            {
-              type: 'div',
-              props: {
-                style: {
-                  marginTop: 'auto',
-                  fontSize: '24px',
-                  opacity: 0.8,
-                  textAlign: 'center',
-                  paddingTop: '24px',
-                  display: 'flex',
-                  justifyContent: 'center',
-                  gap: '40px',
-                },
-                children: [
-                  {
-                    type: 'div',
-                    props: {
-                      children: `Best Trade: +$${bestTrade.toFixed(0)}`,
-                    },
-                  },
-                  {
-                    type: 'div',
-                    props: {
-                      children: `Worst Trade: ${worstTrade >= 0 ? '+' : ''}$${worstTrade.toFixed(0)}`,
                     },
                   },
                 ],
@@ -546,30 +339,24 @@ Deno.serve(async (req) => {
           ],
         },
       },
-      {
-        width: 1200,
-        height: 675,
-      }
+      { width: 1200, height: 675 }
     );
 
     const arrayBuffer = await imageResponse.arrayBuffer();
     const pngBuffer = new Uint8Array(arrayBuffer);
 
-    console.log('[Report Image] Image generated successfully, size:', pngBuffer.length);
+    console.log('[generate-report-image] Done, size:', pngBuffer.length, 'bytes');
 
     return new Response(pngBuffer, {
       status: 200,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'image/png',
-      },
+      headers: { ...corsHeaders, 'Content-Type': 'image/png' },
     });
 
   } catch (error: any) {
-    console.error('[Report Image] Error:', error);
-    console.error('[Report Image] Stack:', error.stack);
+    console.error('[generate-report-image] Error:', error?.message);
+    console.error('[generate-report-image] Stack:', error?.stack);
     return new Response(
-      JSON.stringify({ error: error.message, stack: error.stack }),
+      JSON.stringify({ error: error?.message ?? 'Image generation failed' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

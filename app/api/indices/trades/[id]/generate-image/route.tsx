@@ -1,504 +1,853 @@
+/**
+ * GET /api/indices/trades/[id]/generate-image
+ *
+ * Generates a professional PNG alert card for a trade.
+ * Called by the `generate-trade-snapshot` Supabase edge function.
+ * Returns raw PNG bytes (Content-Type: image/png).
+ *
+ * Query params:
+ *   isNewHigh=true      — render a "new high" alert card
+ *   newHighPrice=12.50  — the new high price value
+ *
+ * Uses `nodejs` runtime for maximum compatibility on Netlify.
+ */
+
 import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-function formatNumber(num: number): string {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M';
-  } else if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K';
-  }
-  return num.toLocaleString();
+// ─── Design tokens ─────────────────────────────────────────────────────────
+const C = {
+  bg: '#0D1117',
+  card: '#161B22',
+  elevated: '#1C2128',
+  border: '#30363D',
+  text: '#E6EDF3',
+  textSub: '#8B949E',
+  textMuted: '#6E7681',
+  call: '#3FB950',
+  put: '#F85149',
+  blue: '#58A6FF',
+  gold: '#E3B341',
+  callBg: 'rgba(63,185,80,0.10)',
+  putBg: 'rgba(248,81,73,0.10)',
+  callBd: 'rgba(63,185,80,0.28)',
+  putBd: 'rgba(248,81,73,0.28)',
+  goldBg: 'rgba(227,179,65,0.12)',
+  goldBd: 'rgba(227,179,65,0.30)',
+  blueBg: 'rgba(88,166,255,0.10)',
+  blueBd: 'rgba(88,166,255,0.28)',
+} as const;
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function safeNum(v: any, fallback = 0): number {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-function formatExpiry(expiry: string): string {
-  const date = new Date(expiry);
-  return date.toLocaleDateString('en-US', {
-    day: '2-digit',
-    month: 'short',
-    year: '2-digit',
-  });
+function fmtPrice(n: number): string {
+  return n.toFixed(2);
 }
 
+// ─── Route handler ──────────────────────────────────────────────────────────
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
+  const t0 = Date.now();
+  console.log('[generate-image] GET request received');
+
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-    if (!supabaseUrl || !supabaseKey) {
-      return new Response('Configuration error', { status: 500 });
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const params = await context.params;
-    const tradeId = params.id;
+    const { id: tradeId } = await context.params;
     const { searchParams } = new URL(request.url);
     const isNewHigh = searchParams.get('isNewHigh') === 'true';
-    const newHighPriceParam = searchParams.get('newHighPrice');
-    const newHighPrice = newHighPriceParam ? parseFloat(newHighPriceParam) : null;
+    const rawNewHigh = searchParams.get('newHighPrice');
+    const newHighPrice: number | null = rawNewHigh ? safeNum(rawNewHigh) : null;
 
+    console.log('[generate-image]', { tradeId, isNewHigh, newHighPrice });
+
+    // Supabase (service-role — no user auth required, called by edge function)
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !serviceKey) {
+      console.error('[generate-image] Missing SUPABASE env vars');
+      return new Response('Server configuration error', { status: 500 });
+    }
+
+    const supabase = createClient(supabaseUrl, serviceKey);
+
+    // Fetch trade
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
-      .select(`
-        *,
-        author:profiles!author_id(id, full_name)
-      `)
+      .select('*, author:profiles!author_id(id, full_name)')
       .eq('id', tradeId)
       .single();
 
     if (tradeError || !trade) {
+      console.error('[generate-image] Trade not found:', tradeError?.message);
       return new Response('Trade not found', { status: 404 });
     }
 
-    let analysis = null;
+    // Fetch analysis info if linked
+    let analysisInfo: { id: string; title: string; index_symbol: string } | null = null;
     if (trade.analysis_id) {
-      const { data: analysisData } = await supabase
+      const { data } = await supabase
         .from('index_analyses')
         .select('id, title, index_symbol')
         .eq('id', trade.analysis_id)
         .maybeSingle();
-      analysis = analysisData;
+      analysisInfo = data;
     }
 
-    const entryPrice = trade.entry_contract_snapshot?.price ||
-                        trade.entry_contract_snapshot?.mid ||
-                        trade.entry_contract_snapshot?.last || 0;
-    const currentPrice = trade.current_contract || entryPrice;
-    const priceChange = currentPrice - entryPrice;
-    const priceChangePercent = entryPrice > 0 ? (priceChange / entryPrice) * 100 : 0;
+    // ── Derived data ─────────────────────────────────────────────────────────
+    const snap = trade.entry_contract_snapshot ?? {};
+    const entryPrice = safeNum(snap.price ?? snap.mid ?? snap.last);
+    const currentPrice = safeNum(trade.current_contract, entryPrice);
+    const highSince = safeNum(trade.contract_high_since, currentPrice);
 
-    const highSinceEntry = trade.contract_high_since || currentPrice;
-    const lowSinceEntry = trade.contract_low_since || currentPrice;
+    const underlyingSymbol: string =
+      analysisInfo?.index_symbol ?? trade.underlying_index_symbol ?? 'SPX';
+    const underlyingPrice = safeNum(
+      trade.current_underlying ?? trade.entry_underlying_snapshot?.price
+    );
+    const underlyingEntryPrice = safeNum(
+      trade.entry_underlying_snapshot?.price,
+      underlyingPrice
+    );
+    const underlyingChangePct =
+      underlyingEntryPrice > 0
+        ? ((underlyingPrice - underlyingEntryPrice) / underlyingEntryPrice) * 100
+        : 0;
 
-    const qty = trade.qty || 1;
-    const multiplier = trade.contract_multiplier || 100;
-    const netPnl = priceChange * multiplier * qty;
+    const strike = safeNum(trade.strike);
+    const optionType = (trade.option_type ?? trade.direction ?? 'call').toLowerCase();
+    const isCall = optionType === 'call';
+    const accent = isCall ? C.call : C.put;
+    const accentBg = isCall ? C.callBg : C.putBg;
+    const accentBd = isCall ? C.callBd : C.putBd;
 
-    const underlyingPrice = trade.current_underlying || trade.entry_underlying_snapshot?.price || 0;
-    const underlyingEntryPrice = trade.entry_underlying_snapshot?.price || underlyingPrice;
-    const underlyingChange = underlyingPrice - underlyingEntryPrice;
-    const underlyingChangePercent = (underlyingChange / underlyingEntryPrice) * 100;
+    const expiry = trade.expiry
+      ? new Date(trade.expiry).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: '2-digit',
+        })
+      : '';
 
-    const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
-    const bid = currentSnapshot?.bid || 0;
-    const ask = currentSnapshot?.ask || 0;
-    const volume = currentSnapshot?.volume || 0;
+    const targets: any[] = Array.isArray(trade.targets) ? trade.targets : [];
+    const t1: number | null = safeNum(targets[0]?.level ?? targets[0]?.price) || null;
+    const t2: number | null = safeNum(targets[1]?.level ?? targets[1]?.price) || null;
+    const stop: number | null = safeNum(trade.stoploss?.level ?? trade.stoploss?.price) || null;
 
-    const now = new Date();
-    const timestamp = `Open, ${now.toLocaleTimeString('en-US', {
+    const qty = safeNum(trade.qty, 1) || 1;
+    const analystName: string = (trade.author as any)?.full_name ?? 'Analyst';
+    const timeStr = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
-      hour12: false,
-    })} ${now.toLocaleDateString('en-US', {
-      day: '2-digit',
-      month: '2-digit',
-    })} ET`;
+      hour12: true,
+      timeZone: 'America/New_York',
+    });
 
-    const isPriceUp = priceChange > 0;
-    const priceColor = isPriceUp ? '#10b981' : (priceChange < 0 ? '#ef4444' : '#8e8e93');
-    const priceArrow = isPriceUp ? '▲' : (priceChange < 0 ? '▼' : '');
-    const priceSign = isPriceUp ? '+' : '';
-    const isUnderlyingUp = underlyingChange >= 0;
-
-    const strike = trade.strike || 0;
-    const expiry = trade.expiry || new Date().toISOString();
-    const optionType = trade.option_type === 'call' ? 'Call' : 'Put';
-    const underlyingSymbol = analysis?.index_symbol || trade.underlying_index_symbol || 'SPX';
-
-    let cleanSymbol = underlyingSymbol;
+    // Clean symbol from polygon ticker (e.g. "O:SPX251231C05900000" → "SPX")
+    let sym = underlyingSymbol;
     if (trade.polygon_option_ticker) {
-      const parts = trade.polygon_option_ticker.split(':');
-      if (parts.length > 1) {
-        const tickerPart = parts[1];
-        cleanSymbol = tickerPart.replace(/\d{6}[CP]\d{8}$/, '');
-      }
+      const parts = (trade.polygon_option_ticker as string).split(':');
+      if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, '');
     }
 
-    const pnlColor = netPnl >= 0 ? '#10b981' : '#ef4444';
-    const pnlSign = netPnl >= 0 ? '+' : '';
+    const priceDelta = currentPrice - entryPrice;
+    const pricePct = entryPrice > 0 ? (priceDelta / entryPrice) * 100 : 0;
+    const statusLabel = (trade.status ?? 'active').toUpperCase().replace('_', ' ');
 
+    console.log('[generate-image] Data resolved:', {
+      sym, entryPrice, currentPrice, strike, expiry, isCall, t1, t2, stop, analystName,
+    });
+
+    // ── NEW HIGH card ────────────────────────────────────────────────────────
     if (isNewHigh) {
-      const displayHighPrice = newHighPrice || highSinceEntry;
-      const displayGainPercent = ((displayHighPrice - entryPrice) / entryPrice * 100);
-      const displayPnl = (displayHighPrice - entryPrice) * multiplier * qty;
+      const dispHigh = newHighPrice ?? highSince;
+      const gainPct = entryPrice > 0 ? ((dispHigh - entryPrice) / entryPrice) * 100 : 0;
+      const gainUsd = (dispHigh - entryPrice) * qty * 100;
+
+      console.log('[generate-image] Rendering NEW HIGH card');
 
       return new ImageResponse(
         (
           <div
             style={{
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              width: '1280px',
-              height: '720px',
+              width: '100%',
+              height: '100%',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '40px',
+              flexDirection: 'column',
+              background: C.bg,
+              fontFamily: 'system-ui, -apple-system, Helvetica, Arial, sans-serif',
               position: 'relative',
+              overflow: 'hidden',
             }}
           >
+            {/* Top accent bar — gold */}
             <div
               style={{
                 position: 'absolute',
-                top: '40px',
-                right: '60px',
-                fontSize: '28px',
-                fontWeight: 800,
-                color: 'white',
-                textShadow: '0 2px 12px rgba(0,0,0,0.3)',
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 6,
+                background: C.gold,
               }}
-            >
-              AnalyzingHub
-            </div>
+            />
+
             <div
               style={{
-                background: 'white',
-                borderRadius: '32px',
-                padding: '60px',
-                width: '1100px',
-                boxShadow: '0 25px 80px rgba(0,0,0,0.4)',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
+                flex: 1,
+                padding: '52px 64px 44px',
               }}
             >
+              {/* Header */}
               <div
                 style={{
-                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  color: 'white',
-                  padding: '16px 40px',
-                  borderRadius: '50px',
-                  fontSize: '32px',
-                  fontWeight: 800,
-                  marginBottom: '32px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '2px',
-                  boxShadow: '0 8px 24px rgba(16, 185, 129, 0.4)',
-                }}
-              >
-                🚀 NEW HIGH ALERT! 🚀
-              </div>
-              <div
-                style={{
-                  fontSize: '36px',
-                  color: '#6b7280',
-                  fontWeight: 600,
-                  marginBottom: '16px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '3px',
-                }}
-              >
-                New High Price
-              </div>
-              <div
-                style={{
-                  fontSize: '180px',
-                  fontWeight: 900,
-                  color: '#10b981',
-                  lineHeight: 1,
-                  margin: '32px 0',
-                  letterSpacing: '-5px',
-                }}
-              >
-                ${displayHighPrice.toFixed(2)}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'center',
-                  gap: '48px',
-                  margin: '40px 0',
-                  padding: '32px',
-                  background: '#f9fafb',
-                  borderRadius: '20px',
-                  width: '100%',
-                }}
-              >
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600, marginBottom: '8px' }}>
-                    ENTRY
-                  </div>
-                  <div style={{ fontSize: '32px', color: '#1f2937', fontWeight: 700 }}>
-                    ${entryPrice.toFixed(2)}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600, marginBottom: '8px' }}>
-                    CURRENT
-                  </div>
-                  <div style={{ fontSize: '32px', color: '#1f2937', fontWeight: 700 }}>
-                    ${currentPrice.toFixed(2)}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600, marginBottom: '8px' }}>
-                    GAIN
-                  </div>
-                  <div style={{ fontSize: '36px', color: '#10b981', fontWeight: 700 }}>
-                    +{displayGainPercent.toFixed(2)}%
-                  </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: '18px', color: '#9ca3af', fontWeight: 600, marginBottom: '8px' }}>
-                    P/L
-                  </div>
-                  <div style={{ fontSize: '36px', color: '#10b981', fontWeight: 700 }}>
-                    +${displayPnl.toFixed(2)}
-                  </div>
-                </div>
-              </div>
-              <div
-                style={{
-                  marginTop: '32px',
-                  paddingTop: '28px',
-                  borderTop: '3px solid #e5e7eb',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  width: '100%',
+                  marginBottom: 40,
                 }}
               >
-                <div style={{ fontSize: '24px', color: '#4b5563', fontWeight: 600 }}>
-                  {cleanSymbol} ${strike.toLocaleString()} {optionType} • {formatExpiry(expiry)}
+                <div
+                  style={{
+                    background: C.goldBg,
+                    border: `1px solid ${C.goldBd}`,
+                    borderRadius: 8,
+                    padding: '6px 16px',
+                    color: C.gold,
+                    fontSize: 19,
+                    fontWeight: 700,
+                    letterSpacing: '0.06em',
+                  }}
+                >
+                  AnalyzingHub
                 </div>
-                <div style={{ fontSize: '22px', color: '#6b7280', fontWeight: 500 }}>
-                  {trade.author.full_name}
+                <div
+                  style={{
+                    background: C.goldBg,
+                    border: `1px solid ${C.goldBd}`,
+                    borderRadius: 8,
+                    padding: '8px 20px',
+                    color: C.gold,
+                    fontSize: 20,
+                    fontWeight: 800,
+                    letterSpacing: '0.05em',
+                  }}
+                >
+                  🚀 NEW HIGH ALERT
+                </div>
+              </div>
+
+              {/* Symbol + contract */}
+              <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 24 }}>
+                <div
+                  style={{
+                    fontSize: 80,
+                    fontWeight: 900,
+                    color: C.text,
+                    lineHeight: 1,
+                    letterSpacing: '-2px',
+                  }}
+                >
+                  {sym}
+                </div>
+                {strike > 0 && (
+                  <div
+                    style={{
+                      fontSize: 26,
+                      color: C.textSub,
+                      marginTop: 8,
+                      fontWeight: 500,
+                    }}
+                  >
+                    ${strike.toLocaleString()} {isCall ? 'Call' : 'Put'}
+                    {expiry ? ` · ${expiry}` : ''}
+                  </div>
+                )}
+              </div>
+
+              {/* Big price */}
+              <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 32 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: C.textMuted,
+                    fontWeight: 600,
+                    letterSpacing: '0.14em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                  }}
+                >
+                  New High Price
+                </div>
+                <div
+                  style={{
+                    fontSize: 100,
+                    fontWeight: 900,
+                    color: C.gold,
+                    lineHeight: 1,
+                    letterSpacing: '-3px',
+                  }}
+                >
+                  ${fmtPrice(dispHigh)}
+                </div>
+              </div>
+
+              {/* Stat row */}
+              <div style={{ display: 'flex', gap: 18 }}>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.elevated,
+                    borderRadius: 14,
+                    padding: '20px 22px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Entry
+                  </div>
+                  <div style={{ fontSize: 30, fontWeight: 700, color: C.textSub }}>
+                    ${fmtPrice(entryPrice)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.goldBg,
+                    borderRadius: 14,
+                    padding: '20px 22px',
+                    border: `1px solid ${C.goldBd}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      marginBottom: 6,
+                    }}
+                  >
+                    Gain
+                  </div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: C.gold }}>
+                    +{gainPct.toFixed(2)}%
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.goldBg,
+                    borderRadius: 14,
+                    padding: '20px 22px',
+                    border: `1px solid ${C.goldBd}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      marginBottom: 6,
+                    }}
+                  >
+                    P/L (1 lot)
+                  </div>
+                  <div style={{ fontSize: 30, fontWeight: 800, color: C.gold }}>
+                    +${gainUsd.toFixed(0)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingTop: 20,
+                  marginTop: 'auto',
+                  borderTop: `1px solid ${C.border}`,
+                }}
+              >
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div
+                    style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}
+                  >
+                    {underlyingSymbol}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 600,
+                      color: underlyingChangePct >= 0 ? C.call : C.put,
+                    }}
+                  >
+                    ${fmtPrice(underlyingPrice)}{' '}
+                    {underlyingChangePct >= 0 ? '▲' : '▼'}
+                    {Math.abs(underlyingChangePct).toFixed(2)}%
+                  </div>
+                </div>
+                <div style={{ fontSize: 17, color: C.textMuted }}>
+                  {analystName} · {timeStr} ET
                 </div>
               </div>
             </div>
           </div>
         ),
-        {
-          width: 1280,
-          height: 720,
-        }
+        { width: 1200, height: 675 }
       );
     }
+
+    // ── NEW TRADE card ────────────────────────────────────────────────────────
+    console.log('[generate-image] Rendering NEW TRADE card, sym:', sym);
 
     return new ImageResponse(
       (
         <div
           style={{
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-            width: '1280px',
-            height: '720px',
-            padding: '40px',
-            position: 'relative',
+            width: '100%',
+            height: '100%',
             display: 'flex',
+            background: C.bg,
+            fontFamily: 'system-ui, -apple-system, Helvetica, Arial, sans-serif',
+            position: 'relative',
+            overflow: 'hidden',
           }}
         >
+          {/* Top accent bar */}
           <div
             style={{
               position: 'absolute',
-              top: '32px',
-              right: '48px',
-              fontSize: '24px',
-              fontWeight: 700,
-              color: 'white',
-              textShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 5,
+              background: accent,
             }}
-          >
-            AnalyzingHub
-          </div>
+          />
+
+          {/* LEFT PANEL */}
           <div
             style={{
-              background: 'white',
-              borderRadius: '24px',
-              padding: '48px',
-              width: '100%',
-              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
               display: 'flex',
               flexDirection: 'column',
+              width: 460,
+              padding: '52px 36px 40px 56px',
+              borderRight: `1px solid ${C.border}`,
             }}
           >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'flex-start',
-                marginBottom: '40px',
-                paddingBottom: '32px',
-                borderBottom: '3px solid #f0f0f5',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <div
-                  style={{
-                    fontSize: '52px',
-                    fontWeight: 700,
-                    color: '#1a1a1a',
-                    marginBottom: '8px',
-                    letterSpacing: '-1px',
-                  }}
-                >
-                  {cleanSymbol} ${strike.toLocaleString()}
-                </div>
-                <div style={{ fontSize: '24px', color: '#8e8e93', fontWeight: 500 }}>
-                  {formatExpiry(expiry)} • {optionType} • {trade.author.full_name}
-                </div>
-              </div>
-              <div
-                style={{
-                  background: priceColor,
-                  color: 'white',
-                  padding: '12px 24px',
-                  borderRadius: '12px',
-                  fontSize: '20px',
-                  fontWeight: 600,
-                }}
-              >
-                {priceArrow} {priceSign}{Math.abs(priceChangePercent).toFixed(2)}%
-              </div>
-            </div>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: '48px',
-                flex: 1,
-                marginBottom: '32px',
-              }}
-            >
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  flex: 1,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: '120px',
-                    fontWeight: 800,
-                    color: priceColor,
-                    lineHeight: 1,
-                    marginBottom: '20px',
-                    letterSpacing: '-3px',
-                  }}
-                >
-                  ${currentPrice.toFixed(2)}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div
-                    style={{
-                      fontSize: '36px',
-                      fontWeight: 600,
-                      color: priceColor,
-                    }}
-                  >
-                    {priceArrow} {priceSign}${Math.abs(priceChange).toFixed(2)}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '32px',
-                      fontWeight: 700,
-                      color: pnlColor,
-                    }}
-                  >
-                    P/L: {pnlSign}${Math.abs(netPnl).toFixed(2)}
-                  </div>
-                </div>
-              </div>
-
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '24px',
-                  flex: 1,
-                }}
-              >
-                {[
-                  { label: 'Entry Price', value: `$${entryPrice.toFixed(2)}`, color: '#1a1a1a' },
-                  { label: 'Quantity', value: `${qty}x`, color: '#1a1a1a' },
-                  { label: 'High Since Entry', value: `$${highSinceEntry.toFixed(2)}`, color: '#10b981' },
-                  { label: 'Low Since Entry', value: `$${lowSinceEntry.toFixed(2)}`, color: '#ef4444' },
-                  { label: 'Bid / Ask', value: `${bid.toFixed(2)} / ${ask.toFixed(2)}`, color: '#1a1a1a' },
-                  { label: 'Volume', value: formatNumber(Math.abs(volume)), color: '#1a1a1a' },
-                ].map((stat, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background: '#f8f9fa',
-                      padding: '20px',
-                      borderRadius: '16px',
-                      border: '2px solid #e9ecef',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: '18px',
-                        color: '#8e8e93',
-                        fontWeight: 500,
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      {stat.label}
-                    </div>
-                    <div style={{ fontSize: '32px', color: stat.color, fontWeight: 700 }}>
-                      {stat.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
+            {/* Branding + direction */}
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                paddingTop: '28px',
-                borderTop: '3px solid #f0f0f5',
+                marginBottom: 34,
               }}
             >
               <div
                 style={{
-                  display: 'flex',
-                  gap: '32px',
-                  alignItems: 'center',
-                  background: '#f8f9fa',
-                  padding: '16px 28px',
-                  borderRadius: '12px',
+                  background: accentBg,
+                  border: `1px solid ${accentBd}`,
+                  borderRadius: 7,
+                  padding: '5px 14px',
+                  color: accent,
+                  fontSize: 17,
+                  fontWeight: 700,
+                  letterSpacing: '0.05em',
                 }}
               >
-                <div style={{ fontSize: '28px', color: '#1a1a1a', fontWeight: 700 }}>
-                  {underlyingSymbol}
-                </div>
+                AnalyzingHub
+              </div>
+              <div
+                style={{
+                  background: accentBg,
+                  border: `1px solid ${accentBd}`,
+                  borderRadius: 7,
+                  padding: '7px 16px',
+                  color: accent,
+                  fontSize: 17,
+                  fontWeight: 800,
+                  letterSpacing: '0.09em',
+                }}
+              >
+                {isCall ? 'CALL' : 'PUT'}
+              </div>
+            </div>
+
+            {/* Symbol */}
+            <div
+              style={{
+                fontSize: 84,
+                fontWeight: 900,
+                color: C.text,
+                lineHeight: 1,
+                letterSpacing: '-2px',
+                marginBottom: 8,
+              }}
+            >
+              {sym}
+            </div>
+
+            {/* Strike + expiry (options) or direction (stock) */}
+            {strike > 0 ? (
+              <div style={{ marginBottom: 24 }}>
                 <div
                   style={{
-                    fontSize: '28px',
-                    color: isUnderlyingUp ? '#10b981' : '#ef4444',
+                    fontSize: 36,
                     fontWeight: 700,
+                    color: accent,
+                    marginBottom: 4,
                   }}
                 >
-                  ${underlyingPrice.toFixed(2)}{' '}
-                  {underlyingChangePercent >= 0 ? '▲' : '▼'}
-                  {Math.abs(underlyingChangePercent).toFixed(2)}%
+                  ${strike.toLocaleString()}
+                </div>
+                <div style={{ fontSize: 20, color: C.textSub }}>
+                  {isCall ? 'Call' : 'Put'}
+                  {expiry ? ` · Exp ${expiry}` : ''}
                 </div>
               </div>
-              <div style={{ fontSize: '22px', color: '#8e8e93', fontWeight: 500 }}>
-                {timestamp}
+            ) : (
+              <div
+                style={{
+                  fontSize: 28,
+                  color: C.textSub,
+                  marginBottom: 24,
+                }}
+              >
+                {isCall ? 'Long' : 'Short'} Position
+              </div>
+            )}
+
+            {/* Entry price */}
+            <div
+              style={{
+                background: C.elevated,
+                borderRadius: 14,
+                padding: '20px 22px',
+                border: `1px solid ${C.border}`,
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 12,
+                  color: C.textMuted,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  marginBottom: 8,
+                }}
+              >
+                Entry Price
+              </div>
+              <div
+                style={{
+                  fontSize: 52,
+                  fontWeight: 800,
+                  color: C.text,
+                  lineHeight: 1,
+                }}
+              >
+                ${fmtPrice(entryPrice)}
+              </div>
+              <div style={{ fontSize: 14, color: C.textMuted, marginTop: 6 }}>
+                {qty} contract{qty !== 1 ? 's' : ''}
+              </div>
+            </div>
+
+            {/* Underlying index */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                background: C.elevated,
+                borderRadius: 12,
+                padding: '13px 18px',
+                border: `1px solid ${C.border}`,
+                marginTop: 'auto',
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 700,
+                  color: C.textSub,
+                }}
+              >
+                {underlyingSymbol}
+              </div>
+              <div
+                style={{
+                  fontSize: 16,
+                  fontWeight: 600,
+                  color: underlyingChangePct >= 0 ? C.call : C.put,
+                }}
+              >
+                ${fmtPrice(underlyingPrice)}{' '}
+                {underlyingChangePct >= 0 ? '▲' : '▼'}
+                {Math.abs(underlyingChangePct).toFixed(2)}%
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              padding: '52px 52px 40px 40px',
+            }}
+          >
+            {/* Status badge */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginBottom: 28,
+              }}
+            >
+              <div
+                style={{
+                  background: C.blueBg,
+                  border: `1px solid ${C.blueBd}`,
+                  borderRadius: 8,
+                  padding: '7px 18px',
+                  color: C.blue,
+                  fontSize: 15,
+                  fontWeight: 700,
+                  letterSpacing: '0.07em',
+                }}
+              >
+                ● {statusLabel}
+              </div>
+            </div>
+
+            {/* Targets + Stop */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {t1 !== null && (
+                <div
+                  style={{
+                    background: C.callBg,
+                    borderRadius: 14,
+                    padding: '16px 22px',
+                    border: `1px solid ${C.callBd}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Target 1
+                  </div>
+                  <div style={{ fontSize: 34, fontWeight: 800, color: C.call }}>
+                    ${fmtPrice(t1)}
+                  </div>
+                </div>
+              )}
+
+              {t2 !== null && (
+                <div
+                  style={{
+                    background: 'rgba(63,185,80,0.06)',
+                    borderRadius: 14,
+                    padding: '16px 22px',
+                    border: 'rgba(63,185,80,0.20) 1px solid',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Target 2
+                  </div>
+                  <div style={{ fontSize: 34, fontWeight: 800, color: C.call }}>
+                    ${fmtPrice(t2)}
+                  </div>
+                </div>
+              )}
+
+              {t1 === null && t2 === null && (
+                <div
+                  style={{
+                    background: C.elevated,
+                    borderRadius: 14,
+                    padding: '16px 22px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div style={{ fontSize: 15, color: C.textMuted }}>
+                    Targets not yet set
+                  </div>
+                </div>
+              )}
+
+              {stop !== null && (
+                <div
+                  style={{
+                    background: C.putBg,
+                    borderRadius: 14,
+                    padding: '16px 22px',
+                    border: `1px solid ${C.putBd}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Stop Loss
+                  </div>
+                  <div style={{ fontSize: 34, fontWeight: 800, color: C.put }}>
+                    ${fmtPrice(stop)}
+                  </div>
+                </div>
+              )}
+
+              {/* Current price delta (only if meaningful movement since entry) */}
+              {Math.abs(pricePct) > 0.2 && (
+                <div
+                  style={{
+                    background: C.elevated,
+                    borderRadius: 14,
+                    padding: '16px 22px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      color: C.textMuted,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    Current
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'baseline',
+                      gap: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 34,
+                        fontWeight: 800,
+                        color: pricePct >= 0 ? C.call : C.put,
+                      }}
+                    >
+                      ${fmtPrice(currentPrice)}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 18,
+                        fontWeight: 600,
+                        color: pricePct >= 0 ? C.call : C.put,
+                      }}
+                    >
+                      ({pricePct >= 0 ? '+' : ''}{pricePct.toFixed(2)}%)
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Analyst + timestamp */}
+            <div
+              style={{
+                marginTop: 'auto',
+                paddingTop: 18,
+                borderTop: `1px solid ${C.border}`,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-end',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: C.textMuted,
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  Analyst
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: C.text }}>
+                  {analystName}
+                </div>
+              </div>
+              <div style={{ fontSize: 16, color: C.textMuted }}>
+                {timeStr} ET
               </div>
             </div>
           </div>
         </div>
       ),
-      {
-        width: 1280,
-        height: 720,
-      }
+      { width: 1200, height: 675 }
     );
   } catch (error: any) {
-    console.error('Error generating image:', error);
-    return new Response('Internal server error', { status: 500 });
+    console.error('[generate-image] Fatal error:', error?.message);
+    console.error('[generate-image] Stack:', error?.stack);
+    return new Response(
+      JSON.stringify({ error: error?.message ?? 'Image generation failed' }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } }
+    );
   }
 }
