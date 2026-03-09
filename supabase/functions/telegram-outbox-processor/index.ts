@@ -17,7 +17,7 @@ Deno.serve(async (req) => {
   }
 
   const startTime = Date.now();
-  console.log('[telegram-outbox-processor] Starting');
+  console.log('[telegram-outbox-processor] Starting, BASE_URL:', BASE_URL);
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -34,8 +34,6 @@ Deno.serve(async (req) => {
       throw new Error("Telegram bot token not configured");
     }
 
-    console.log('[telegram-outbox-processor] Bot token loaded from:', botTokenSetting?.setting_value ? 'database' : 'environment');
-
     const { data: messages, error: fetchError } = await supabase
       .from('telegram_outbox')
       .select('*')
@@ -45,10 +43,7 @@ Deno.serve(async (req) => {
       .order('created_at', { ascending: true })
       .limit(20);
 
-    if (fetchError) {
-      console.error('Error fetching messages:', fetchError);
-      throw fetchError;
-    }
+    if (fetchError) throw fetchError;
 
     if (!messages || messages.length === 0) {
       return new Response(
@@ -57,14 +52,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Found ${messages.length} pending messages`);
+    console.log(`[outbox] Found ${messages.length} pending messages`);
 
-    const results = {
-      processed: 0,
-      sent: 0,
-      failed: 0,
-      retrying: 0,
-    };
+    const results = { processed: 0, sent: 0, failed: 0, retrying: 0 };
 
     for (const message of messages) {
       try {
@@ -73,46 +63,32 @@ Deno.serve(async (req) => {
           .update({ status: 'processing' })
           .eq('id', message.id);
 
-        // For image-bearing message types, re-fetch contract_url from DB so we
-        // always use the latest value even if the snapshot was generated after
-        // the outbox row was inserted (race condition guard).
-        if (['new_trade', 'new_high', 'winning_trade'].includes(message.message_type)) {
-          const trade = message.payload?.trade || message.payload;
-          if (trade?.id && !trade.contract_url) {
-            const { data: freshTrade } = await supabase
-              .from('index_trades')
-              .select('contract_url')
-              .eq('id', trade.id)
-              .maybeSingle();
-            if (freshTrade?.contract_url) {
-              console.log(`[outbox] Re-fetched contract_url for trade ${trade.id}: ${freshTrade.contract_url}`);
-              if (message.payload?.trade) {
-                message.payload.trade.contract_url = freshTrade.contract_url;
-              } else {
-                message.payload.contract_url = freshTrade.contract_url;
-              }
-            } else {
-              console.log(`[outbox] No contract_url found for trade ${trade.id} — will send text-only`);
-            }
-          }
-        }
+        let telegramResult: any;
+        const msgType = message.message_type;
 
-        const formattedMessage = formatMessage(message);
-
-        let telegramResult;
-        if (formattedMessage.photo) {
-          telegramResult = await sendTelegramPhoto(
+        if (['new_trade', 'new_high', 'winning_trade'].includes(msgType)) {
+          telegramResult = await processTradeMessage(
             TELEGRAM_BOT_TOKEN,
             message.channel_id,
-            formattedMessage.photo,
-            formattedMessage.caption || ''
+            message.payload,
+            msgType
           );
         } else {
-          telegramResult = await sendTelegramMessage(
-            TELEGRAM_BOT_TOKEN,
-            message.channel_id,
-            formattedMessage.text || ''
-          );
+          const formatted = formatMessage(message);
+          if (formatted.photo) {
+            telegramResult = await sendTelegramPhotoUrl(
+              TELEGRAM_BOT_TOKEN,
+              message.channel_id,
+              formatted.photo,
+              formatted.caption || ''
+            );
+          } else {
+            telegramResult = await sendTelegramMessage(
+              TELEGRAM_BOT_TOKEN,
+              message.channel_id,
+              formatted.text || ''
+            );
+          }
         }
 
         await supabase
@@ -120,15 +96,15 @@ Deno.serve(async (req) => {
           .update({
             status: 'sent',
             sent_at: new Date().toISOString(),
-            telegram_message_id: telegramResult.result?.message_id?.toString(),
+            telegram_message_id: telegramResult?.result?.message_id?.toString(),
           })
           .eq('id', message.id);
 
         results.sent++;
-        console.log(`✅ Sent message ${message.id} to ${message.channel_id}`);
+        console.log(`✅ Sent message ${message.id} (${msgType}) to ${message.channel_id}`);
 
       } catch (error: any) {
-        console.error(`Error processing message ${message.id}:`, error);
+        console.error(`Error processing message ${message.id}:`, error.message);
 
         const retryCount = message.retry_count + 1;
         const maxRetries = message.max_retries || 3;
@@ -143,25 +119,19 @@ Deno.serve(async (req) => {
               retry_count: retryCount,
             })
             .eq('id', message.id);
-
           results.failed++;
-          console.log(`❌ Message ${message.id} failed after ${retryCount} attempts`);
         } else {
           const backoffSeconds = Math.pow(2, retryCount) * 60;
-          const nextRetry = new Date(Date.now() + backoffSeconds * 1000);
-
           await supabase
             .from('telegram_outbox')
             .update({
               status: 'pending',
               retry_count: retryCount,
-              next_retry_at: nextRetry.toISOString(),
+              next_retry_at: new Date(Date.now() + backoffSeconds * 1000).toISOString(),
               last_error: error.message || 'Unknown error',
             })
             .eq('id', message.id);
-
           results.retrying++;
-          console.log(`🔄 Message ${message.id} scheduled for retry ${retryCount}/${maxRetries} in ${backoffSeconds}s`);
         }
       }
 
@@ -176,7 +146,7 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: any) {
-    console.error('Fatal error:', error);
+    console.error('Fatal error:', error.message);
     return new Response(
       JSON.stringify({ ok: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -184,92 +154,112 @@ Deno.serve(async (req) => {
   }
 });
 
-function formatMessage(message: any): { text?: string; photo?: string; caption?: string } {
-  const payload = message.payload;
-  const messageType = message.message_type;
+// ─── Trade message processor ─────────────────────────────────────────────────
+// Generates the image by calling the generate-image API directly (no URL
+// dependency on Supabase Storage). Uses Telegram multipart file upload so
+// the image is always displayed inline regardless of Storage bucket settings.
 
-  switch (messageType) {
-    case 'new_analysis':
-      return formatAnalysisMessage(payload);
-    case 'new_trade':
-    case 'new_high':
-    case 'winning_trade':
-      return formatTradeMessage(payload, messageType === 'new_high' || messageType === 'winning_trade', messageType === 'winning_trade', payload.isTestingMode || false);
-    case 'trade_result':
-      return formatTradeResultMessage(payload);
-    case 'trade_closed_for_new_entry':
-      return formatTradeClosedForNewEntryMessage(payload);
-    case 'trade_entry_averaged':
-      return formatTradeEntryAveragedMessage(payload);
-    case 'analysis_update':
-    case 'trade_update':
-      return formatUpdateMessage(payload, messageType);
-    default:
-      return { text: JSON.stringify(payload) };
+async function processTradeMessage(
+  botToken: string,
+  chatId: string,
+  payload: any,
+  msgType: string
+): Promise<any> {
+  const trade    = payload?.trade ?? payload;
+  const isNewHigh = msgType === 'new_high';
+  const isWinning = msgType === 'winning_trade';
+  const isTesting = payload?.isTestingMode ?? false;
+  const highPrice: number | undefined =
+    isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;
+
+  const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
+
+  // Try to generate image bytes directly from the API
+  if (trade?.id) {
+    const imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
+    if (imgBytes && imgBytes.byteLength > 1024) {
+      console.log(`[outbox] Sending photo (${imgBytes.byteLength} bytes) for trade ${trade.id}`);
+      return await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
+    }
+    console.warn(`[outbox] Image generation failed for trade ${trade.id}, sending text fallback`);
   }
+
+  // Text fallback — suppress link preview so website OG doesn't appear
+  return await sendTelegramMessage(botToken, chatId, caption, true);
 }
 
-function formatAnalysisMessage(payload: any): { text: string } {
-  const analysis = payload.analysis || payload;
-  const analysisUrl = `${BASE_URL}/dashboard/analysis/${analysis.id}`;
+// ─── Image byte generation ───────────────────────────────────────────────────
 
-  let message = "📊 <b>NEW INDEX ANALYSIS | تحليل جديد للمؤشر</b>\n\n";
-  message += `<b>Index | المؤشر:</b> ${analysis.index_symbol}\n`;
-  if (analysis.title) {
-    message += `<b>Title | العنوان:</b> ${analysis.title}\n`;
-  }
-  if (analysis.author?.full_name) {
-    message += `<b>Analyst | المحلل:</b> ${analysis.author.full_name}\n`;
-  }
-  message += `\n<a href="${analysisUrl}">📈 View Full Analysis | عرض التحليل الكامل</a>`;
+async function fetchImageBytes(
+  tradeId: string,
+  isNewHigh: boolean,
+  newHighPrice?: number
+): Promise<ArrayBuffer | null> {
+  try {
+    const params = new URLSearchParams();
+    if (isNewHigh) params.set('isNewHigh', 'true');
+    if (newHighPrice != null) params.set('newHighPrice', String(newHighPrice));
 
-  return { text: message };
-}
+    const url = `${BASE_URL}/api/indices/trades/${tradeId}/generate-image${params.size ? '?' + params : ''}`;
+    console.log('[outbox] Fetching image from:', url);
 
-function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean = false, isTestingMode: boolean = false): { text?: string; photo?: string; caption?: string } {
-  const trade = payload.trade || payload;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(28_000),
+      headers: { 'Accept': 'image/png' },
+    });
 
-  console.log('[OutboxProcessor] formatTradeMessage called:', {
-    tradeId: trade.id,
-    hasContractUrl: !!trade.contract_url,
-    contractUrl: trade.contract_url,
-    isNewHigh,
-    isWinning,
-    isTestingMode,
-  });
-
-  const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
-  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-  const currentPrice = trade.current_contract || entryPrice;
-
-  const currentSnapshot = trade.current_contract_snapshot || trade.entry_contract_snapshot;
-  const bid = currentSnapshot?.bid || 0;
-  const ask = currentSnapshot?.ask || 0;
-
-  // Simplified format for new highs (Arabic only)
-  if (isNewHigh) {
-    const highPrice = payload.highPrice || trade.contract_high_since || currentPrice;
-    const gainDollars = ((highPrice - entryPrice) * (trade.qty || 1) * 100).toFixed(2);
-
-    // Format expiry date
-    const expiryDate = trade.expiry ? new Date(trade.expiry).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) : '';
-    const optionType = trade.option_type?.toUpperCase() || trade.direction?.toUpperCase() || '';
-
-    let caption = isTestingMode ? "🧪 <b>اختبار - قمة جديدة</b>\n\n" : "🚀 <b>قمة جديدة</b>\n\n";
-    caption += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
-    caption += `<b>العقد:</b> ${trade.strike?.toFixed(0)} - ${expiryDate} - ${optionType}\n`;
-    caption += `<b>سعر العقد:</b> $${highPrice.toFixed(2)}\n`;
-    caption += `<b>سعر الدخول:</b> $${entryPrice.toFixed(2)}\n`;
-    caption += `<b>المكسب:</b> $${gainDollars}\n`;
-
-    if (trade.contract_url) {
-      return { photo: trade.contract_url, caption };
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[outbox] generate-image returned ${res.status}: ${body.substring(0, 200)}`);
+      return null;
     }
 
-    return { text: caption };
+    const buf = await res.arrayBuffer();
+    console.log(`[outbox] Image bytes received: ${buf.byteLength}`);
+    return buf;
+  } catch (err: any) {
+    console.warn('[outbox] fetchImageBytes error:', err.message);
+    return null;
+  }
+}
+
+// ─── Caption builder ──────────────────────────────────────────────────────────
+
+function buildTradeCaption(
+  trade: any,
+  isNewHigh: boolean,
+  isWinning: boolean,
+  isTestingMode: boolean,
+  highPrice?: number
+): string {
+  const entryPrice  = trade?.entry_contract_snapshot?.mid
+    ?? trade?.entry_contract_snapshot?.price
+    ?? trade?.entry_contract_snapshot?.last
+    ?? 0;
+  const currentPrice = trade?.current_contract ?? entryPrice;
+
+  const analysisId = trade?.analysis?.id ?? trade?.analysis_id;
+  const analysisUrl = analysisId ? `${BASE_URL}/dashboard/analysis/${analysisId}` : BASE_URL;
+
+  // ── New High ──
+  if (isNewHigh) {
+    const dispHigh = highPrice ?? trade?.contract_high_since ?? currentPrice;
+    const gainUsd  = ((dispHigh - entryPrice) * (trade?.qty ?? 1) * 100).toFixed(2);
+    const expDate  = trade?.expiry
+      ? new Date(trade.expiry).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' })
+      : '';
+    const optType  = trade?.option_type?.toUpperCase() ?? trade?.direction?.toUpperCase() ?? '';
+
+    let msg = isTestingMode ? "🧪 <b>اختبار - قمة جديدة</b>\n\n" : "🚀 <b>قمة جديدة</b>\n\n";
+    msg += `<b>المؤشر:</b> ${trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol ?? ''}\n`;
+    msg += `<b>العقد:</b> ${trade?.strike?.toFixed(0) ?? ''} - ${expDate} - ${optType}\n`;
+    msg += `<b>سعر العقد:</b> $${dispHigh.toFixed(2)}\n`;
+    msg += `<b>سعر الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+    msg += `<b>المكسب:</b> $${gainUsd}\n`;
+    return msg;
   }
 
-  // Full format for new trades and winning trades
+  // ── New Trade / Winning Trade ──
   let caption = '';
   if (isTestingMode) {
     caption = isWinning
@@ -281,56 +271,81 @@ function formatTradeMessage(payload: any, isNewHigh: boolean, isWinning: boolean
       : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
   }
 
-  caption += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
-  caption += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
+  caption += `<b>Index | المؤشر:</b> ${trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol ?? ''}\n`;
+  caption += `<b>Direction | الاتجاه:</b> ${(trade?.direction ?? '').toUpperCase()} | ${trade?.direction === 'call' ? 'شراء' : 'بيع'}\n`;
 
-  if (trade.strike) {
-    caption += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
+  if (trade?.strike) {
+    caption += `<b>Strike | السعر:</b> $${Number(trade.strike).toFixed(0)}\n`;
   }
 
   caption += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
   caption += `<b>Current | الحالي:</b> $${currentPrice.toFixed(2)}\n`;
 
+  const snap = trade?.current_contract_snapshot ?? trade?.entry_contract_snapshot;
+  const bid  = snap?.bid ?? 0;
+  const ask  = snap?.ask ?? 0;
   if (bid > 0 && ask > 0) {
     caption += `<b>Bid/Ask | عرض/طلب:</b> $${bid.toFixed(2)} / $${ask.toFixed(2)}\n`;
   }
 
   if (isWinning) {
-    const pnl = payload.pnl || 0;
-    const pnlPercent = ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2);
-
-    caption += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)} (+${pnlPercent}%)\n`;
+    const pnl       = (currentPrice - entryPrice) * (trade?.qty ?? 1) * 100;
+    const pnlPct    = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2) : '0';
+    caption += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)} (+${pnlPct}%)\n`;
     caption += `<b>🎊 Reached $100+ profit milestone! | تم الوصول لربح +$100!</b>\n`;
   }
 
-  if (trade.qty) {
+  if (trade?.qty) {
     caption += `<b>Quantity | الكمية:</b> ${trade.qty} contracts | عقود\n`;
   }
 
-  if (trade.author?.full_name) {
+  if (trade?.author?.full_name) {
     caption += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
   }
 
   caption += `\n<a href="${analysisUrl}">📊 View Analysis | عرض التحليل</a>`;
 
-  if (trade.contract_url) {
-    return { photo: trade.contract_url, caption };
-  }
+  // Telegram photo caption limit is 1024 chars
+  return caption.length > 1020 ? caption.substring(0, 1020) + '…' : caption;
+}
 
-  return { text: caption };
+// ─── formatMessage (non-trade message types) ─────────────────────────────────
+
+function formatMessage(message: any): { text?: string; photo?: string; caption?: string } {
+  const payload  = message.payload;
+  switch (message.message_type) {
+    case 'new_analysis':   return formatAnalysisMessage(payload);
+    case 'trade_result':   return formatTradeResultMessage(payload);
+    case 'trade_closed_for_new_entry': return formatTradeClosedForNewEntryMessage(payload);
+    case 'trade_entry_averaged': return formatTradeEntryAveragedMessage(payload);
+    case 'analysis_update':
+    case 'trade_update':   return formatUpdateMessage(payload, message.message_type);
+    default:               return { text: JSON.stringify(payload) };
+  }
+}
+
+function formatAnalysisMessage(payload: any): { text: string } {
+  const analysis    = payload.analysis || payload;
+  const analysisUrl = `${BASE_URL}/dashboard/analysis/${analysis.id}`;
+
+  let message = "📊 <b>NEW INDEX ANALYSIS | تحليل جديد للمؤشر</b>\n\n";
+  message += `<b>Index | المؤشر:</b> ${analysis.index_symbol}\n`;
+  if (analysis.title)                message += `<b>Title | العنوان:</b> ${analysis.title}\n`;
+  if (analysis.author?.full_name)    message += `<b>Analyst | المحلل:</b> ${analysis.author.full_name}\n`;
+  message += `\n<a href="${analysisUrl}">📈 View Full Analysis | عرض التحليل الكامل</a>`;
+  return { text: message };
 }
 
 function formatTradeResultMessage(payload: any): { text: string } {
-  const trade = payload.trade || payload;
-  const outcome = payload.outcome || trade.outcome;
-  const pnl = payload.pnl || trade.pnl_usd || 0;
+  const trade     = payload.trade || payload;
+  const outcome   = payload.outcome || trade.outcome;
+  const pnl       = payload.pnl || trade.pnl_usd || 0;
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${trade.analysis?.id || trade.analysis_id}`;
-
-  const isWin = outcome === 'succeed';
-  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
+  const entryPrice  = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || 0;
   const currentPrice = trade.current_contract || 0;
   const highestPrice = trade.contract_high_since || 0;
 
+  const isWin = outcome === 'succeed';
   let message = isWin
     ? "🎉 <b>TRADE WIN | فوز في الصفقة!</b>\n\n"
     : outcome === 'expired'
@@ -341,175 +356,142 @@ function formatTradeResultMessage(payload: any): { text: string } {
   message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
   message += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
   message += `<b>Close | الإغلاق:</b> $${currentPrice.toFixed(2)}\n`;
-
-  if (highestPrice > 0) {
-    message += `<b>Highest | الأعلى:</b> $${highestPrice.toFixed(2)}\n`;
-  }
-
-  message += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)}`;
-  if (pnl > 0) {
-    message += " ✅";
-  } else if (pnl < 0) {
-    message += " ❌";
-  }
-  message += "\n";
-
-  if (trade.author?.full_name) {
-    message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
-  }
-
+  if (highestPrice > 0) message += `<b>Highest | الأعلى:</b> $${highestPrice.toFixed(2)}\n`;
+  message += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)}${pnl > 0 ? ' ✅' : pnl < 0 ? ' ❌' : ''}\n`;
+  if (trade.author?.full_name) message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
   message += `\n<a href="${analysisUrl}">📊 View Analysis | عرض التحليل</a>`;
-
-  return { text: message };
-}
-
-function formatUpdateMessage(payload: any, type: string): { text: string } {
-  const update = payload.update || payload;
-  const entityUrl = payload.url || '#';
-
-  let message = "📢 <b>UPDATE | تحديث</b>\n\n";
-
-  if (update.body || update.text_en) {
-    message += `${update.body || update.text_en}\n\n`;
-  }
-
-  if (update.text_ar) {
-    message += `${update.text_ar}\n\n`;
-  }
-
-  message += `<a href="${entityUrl}">View Details | عرض التفاصيل</a>`;
-
   return { text: message };
 }
 
 function formatTradeClosedForNewEntryMessage(payload: any): { text: string } {
-  const trade = payload.trade || payload;
-  const reason = payload.reason || 'Closed for new entry';
-  const peakPrice = payload.peakPrice || trade.peak_price_after_entry || trade.contract_high_since || 0;
-
-  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-  const pnlPercent = ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2);
+  const trade       = payload.trade || payload;
+  const reason      = payload.reason || 'Closed for new entry';
+  const peakPrice   = payload.peakPrice || trade.contract_high_since || 0;
+  const entryPrice  = trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.price || 0;
+  const pnlPercent  = entryPrice > 0 ? ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2) : '0';
 
   let message = "🔄 <b>TRADE CLOSED FOR NEW ENTRY | إغلاق الصفقة لإدخال جديد</b>\n\n";
   message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
   message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
-
-  if (trade.strike) {
-    message += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
-  }
-
+  if (trade.strike) message += `<b>Strike | السعر:</b> $${Number(trade.strike).toFixed(0)}\n`;
   message += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
   message += `<b>Closed at Peak | الإغلاق عند القمة:</b> $${peakPrice.toFixed(2)}\n`;
   message += `<b>Peak Profit | أعلى ربح:</b> +${pnlPercent}%\n\n`;
   message += `<i>${reason}</i>\n`;
-
-  if (trade.author?.full_name) {
-    message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
-  }
-
+  if (trade.author?.full_name) message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
   return { text: message };
 }
 
 function formatTradeEntryAveragedMessage(payload: any): { text: string } {
-  const trade = payload.trade || payload;
-  const oldEntryPrice = payload.oldEntryPrice || 0;
-  const newEntryPrice = payload.newEntryPrice || 0;
-  const averagedEntryPrice = payload.averagedEntryPrice || ((oldEntryPrice + newEntryPrice) / 2);
-  const totalEntries = payload.totalEntries || 2;
+  const trade            = payload.trade || payload;
+  const oldEntry         = payload.oldEntryPrice || 0;
+  const newEntry         = payload.newEntryPrice || 0;
+  const avgEntry         = payload.averagedEntryPrice || ((oldEntry + newEntry) / 2);
+  const totalEntries     = payload.totalEntries || 2;
 
   let message = "📊 <b>ENTRY PRICE AVERAGED | متوسط سعر الدخول</b>\n\n";
   message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}\n`;
   message += `<b>Direction | الاتجاه:</b> ${trade.direction.toUpperCase()} | ${trade.direction === 'call' ? 'شراء' : 'بيع'}\n`;
-
-  if (trade.strike) {
-    message += `<b>Strike | السعر:</b> $${trade.strike.toFixed(0)}\n`;
-  }
-
-  message += `\n<b>Original Entry | الدخول الأصلي:</b> $${oldEntryPrice.toFixed(2)}\n`;
-  message += `<b>New Entry | الدخول الجديد:</b> $${newEntryPrice.toFixed(2)}\n`;
-  message += `<b>Averaged Entry | متوسط الدخول:</b> $${averagedEntryPrice.toFixed(2)}\n`;
-  message += `<b>Total Entries | إجمالي المداخل:</b> ${totalEntries}\n\n`;
-  message += `<i>Entry price has been averaged. Trade continues with new calculation. | تم حساب متوسط سعر الدخول. تستمر الصفقة بحساب جديد.</i>\n`;
-
-  if (trade.author?.full_name) {
-    message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
-  }
-
+  if (trade.strike) message += `<b>Strike | السعر:</b> $${Number(trade.strike).toFixed(0)}\n`;
+  message += `\n<b>Original Entry | الدخول الأصلي:</b> $${oldEntry.toFixed(2)}\n`;
+  message += `<b>New Entry | الدخول الجديد:</b> $${newEntry.toFixed(2)}\n`;
+  message += `<b>Averaged Entry | متوسط الدخول:</b> $${avgEntry.toFixed(2)}\n`;
+  message += `<b>Total Entries | إجمالي المداخل:</b> ${totalEntries}\n`;
+  if (trade.author?.full_name) message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
   return { text: message };
 }
 
-async function sendTelegramMessage(botToken: string, chatId: string, text: string) {
-  const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+function formatUpdateMessage(payload: any, _type: string): { text: string } {
+  const update    = payload.update || payload;
+  const entityUrl = payload.url || '#';
 
-  const body = {
-    chat_id: chatId,
-    text,
-    parse_mode: 'HTML',
-    disable_web_page_preview: false,
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Telegram API error: ${error}`);
-  }
-
-  return response.json();
+  let message = "📢 <b>UPDATE | تحديد</b>\n\n";
+  if (update.body || update.text_en) message += `${update.body || update.text_en}\n\n`;
+  if (update.text_ar)                message += `${update.text_ar}\n\n`;
+  message += `<a href="${entityUrl}">View Details | عرض التفاصيل</a>`;
+  return { text: message };
 }
 
-async function sendTelegramPhoto(botToken: string, chatId: string, photoUrl: string, caption: string) {
-  // Use sendPhoto so the image displays inline as an expandable photo in the channel.
-  // Fall back to sendDocument if sendPhoto is rejected (e.g. image > 5 MB or URL not reachable).
-  console.log('[sendTelegramPhoto] Attempting sendPhoto for inline display:', photoUrl);
+// ─── Telegram send helpers ────────────────────────────────────────────────────
 
-  const photoBody = {
-    chat_id: chatId,
-    photo: photoUrl,
-    caption,
-    parse_mode: 'HTML',
-  };
+async function sendTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string,
+  disableWebPreview = false
+) {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: 'HTML',
+      disable_web_page_preview: disableWebPreview,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram sendMessage error: ${err}`);
+  }
+  return res.json();
+}
+
+// Multipart file upload — most reliable, no URL accessibility issues
+async function sendTelegramPhotoBytes(
+  botToken: string,
+  chatId: string,
+  pngBytes: ArrayBuffer,
+  caption: string
+) {
+  const form = new FormData();
+  form.append('chat_id', chatId);
+  form.append('photo', new Blob([pngBytes], { type: 'image/png' }), 'trade.png');
+  form.append('caption', caption.substring(0, 1024));
+  form.append('parse_mode', 'HTML');
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram sendPhoto (bytes) error: ${err}`);
+  }
+  return res.json();
+}
+
+// URL-based sendPhoto (kept for non-trade photo messages, falls back to sendDocument)
+async function sendTelegramPhotoUrl(
+  botToken: string,
+  chatId: string,
+  photoUrl: string,
+  caption: string
+) {
+  console.log('[sendTelegramPhotoUrl] Attempting:', photoUrl);
 
   const photoRes = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(photoBody),
+    body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption, parse_mode: 'HTML' }),
   });
 
-  if (photoRes.ok) {
-    const result = await photoRes.json();
-    console.log('[sendTelegramPhoto] ✅ sendPhoto succeeded, message_id:', result?.result?.message_id);
-    return result;
-  }
+  if (photoRes.ok) return photoRes.json();
 
-  // sendPhoto failed — log and fall back to sendDocument
   const photoErr = await photoRes.text();
-  console.warn('[sendTelegramPhoto] sendPhoto failed, falling back to sendDocument. Error:', photoErr);
-
-  const docBody = {
-    chat_id: chatId,
-    document: photoUrl,
-    caption,
-    parse_mode: 'HTML',
-  };
+  console.warn('[sendTelegramPhotoUrl] sendPhoto failed, falling back to sendDocument:', photoErr);
 
   const docRes = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(docBody),
+    body: JSON.stringify({ chat_id: chatId, document: photoUrl, caption, parse_mode: 'HTML' }),
   });
 
   if (!docRes.ok) {
     const docErr = await docRes.text();
-    console.error('[sendTelegramPhoto] sendDocument also failed:', docErr);
-    throw new Error(`Telegram API error (sendDocument fallback): ${docErr}`);
+    throw new Error(`Telegram sendDocument fallback error: ${docErr}`);
   }
-
-  const result = await docRes.json();
-  console.log('[sendTelegramPhoto] ✅ sendDocument fallback succeeded');
-  return result;
+  return docRes.json();
 }
