@@ -30,6 +30,7 @@ interface GeneratePeriodReportRequest {
   analyst_id: string;
   language_mode?: 'en' | 'ar' | 'dual';
   period_type: 'daily' | 'weekly' | 'monthly' | 'custom';
+  telegram_channel_id?: string;
   dry_run?: boolean;
 }
 
@@ -81,10 +82,11 @@ Deno.serve(async (req) => {
       analyst_id,
       language_mode = 'dual',
       period_type,
+      telegram_channel_id,
       dry_run = false
     }: GeneratePeriodReportRequest = await req.json();
 
-    console.log(`[Period Report] ${period_type} report: ${start_date} to ${end_date} for analyst ${analyst_id}`);
+    console.log(`[Period Report] ${period_type} report: ${start_date} to ${end_date} for analyst ${analyst_id}, channel: ${telegram_channel_id || 'all'}`);
 
     const startDate = new Date(start_date + 'T00:00:00.000Z');
     const endDate = new Date(end_date + 'T23:59:59.999Z');
@@ -92,11 +94,18 @@ Deno.serve(async (req) => {
     const tradingDays = getTradingDaysCount(startDate, endDate);
     console.log(`[Period Report] Trading days in period: ${tradingDays}`);
 
-    const { data: trades, error: tradesError } = await supabase
+    let tradesQuery = supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
+      .eq('is_testing', false)
       .order('created_at', { ascending: false });
+
+    if (telegram_channel_id) {
+      tradesQuery = tradesQuery.eq('telegram_channel_id', telegram_channel_id);
+    }
+
+    const { data: trades, error: tradesError } = await tradesQuery;
 
     if (tradesError) throw tradesError;
 
@@ -265,7 +274,8 @@ Deno.serve(async (req) => {
       .upsert({
         report_date: end_date,
         author_id: analyst_id,
-        telegram_channel_id: null,
+        telegram_channel_id: telegram_channel_id || null,
+        channel_key: telegram_channel_id || '',
         html_content: html,
         trade_count: allTrades.length,
         summary: metrics,
@@ -279,7 +289,7 @@ Deno.serve(async (req) => {
         start_date,
         end_date
       }, {
-        onConflict: 'report_date,author_id,language_mode,period_type'
+        onConflict: 'report_date,author_id,language_mode,period_type,channel_key'
       })
       .select()
       .single();
