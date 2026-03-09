@@ -29,6 +29,7 @@ interface GenerateReportRequest {
   analyst_id: string;
   language_mode?: 'en' | 'ar' | 'dual';
   period_type?: 'daily' | 'weekly' | 'monthly';
+  telegram_channel_id?: string;
   dry_run?: boolean;
 }
 
@@ -42,10 +43,10 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const { date, analyst_id, language_mode = 'dual', period_type = 'daily', dry_run = false }: GenerateReportRequest = await req.json();
+    const { date, analyst_id, language_mode = 'dual', period_type = 'daily', telegram_channel_id, dry_run = false }: GenerateReportRequest = await req.json();
 
     const reportDate = date || new Date().toISOString().split('T')[0];
-    console.log(`[Report Generator] Starting for date: ${reportDate}, analyst: ${analyst_id}, language: ${language_mode}, period: ${period_type}`);
+    console.log(`[Report Generator] Starting for date: ${reportDate}, analyst: ${analyst_id}, language: ${language_mode}, period: ${period_type}, channel: ${telegram_channel_id || 'all'}`);
 
     let startOfDay: Date;
     let endOfDay: Date;
@@ -70,11 +71,18 @@ Deno.serve(async (req) => {
       endOfDay = new Date(reportDate + 'T23:59:59.999Z');
     }
 
-    const { data: allTradesFromDB, error: tradesError } = await supabase
+    let tradesQuery = supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
+      .eq('is_testing', false)
       .order('created_at', { ascending: false });
+
+    if (telegram_channel_id) {
+      tradesQuery = tradesQuery.eq('telegram_channel_id', telegram_channel_id);
+    }
+
+    const { data: allTradesFromDB, error: tradesError } = await tradesQuery;
 
     if (tradesError) throw tradesError;
 
@@ -344,7 +352,8 @@ Deno.serve(async (req) => {
       .upsert({
         report_date: reportDate,
         author_id: analyst_id,
-        telegram_channel_id: null,
+        telegram_channel_id: telegram_channel_id || null,
+        channel_key: telegram_channel_id || '',
         html_content: html,
         trade_count: totalTrades,
         summary: metrics,
@@ -357,7 +366,7 @@ Deno.serve(async (req) => {
         file_size_bytes: html.length,
         status: 'generated'
       }, {
-        onConflict: 'report_date,author_id,language_mode,period_type',
+        onConflict: 'report_date,author_id,language_mode,period_type,channel_key',
         returning: 'representation'
       })
       .select()
