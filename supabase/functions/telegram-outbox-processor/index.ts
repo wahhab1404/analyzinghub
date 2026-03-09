@@ -73,6 +73,12 @@ Deno.serve(async (req) => {
             message.payload,
             msgType
           );
+        } else if (msgType === 'company_new_trade') {
+          telegramResult = await processCompanyTradeMessage(
+            TELEGRAM_BOT_TOKEN,
+            message.channel_id,
+            message.payload
+          );
         } else {
           const formatted = formatMessage(message);
           if (formatted.photo) {
@@ -410,6 +416,63 @@ function formatUpdateMessage(payload: any, _type: string): { text: string } {
   if (update.text_ar)                message += `${update.text_ar}\n\n`;
   message += `<a href="${entityUrl}">View Details | عرض التفاصيل</a>`;
   return { text: message };
+}
+
+// ─── Company trade message processor ─────────────────────────────────────────
+// Sends a formatted text message for company options contract trades.
+// No image generation (company trades use text-only cards for now).
+
+async function processCompanyTradeMessage(
+  botToken: string,
+  chatId: string,
+  payload: any
+): Promise<any> {
+  const trade       = payload?.trade ?? payload;
+  const isTesting   = payload?.isTestingMode ?? false;
+
+  const caption = buildCompanyTradeCaption(trade, isTesting);
+  console.log(`[outbox] Sending company_new_trade text to ${chatId} (isTesting=${isTesting})`);
+  return await sendTelegramMessage(botToken, chatId, caption, true);
+}
+
+function buildCompanyTradeCaption(trade: any, isTestingMode: boolean): string {
+  const direction    = (trade?.direction ?? '').toUpperCase();
+  const symbol       = trade?.symbol ?? '';
+  const strike       = trade?.strike ? `$${Number(trade.strike).toLocaleString()}` : '';
+  const expiry       = trade?.expiry_date
+    ? new Date(trade.expiry_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+    : '';
+  const entryPrice   = Number(trade?.entry_price ?? 0);
+  const qty          = trade?.contracts_qty ?? 1;
+  const isCall       = direction === 'CALL';
+
+  const dirAr        = isCall ? 'شراء (CALL)' : 'بيع (PUT)';
+  const prefix       = isTestingMode
+    ? "🧪 <b>TEST COMPANY TRADE | صفقة شركة اختبارية</b>\n\n"
+    : "🏢 <b>NEW COMPANY TRADE | صفقة شركة جديدة</b>\n\n";
+
+  let msg = prefix;
+  msg += `<b>Symbol | الرمز:</b> ${symbol}\n`;
+  msg += `<b>Direction | الاتجاه:</b> ${direction} | ${dirAr}\n`;
+  if (strike) msg += `<b>Strike | سعر التنفيذ:</b> ${strike}\n`;
+  if (expiry) msg += `<b>Expiry | الانتهاء:</b> ${expiry}\n`;
+  msg += `<b>Entry | سعر الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  msg += `<b>Qty | الكمية:</b> ${qty} contract${qty !== 1 ? 's' : ''}\n`;
+
+  const targets: any[] = Array.isArray(trade?.targets) ? trade.targets : [];
+  if (targets.length > 0) {
+    targets.forEach((t: any, i: number) => {
+      const level = t?.level ?? t?.price ?? 0;
+      if (level > 0) msg += `<b>Target ${i + 1} | هدف ${i + 1}:</b> $${Number(level).toFixed(2)}\n`;
+    });
+  }
+
+  const stop = trade?.stoploss?.level ?? trade?.stoploss?.price ?? 0;
+  if (stop > 0) msg += `<b>Stop | وقف الخسارة:</b> $${Number(stop).toFixed(2)}\n`;
+
+  if (trade?.notes) msg += `\n<i>${trade.notes}</i>\n`;
+
+  return msg.length > 4000 ? msg.substring(0, 4000) + '…' : msg;
 }
 
 // ─── Telegram send helpers ────────────────────────────────────────────────────

@@ -586,16 +586,38 @@ export async function POST(request: NextRequest) {
             for (const channelId of channelsToPublish) {
               let actualChannelId = channelId;
 
-              // Check if it's a UUID (database ID) or direct channel ID
+              // Check if it's a UUID (database ID) or direct Telegram chat ID
               if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
-                const { data: channel } = await supabaseClient
-                  .from("telegram_channels")
-                  .select("channel_id")
-                  .eq("id", channelId)
-                  .single();
+                if (body.is_testing) {
+                  // Testing channel UUIDs come from analyzer_testing_channels table
+                  const { data: testChannel } = await supabaseClient
+                    .from("analyzer_testing_channels")
+                    .select("telegram_channel_id")
+                    .eq("id", channelId)
+                    .eq("is_enabled", true)
+                    .single();
 
-                if (channel?.channel_id) {
-                  actualChannelId = channel.channel_id;
+                  if (testChannel?.telegram_channel_id) {
+                    actualChannelId = testChannel.telegram_channel_id;
+                    console.log(`[Testing] Resolved testing channel ${channelId} → ${actualChannelId}`);
+                  } else {
+                    console.warn(`[Testing] Could not resolve testing channel UUID ${channelId} — skipping`);
+                    continue;
+                  }
+                } else {
+                  // Production channel UUIDs come from telegram_channels table
+                  const { data: channel } = await supabaseClient
+                    .from("telegram_channels")
+                    .select("channel_id")
+                    .eq("id", channelId)
+                    .single();
+
+                  if (channel?.channel_id) {
+                    actualChannelId = channel.channel_id;
+                  } else {
+                    console.warn(`[Production] Could not resolve channel UUID ${channelId} — skipping`);
+                    continue;
+                  }
                 }
               }
 
@@ -611,7 +633,7 @@ export async function POST(request: NextRequest) {
                 next_retry_at: new Date().toISOString(),
               });
 
-              console.log(`✅ Queued new_trade message for channel ${actualChannelId} with snapshot: ${snapshotUrl || 'none'}`);
+              console.log(`✅ Queued new_trade message for channel ${actualChannelId} (isTestingMode=${body.is_testing || false}) with snapshot: ${snapshotUrl || 'none'}`);
             }
           }
         }
