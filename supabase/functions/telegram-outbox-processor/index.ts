@@ -463,29 +463,53 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
 }
 
 async function sendTelegramPhoto(botToken: string, chatId: string, photoUrl: string, caption: string) {
-  console.log('[sendTelegramPhoto] Sending HIGH QUALITY image as document');
-  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+  // Use sendPhoto so the image displays inline as an expandable photo in the channel.
+  // Fall back to sendDocument if sendPhoto is rejected (e.g. image > 5 MB or URL not reachable).
+  console.log('[sendTelegramPhoto] Attempting sendPhoto for inline display:', photoUrl);
 
-  const body = {
+  const photoBody = {
+    chat_id: chatId,
+    photo: photoUrl,
+    caption,
+    parse_mode: 'HTML',
+  };
+
+  const photoRes = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(photoBody),
+  });
+
+  if (photoRes.ok) {
+    const result = await photoRes.json();
+    console.log('[sendTelegramPhoto] ✅ sendPhoto succeeded, message_id:', result?.result?.message_id);
+    return result;
+  }
+
+  // sendPhoto failed — log and fall back to sendDocument
+  const photoErr = await photoRes.text();
+  console.warn('[sendTelegramPhoto] sendPhoto failed, falling back to sendDocument. Error:', photoErr);
+
+  const docBody = {
     chat_id: chatId,
     document: photoUrl,
     caption,
     parse_mode: 'HTML',
   };
 
-  const response = await fetch(url, {
+  const docRes = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify(docBody),
   });
 
-  if (!response.ok) {
-    const error = await response.text();
-    console.error('[sendTelegramPhoto] Telegram API error:', error);
-    throw new Error(`Telegram API error: ${error}`);
+  if (!docRes.ok) {
+    const docErr = await docRes.text();
+    console.error('[sendTelegramPhoto] sendDocument also failed:', docErr);
+    throw new Error(`Telegram API error (sendDocument fallback): ${docErr}`);
   }
 
-  const result = await response.json();
-  console.log('[sendTelegramPhoto] Successfully sent high quality image');
+  const result = await docRes.json();
+  console.log('[sendTelegramPhoto] ✅ sendDocument fallback succeeded');
   return result;
 }

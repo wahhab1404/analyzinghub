@@ -9,6 +9,7 @@
  *   isNewHigh=true      — render a "new high" alert card
  *   newHighPrice=12.50  — the new high price value
  *
+ * Canvas: 1000×560 — optimal for Telegram inline photo preview.
  * Uses `nodejs` runtime for maximum compatibility on Netlify.
  */
 
@@ -21,25 +22,26 @@ export const dynamic = 'force-dynamic';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────
 const C = {
-  bg: '#0D1117',
-  card: '#161B22',
-  elevated: '#1C2128',
-  border: '#30363D',
-  text: '#E6EDF3',
-  textSub: '#8B949E',
-  textMuted: '#6E7681',
-  call: '#3FB950',
-  put: '#F85149',
-  blue: '#58A6FF',
-  gold: '#E3B341',
-  callBg: 'rgba(63,185,80,0.10)',
-  putBg: 'rgba(248,81,73,0.10)',
-  callBd: 'rgba(63,185,80,0.28)',
-  putBd: 'rgba(248,81,73,0.28)',
-  goldBg: 'rgba(227,179,65,0.12)',
-  goldBd: 'rgba(227,179,65,0.30)',
-  blueBg: 'rgba(88,166,255,0.10)',
-  blueBd: 'rgba(88,166,255,0.28)',
+  bg:       '#0A0E13',
+  card:     '#111720',
+  elevated: '#161D28',
+  border:   '#1E2A38',
+  divider:  '#1A2332',
+  text:     '#E8EFF7',
+  textSub:  '#8DA0B8',
+  textMuted:'#4D6278',
+  call:     '#27C76F',
+  put:      '#F03E3E',
+  blue:     '#3B9EFF',
+  gold:     '#F5A623',
+  callBg:   'rgba(39,199,111,0.10)',
+  putBg:    'rgba(240,62,62,0.10)',
+  callBd:   'rgba(39,199,111,0.25)',
+  putBd:    'rgba(240,62,62,0.25)',
+  goldBg:   'rgba(245,166,35,0.12)',
+  goldBd:   'rgba(245,166,35,0.28)',
+  blueBg:   'rgba(59,158,255,0.10)',
+  blueBd:   'rgba(59,158,255,0.25)',
 } as const;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -48,8 +50,14 @@ function safeNum(v: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function fmtPrice(n: number): string {
+function fmt(n: number): string {
   return n.toFixed(2);
+}
+
+function compactNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000)     return (n / 1_000).toFixed(1) + 'K';
+  return n.toLocaleString();
 }
 
 // ─── Route handler ──────────────────────────────────────────────────────────
@@ -126,7 +134,7 @@ export async function GET(
     const strike = safeNum(trade.strike);
     const optionType = (trade.option_type ?? trade.direction ?? 'call').toLowerCase();
     const isCall = optionType === 'call';
-    const accent = isCall ? C.call : C.put;
+    const accent  = isCall ? C.call : C.put;
     const accentBg = isCall ? C.callBg : C.putBg;
     const accentBd = isCall ? C.callBd : C.putBd;
 
@@ -144,6 +152,10 @@ export async function GET(
     const stop: number | null = safeNum(trade.stoploss?.level ?? trade.stoploss?.price) || null;
 
     const qty = safeNum(trade.qty, 1) || 1;
+    const oi  = safeNum(snap.open_interest ?? snap.oi);
+    const vol = safeNum(snap.volume ?? snap.v);
+    const mid = entryPrice; // entry IS the mid at time of trade
+
     const analystName: string = (trade.author as any)?.full_name ?? 'Analyst';
     const timeStr = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -170,8 +182,8 @@ export async function GET(
     // ── NEW HIGH card ────────────────────────────────────────────────────────
     if (isNewHigh) {
       const dispHigh = newHighPrice ?? highSince;
-      const gainPct = entryPrice > 0 ? ((dispHigh - entryPrice) / entryPrice) * 100 : 0;
-      const gainUsd = (dispHigh - entryPrice) * qty * 100;
+      const gainPct  = entryPrice > 0 ? ((dispHigh - entryPrice) / entryPrice) * 100 : 0;
+      const gainUsd  = (dispHigh - entryPrice) * qty * 100;
 
       console.log('[generate-image] Rendering NEW HIGH card');
 
@@ -189,199 +201,216 @@ export async function GET(
               overflow: 'hidden',
             }}
           >
-            {/* Top accent bar — gold */}
+            {/* Gold top accent bar */}
             <div
               style={{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 6,
-                background: C.gold,
+                top: 0, left: 0, right: 0,
+                height: 5,
+                background: `linear-gradient(90deg, ${C.gold} 0%, #FFD26F 50%, ${C.gold} 100%)`,
+              }}
+            />
+
+            {/* Subtle radial glow */}
+            <div
+              style={{
+                position: 'absolute',
+                top: -120, left: -80,
+                width: 500, height: 500,
+                borderRadius: '50%',
+                background: 'radial-gradient(circle, rgba(245,166,35,0.08) 0%, transparent 70%)',
               }}
             />
 
             <div
               style={{
                 display: 'flex',
-                flexDirection: 'column',
                 flex: 1,
-                padding: '52px 64px 44px',
+                padding: '36px 52px 32px',
+                flexDirection: 'column',
               }}
             >
-              {/* Header */}
+              {/* Top row: contract tag + alert badge */}
               <div
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  marginBottom: 40,
+                  marginBottom: 28,
                 }}
               >
-                <div
-                  style={{
-                    background: C.goldBg,
-                    border: `1px solid ${C.goldBd}`,
-                    borderRadius: 8,
-                    padding: '6px 16px',
-                    color: C.gold,
-                    fontSize: 19,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                  }}
-                >
-                  AnalyzingHub
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div
+                    style={{
+                      background: C.goldBg,
+                      border: `1px solid ${C.goldBd}`,
+                      borderRadius: 6,
+                      padding: '5px 14px',
+                      color: C.gold,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      letterSpacing: '0.08em',
+                    }}
+                  >
+                    ANALYZINGHUB
+                  </div>
+                  {strike > 0 && (
+                    <div
+                      style={{
+                        background: C.card,
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 6,
+                        padding: '5px 14px',
+                        color: C.textSub,
+                        fontSize: 14,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sym} ${strike.toLocaleString()} {isCall ? 'C' : 'P'}
+                      {expiry ? ` ${expiry}` : ''}
+                    </div>
+                  )}
                 </div>
                 <div
                   style={{
                     background: C.goldBg,
                     border: `1px solid ${C.goldBd}`,
-                    borderRadius: 8,
-                    padding: '8px 20px',
+                    borderRadius: 7,
+                    padding: '7px 18px',
                     color: C.gold,
-                    fontSize: 20,
+                    fontSize: 16,
                     fontWeight: 800,
-                    letterSpacing: '0.05em',
+                    letterSpacing: '0.06em',
                   }}
                 >
                   🚀 NEW HIGH ALERT
                 </div>
               </div>
 
-              {/* Symbol + contract */}
-              <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 24 }}>
-                <div
-                  style={{
-                    fontSize: 80,
-                    fontWeight: 900,
-                    color: C.text,
-                    lineHeight: 1,
-                    letterSpacing: '-2px',
-                  }}
-                >
-                  {sym}
-                </div>
-                {strike > 0 && (
+              {/* Main row: left = big price, right = metrics */}
+              <div style={{ display: 'flex', flex: 1, gap: 40, alignItems: 'flex-start' }}>
+                {/* Left column */}
+                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 280 }}>
                   <div
                     style={{
-                      fontSize: 26,
-                      color: C.textSub,
-                      marginTop: 8,
-                      fontWeight: 500,
+                      fontSize: 13,
+                      color: C.textMuted,
+                      fontWeight: 600,
+                      letterSpacing: '0.14em',
+                      textTransform: 'uppercase',
+                      marginBottom: 4,
                     }}
                   >
-                    ${strike.toLocaleString()} {isCall ? 'Call' : 'Put'}
-                    {expiry ? ` · ${expiry}` : ''}
+                    Contract High
                   </div>
-                )}
-              </div>
+                  <div
+                    style={{
+                      fontSize: 96,
+                      fontWeight: 900,
+                      color: C.gold,
+                      lineHeight: 1,
+                      letterSpacing: '-3px',
+                    }}
+                  >
+                    ${fmt(dispHigh)}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 32,
+                      fontWeight: 700,
+                      color: C.call,
+                      marginTop: 6,
+                      letterSpacing: '-0.5px',
+                    }}
+                  >
+                    +{gainPct.toFixed(1)}%
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 18,
+                      color: C.textMuted,
+                      marginTop: 4,
+                    }}
+                  >
+                    +${gainUsd.toFixed(0)} per lot
+                  </div>
+                </div>
 
-              {/* Big price */}
-              <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 32 }}>
+                {/* Right column */}
                 <div
                   style={{
-                    fontSize: 13,
-                    color: C.textMuted,
-                    fontWeight: 600,
-                    letterSpacing: '0.14em',
-                    textTransform: 'uppercase',
-                    marginBottom: 6,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1,
+                    gap: 10,
+                    marginTop: 8,
                   }}
                 >
-                  New High Price
-                </div>
-                <div
-                  style={{
-                    fontSize: 100,
-                    fontWeight: 900,
-                    color: C.gold,
-                    lineHeight: 1,
-                    letterSpacing: '-3px',
-                  }}
-                >
-                  ${fmtPrice(dispHigh)}
-                </div>
-              </div>
+                  {/* Entry */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: C.card,
+                      borderRadius: 10,
+                      padding: '14px 18px',
+                      border: `1px solid ${C.border}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Entry</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: C.textSub }}>${fmt(entryPrice)}</div>
+                  </div>
 
-              {/* Stat row */}
-              <div style={{ display: 'flex', gap: 18 }}>
-                <div
-                  style={{
-                    flex: 1,
-                    background: C.elevated,
-                    borderRadius: 14,
-                    padding: '20px 22px',
-                    border: `1px solid ${C.border}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
+                  {/* Max Gain */}
                   <div
                     style={{
-                      fontSize: 12,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      marginBottom: 6,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: C.goldBg,
+                      borderRadius: 10,
+                      padding: '14px 18px',
+                      border: `1px solid ${C.goldBd}`,
                     }}
                   >
-                    Entry
+                    <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Max Gain</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: C.gold }}>+{gainPct.toFixed(2)}%</div>
                   </div>
-                  <div style={{ fontSize: 30, fontWeight: 700, color: C.textSub }}>
-                    ${fmtPrice(entryPrice)}
-                  </div>
-                </div>
-                <div
-                  style={{
-                    flex: 1,
-                    background: C.goldBg,
-                    borderRadius: 14,
-                    padding: '20px 22px',
-                    border: `1px solid ${C.goldBd}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
+
+                  {/* P/L */}
                   <div
                     style={{
-                      fontSize: 12,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      marginBottom: 6,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      background: C.callBg,
+                      borderRadius: 10,
+                      padding: '14px 18px',
+                      border: `1px solid ${C.callBd}`,
                     }}
                   >
-                    Gain
+                    <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>P/L (1 lot)</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: C.call }}>+${gainUsd.toFixed(0)}</div>
                   </div>
-                  <div style={{ fontSize: 30, fontWeight: 800, color: C.gold }}>
-                    +{gainPct.toFixed(2)}%
-                  </div>
-                </div>
-                <div
-                  style={{
-                    flex: 1,
-                    background: C.goldBg,
-                    borderRadius: 14,
-                    padding: '20px 22px',
-                    border: `1px solid ${C.goldBd}`,
-                    display: 'flex',
-                    flexDirection: 'column',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                      marginBottom: 6,
-                    }}
-                  >
-                    P/L (1 lot)
-                  </div>
-                  <div style={{ fontSize: 30, fontWeight: 800, color: C.gold }}>
-                    +${gainUsd.toFixed(0)}
-                  </div>
+
+                  {/* Target if set */}
+                  {t1 !== null && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        background: C.card,
+                        borderRadius: 10,
+                        padding: '14px 18px',
+                        border: `1px solid ${C.border}`,
+                      }}
+                    >
+                      <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Target 1</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: C.call }}>${fmt(t1)}</div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -391,37 +420,31 @@ export async function GET(
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  paddingTop: 20,
-                  marginTop: 'auto',
-                  borderTop: `1px solid ${C.border}`,
+                  paddingTop: 16,
+                  marginTop: 16,
+                  borderTop: `1px solid ${C.divider}`,
                 }}
               >
                 <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <div
-                    style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}
-                  >
-                    {underlyingSymbol}
-                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: C.textSub }}>{underlyingSymbol}</div>
                   <div
                     style={{
-                      fontSize: 18,
+                      fontSize: 15,
                       fontWeight: 600,
                       color: underlyingChangePct >= 0 ? C.call : C.put,
                     }}
                   >
-                    ${fmtPrice(underlyingPrice)}{' '}
-                    {underlyingChangePct >= 0 ? '▲' : '▼'}
-                    {Math.abs(underlyingChangePct).toFixed(2)}%
+                    ${fmt(underlyingPrice)} {underlyingChangePct >= 0 ? '▲' : '▼'}{Math.abs(underlyingChangePct).toFixed(2)}%
                   </div>
                 </div>
-                <div style={{ fontSize: 17, color: C.textMuted }}>
+                <div style={{ fontSize: 14, color: C.textMuted }}>
                   {analystName} · {timeStr} ET
                 </div>
               </div>
             </div>
           </div>
         ),
-        { width: 1200, height: 675 }
+        { width: 1000, height: 560 }
       );
     }
 
@@ -445,11 +468,22 @@ export async function GET(
           <div
             style={{
               position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
+              top: 0, left: 0, right: 0,
               height: 5,
               background: accent,
+            }}
+          />
+
+          {/* Subtle radial glow top-left */}
+          <div
+            style={{
+              position: 'absolute',
+              top: -100, left: -60,
+              width: 420, height: 420,
+              borderRadius: '50%',
+              background: isCall
+                ? 'radial-gradient(circle, rgba(39,199,111,0.07) 0%, transparent 70%)'
+                : 'radial-gradient(circle, rgba(240,62,62,0.07) 0%, transparent 70%)',
             }}
           />
 
@@ -458,162 +492,186 @@ export async function GET(
             style={{
               display: 'flex',
               flexDirection: 'column',
-              width: 460,
-              padding: '52px 36px 40px 56px',
-              borderRight: `1px solid ${C.border}`,
+              width: 450,
+              padding: '42px 32px 36px 48px',
+              borderRight: `1px solid ${C.divider}`,
             }}
           >
-            {/* Branding + direction */}
+            {/* Header: brand + direction badge */}
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                marginBottom: 34,
+                marginBottom: 24,
               }}
             >
               <div
                 style={{
                   background: accentBg,
                   border: `1px solid ${accentBd}`,
-                  borderRadius: 7,
-                  padding: '5px 14px',
+                  borderRadius: 6,
+                  padding: '5px 13px',
                   color: accent,
-                  fontSize: 17,
+                  fontSize: 13,
                   fontWeight: 700,
-                  letterSpacing: '0.05em',
+                  letterSpacing: '0.08em',
                 }}
               >
-                AnalyzingHub
+                ANALYZINGHUB
               </div>
               <div
                 style={{
                   background: accentBg,
                   border: `1px solid ${accentBd}`,
-                  borderRadius: 7,
-                  padding: '7px 16px',
+                  borderRadius: 6,
+                  padding: '6px 15px',
                   color: accent,
-                  fontSize: 17,
+                  fontSize: 15,
                   fontWeight: 800,
-                  letterSpacing: '0.09em',
+                  letterSpacing: '0.1em',
                 }}
               >
-                {isCall ? 'CALL' : 'PUT'}
+                {isCall ? '▲ CALL' : '▼ PUT'}
               </div>
             </div>
 
             {/* Symbol */}
             <div
               style={{
-                fontSize: 84,
+                fontSize: 76,
                 fontWeight: 900,
                 color: C.text,
                 lineHeight: 1,
                 letterSpacing: '-2px',
-                marginBottom: 8,
+                marginBottom: 6,
               }}
             >
               {sym}
             </div>
 
-            {/* Strike + expiry (options) or direction (stock) */}
-            {strike > 0 ? (
-              <div style={{ marginBottom: 24 }}>
+            {/* Contract metadata */}
+            {strike > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'center',
+                  marginBottom: 20,
+                }}
+              >
                 <div
                   style={{
-                    fontSize: 36,
+                    fontSize: 22,
                     fontWeight: 700,
                     color: accent,
-                    marginBottom: 4,
                   }}
                 >
                   ${strike.toLocaleString()}
                 </div>
-                <div style={{ fontSize: 20, color: C.textSub }}>
+                <div style={{ fontSize: 16, color: C.textSub }}>
                   {isCall ? 'Call' : 'Put'}
-                  {expiry ? ` · Exp ${expiry}` : ''}
+                  {expiry ? ` · ${expiry}` : ''}
                 </div>
-              </div>
-            ) : (
-              <div
-                style={{
-                  fontSize: 28,
-                  color: C.textSub,
-                  marginBottom: 24,
-                }}
-              >
-                {isCall ? 'Long' : 'Short'} Position
               </div>
             )}
 
-            {/* Entry price */}
-            <div
-              style={{
-                background: C.elevated,
-                borderRadius: 14,
-                padding: '20px 22px',
-                border: `1px solid ${C.border}`,
-                marginBottom: 16,
-              }}
-            >
+            {/* Entry price — DOMINANT number */}
+            <div style={{ marginBottom: 14 }}>
               <div
                 style={{
-                  fontSize: 12,
+                  fontSize: 11,
                   color: C.textMuted,
+                  fontWeight: 600,
                   letterSpacing: '0.14em',
                   textTransform: 'uppercase',
-                  marginBottom: 8,
+                  marginBottom: 2,
                 }}
               >
                 Entry Price
               </div>
               <div
                 style={{
-                  fontSize: 52,
-                  fontWeight: 800,
+                  fontSize: 88,
+                  fontWeight: 900,
                   color: C.text,
                   lineHeight: 1,
+                  letterSpacing: '-2.5px',
                 }}
               >
-                ${fmtPrice(entryPrice)}
+                ${fmt(entryPrice)}
               </div>
-              <div style={{ fontSize: 14, color: C.textMuted, marginTop: 6 }}>
+              <div style={{ fontSize: 14, color: C.textMuted, marginTop: 4 }}>
                 {qty} contract{qty !== 1 ? 's' : ''}
               </div>
             </div>
 
-            {/* Underlying index */}
+            {/* Market data strip (OI / Vol) — only when available */}
+            {(oi > 0 || vol > 0) && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 0,
+                  background: C.card,
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 8,
+                  marginBottom: 14,
+                  overflow: 'hidden',
+                }}
+              >
+                {oi > 0 && (
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: '10px 14px',
+                      borderRight: vol > 0 ? `1px solid ${C.border}` : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Open Int</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(oi)}</div>
+                  </div>
+                )}
+                {vol > 0 && (
+                  <div
+                    style={{
+                      flex: 1,
+                      padding: '10px 14px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(vol)}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Underlying index row */}
             <div
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: 10,
-                background: C.elevated,
-                borderRadius: 12,
-                padding: '13px 18px',
+                gap: 8,
+                background: C.card,
+                borderRadius: 8,
+                padding: '11px 14px',
                 border: `1px solid ${C.border}`,
                 marginTop: 'auto',
               }}
             >
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.textSub }}>{underlyingSymbol}</div>
+              <div style={{ width: 1, height: 14, background: C.border }} />
               <div
                 style={{
-                  fontSize: 16,
-                  fontWeight: 700,
-                  color: C.textSub,
-                }}
-              >
-                {underlyingSymbol}
-              </div>
-              <div
-                style={{
-                  fontSize: 16,
+                  fontSize: 14,
                   fontWeight: 600,
                   color: underlyingChangePct >= 0 ? C.call : C.put,
                 }}
               >
-                ${fmtPrice(underlyingPrice)}{' '}
-                {underlyingChangePct >= 0 ? '▲' : '▼'}
-                {Math.abs(underlyingChangePct).toFixed(2)}%
+                ${fmt(underlyingPrice)} {underlyingChangePct >= 0 ? '▲' : '▼'}{Math.abs(underlyingChangePct).toFixed(2)}%
               </div>
             </div>
           </div>
@@ -624,25 +682,25 @@ export async function GET(
               display: 'flex',
               flexDirection: 'column',
               flex: 1,
-              padding: '52px 52px 40px 40px',
+              padding: '42px 44px 36px 36px',
             }}
           >
-            {/* Status badge */}
+            {/* Status badge — top right */}
             <div
               style={{
                 display: 'flex',
                 justifyContent: 'flex-end',
-                marginBottom: 28,
+                marginBottom: 24,
               }}
             >
               <div
                 style={{
                   background: C.blueBg,
                   border: `1px solid ${C.blueBd}`,
-                  borderRadius: 8,
-                  padding: '7px 18px',
+                  borderRadius: 7,
+                  padding: '6px 16px',
                   color: C.blue,
-                  fontSize: 15,
+                  fontSize: 13,
                   fontWeight: 700,
                   letterSpacing: '0.07em',
                 }}
@@ -651,32 +709,25 @@ export async function GET(
               </div>
             </div>
 
-            {/* Targets + Stop */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Targets + Stop rows */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
               {t1 !== null && (
                 <div
                   style={{
                     background: C.callBg,
-                    borderRadius: 14,
-                    padding: '16px 22px',
+                    borderRadius: 10,
+                    padding: '16px 20px',
                     border: `1px solid ${C.callBd}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
+                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
                     Target 1
                   </div>
-                  <div style={{ fontSize: 34, fontWeight: 800, color: C.call }}>
-                    ${fmtPrice(t1)}
+                  <div style={{ fontSize: 36, fontWeight: 800, color: C.call }}>
+                    ${fmt(t1)}
                   </div>
                 </div>
               )}
@@ -684,27 +735,20 @@ export async function GET(
               {t2 !== null && (
                 <div
                   style={{
-                    background: 'rgba(63,185,80,0.06)',
-                    borderRadius: 14,
-                    padding: '16px 22px',
-                    border: 'rgba(63,185,80,0.20) 1px solid',
+                    background: 'rgba(39,199,111,0.06)',
+                    borderRadius: 10,
+                    padding: '16px 20px',
+                    border: '1px solid rgba(39,199,111,0.18)',
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
+                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
                     Target 2
                   </div>
-                  <div style={{ fontSize: 34, fontWeight: 800, color: C.call }}>
-                    ${fmtPrice(t2)}
+                  <div style={{ fontSize: 36, fontWeight: 800, color: C.call }}>
+                    ${fmt(t2)}
                   </div>
                 </div>
               )}
@@ -712,17 +756,15 @@ export async function GET(
               {t1 === null && t2 === null && (
                 <div
                   style={{
-                    background: C.elevated,
-                    borderRadius: 14,
-                    padding: '16px 22px',
+                    background: C.card,
+                    borderRadius: 10,
+                    padding: '16px 20px',
                     border: `1px solid ${C.border}`,
                     display: 'flex',
                     alignItems: 'center',
                   }}
                 >
-                  <div style={{ fontSize: 15, color: C.textMuted }}>
-                    Targets not yet set
-                  </div>
+                  <div style={{ fontSize: 14, color: C.textMuted }}>Targets not yet set</div>
                 </div>
               )}
 
@@ -730,76 +772,42 @@ export async function GET(
                 <div
                   style={{
                     background: C.putBg,
-                    borderRadius: 14,
-                    padding: '16px 22px',
+                    borderRadius: 10,
+                    padding: '16px 20px',
                     border: `1px solid ${C.putBd}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
+                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
                     Stop Loss
                   </div>
-                  <div style={{ fontSize: 34, fontWeight: 800, color: C.put }}>
-                    ${fmtPrice(stop)}
+                  <div style={{ fontSize: 36, fontWeight: 800, color: C.put }}>
+                    ${fmt(stop)}
                   </div>
                 </div>
               )}
 
-              {/* Current price delta (only if meaningful movement since entry) */}
+              {/* Current price delta (only if meaningful movement) */}
               {Math.abs(pricePct) > 0.2 && (
                 <div
                   style={{
-                    background: C.elevated,
-                    borderRadius: 14,
-                    padding: '16px 22px',
+                    background: C.card,
+                    borderRadius: 10,
+                    padding: '16px 20px',
                     border: `1px solid ${C.border}`,
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: 13,
-                      color: C.textMuted,
-                      letterSpacing: '0.12em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    Current
-                  </div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'baseline',
-                      gap: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 34,
-                        fontWeight: 800,
-                        color: pricePct >= 0 ? C.call : C.put,
-                      }}
-                    >
-                      ${fmtPrice(currentPrice)}
+                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Current</div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <div style={{ fontSize: 36, fontWeight: 800, color: pricePct >= 0 ? C.call : C.put }}>
+                      ${fmt(currentPrice)}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 18,
-                        fontWeight: 600,
-                        color: pricePct >= 0 ? C.call : C.put,
-                      }}
-                    >
+                    <div style={{ fontSize: 16, fontWeight: 600, color: pricePct >= 0 ? C.call : C.put }}>
                       ({pricePct >= 0 ? '+' : ''}{pricePct.toFixed(2)}%)
                     </div>
                   </div>
@@ -807,40 +815,27 @@ export async function GET(
               )}
             </div>
 
-            {/* Analyst + timestamp */}
+            {/* Footer: analyst + time */}
             <div
               style={{
-                marginTop: 'auto',
-                paddingTop: 18,
-                borderTop: `1px solid ${C.border}`,
+                marginTop: 16,
+                paddingTop: 16,
+                borderTop: `1px solid ${C.divider}`,
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'flex-end',
+                alignItems: 'center',
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: C.textMuted,
-                    letterSpacing: '0.12em',
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  Analyst
-                </div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: C.text }}>
-                  {analystName}
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Analyst</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{analystName}</div>
               </div>
-              <div style={{ fontSize: 16, color: C.textMuted }}>
-                {timeStr} ET
-              </div>
+              <div style={{ fontSize: 14, color: C.textMuted }}>{timeStr} ET</div>
             </div>
           </div>
         </div>
       ),
-      { width: 1200, height: 675 }
+      { width: 1000, height: 560 }
     );
   } catch (error: any) {
     console.error('[generate-image] Fatal error:', error?.message);
