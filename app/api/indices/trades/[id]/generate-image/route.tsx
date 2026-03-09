@@ -156,6 +156,16 @@ export async function GET(
     const vol = safeNum(snap.volume ?? snap.v);
     const mid = entryPrice; // entry IS the mid at time of trade
 
+    const bid       = safeNum(snap.bid);
+    const ask       = safeNum(snap.ask);
+    const delta     = safeNum(snap.delta);
+    const gamma     = safeNum(snap.gamma);
+    const theta     = safeNum(snap.theta);
+    const vega      = safeNum(snap.vega);
+    const iv        = safeNum(snap.implied_volatility);
+    const hasGreeks = delta !== 0 || gamma !== 0 || theta !== 0 || vega !== 0;
+    const hasBidAsk = bid > 0 && ask > 0 && bid !== ask;
+
     const analystName: string = (trade.author as any)?.full_name ?? 'Analyst';
     const timeStr = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
@@ -448,7 +458,7 @@ export async function GET(
       );
     }
 
-    // ── NEW TRADE card ────────────────────────────────────────────────────────
+    // ── NEW TRADE card (Webull-style) ────────────────────────────────────────
     console.log('[generate-image] Rendering NEW TRADE card, sym:', sym);
 
     return new ImageResponse(
@@ -458,6 +468,7 @@ export async function GET(
             width: '100%',
             height: '100%',
             display: 'flex',
+            flexDirection: 'column',
             background: C.bg,
             fontFamily: 'system-ui, -apple-system, Helvetica, Arial, sans-serif',
             position: 'relative',
@@ -465,16 +476,9 @@ export async function GET(
           }}
         >
           {/* Top accent bar */}
-          <div
-            style={{
-              position: 'absolute',
-              top: 0, left: 0, right: 0,
-              height: 5,
-              background: accent,
-            }}
-          />
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 5, background: accent }} />
 
-          {/* Subtle radial glow top-left */}
+          {/* Subtle radial glow */}
           <div
             style={{
               position: 'absolute',
@@ -487,350 +491,319 @@ export async function GET(
             }}
           />
 
-          {/* LEFT PANEL */}
+          {/* ── CONTRACT HEADER ROW ── */}
           <div
             style={{
               display: 'flex',
-              flexDirection: 'column',
-              width: 450,
-              padding: '42px 32px 36px 48px',
-              borderRight: `1px solid ${C.divider}`,
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '20px 48px 14px',
+              marginTop: 5,
             }}
           >
-            {/* Header: brand + direction badge */}
+            {/* Brand */}
             <div
               style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 24,
+                background: accentBg,
+                border: `1px solid ${accentBd}`,
+                borderRadius: 6,
+                padding: '5px 13px',
+                color: accent,
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
               }}
             >
-              <div
-                style={{
-                  background: accentBg,
-                  border: `1px solid ${accentBd}`,
-                  borderRadius: 6,
-                  padding: '5px 13px',
-                  color: accent,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: '0.08em',
-                }}
-              >
-                ANALYZINGHUB
-              </div>
-              <div
-                style={{
-                  background: accentBg,
-                  border: `1px solid ${accentBd}`,
-                  borderRadius: 6,
-                  padding: '6px 15px',
-                  color: accent,
-                  fontSize: 15,
-                  fontWeight: 800,
-                  letterSpacing: '0.1em',
-                }}
-              >
-                {isCall ? '▲ CALL' : '▼ PUT'}
-              </div>
+              ANALYZINGHUB
             </div>
 
-            {/* Symbol */}
-            <div
-              style={{
-                fontSize: 76,
-                fontWeight: 900,
-                color: C.text,
-                lineHeight: 1,
-                letterSpacing: '-2px',
-                marginBottom: 6,
-              }}
-            >
-              {sym}
-            </div>
-
-            {/* Contract metadata */}
-            {strike > 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  alignItems: 'center',
-                  marginBottom: 20,
-                }}
-              >
+            {/* Contract label (center) */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ fontSize: 28, fontWeight: 900, color: C.text, letterSpacing: '-0.5px' }}>
+                  {sym}
+                </div>
+                {strike > 0 && (
+                  <div style={{ fontSize: 26, fontWeight: 800, color: accent }}>
+                    ${strike.toLocaleString()}
+                  </div>
+                )}
                 <div
                   style={{
-                    fontSize: 22,
-                    fontWeight: 700,
+                    background: accentBg,
+                    border: `1px solid ${accentBd}`,
+                    borderRadius: 6,
+                    padding: '3px 10px',
                     color: accent,
+                    fontSize: 14,
+                    fontWeight: 800,
+                    letterSpacing: '0.08em',
                   }}
                 >
-                  ${strike.toLocaleString()}
-                </div>
-                <div style={{ fontSize: 16, color: C.textSub }}>
-                  {isCall ? 'Call' : 'Put'}
-                  {expiry ? ` · ${expiry}` : ''}
+                  {isCall ? '▲ CALL' : '▼ PUT'}
                 </div>
               </div>
-            )}
-
-            {/* Entry price — DOMINANT number */}
-            <div style={{ marginBottom: 14 }}>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: C.textMuted,
-                  fontWeight: 600,
-                  letterSpacing: '0.14em',
-                  textTransform: 'uppercase',
-                  marginBottom: 2,
-                }}
-              >
-                Entry Price
-              </div>
-              <div
-                style={{
-                  fontSize: 88,
-                  fontWeight: 900,
-                  color: C.text,
-                  lineHeight: 1,
-                  letterSpacing: '-2.5px',
-                }}
-              >
-                ${fmt(entryPrice)}
-              </div>
-              <div style={{ fontSize: 14, color: C.textMuted, marginTop: 4 }}>
-                {qty} contract{qty !== 1 ? 's' : ''}
-              </div>
+              {expiry && (
+                <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>
+                  Expires {expiry}
+                </div>
+              )}
             </div>
 
-            {/* Market data strip (OI / Vol) — only when available */}
-            {(oi > 0 || vol > 0) && (
-              <div
-                style={{
-                  display: 'flex',
-                  gap: 0,
-                  background: C.card,
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 8,
-                  marginBottom: 14,
-                  overflow: 'hidden',
-                }}
-              >
-                {oi > 0 && (
-                  <div
-                    style={{
-                      flex: 1,
-                      padding: '10px 14px',
-                      borderRight: vol > 0 ? `1px solid ${C.border}` : 'none',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Open Int</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(oi)}</div>
-                  </div>
-                )}
-                {vol > 0 && (
-                  <div
-                    style={{
-                      flex: 1,
-                      padding: '10px 14px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(vol)}</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Underlying index row */}
+            {/* Status badge */}
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                background: C.card,
-                borderRadius: 8,
-                padding: '11px 14px',
-                border: `1px solid ${C.border}`,
-                marginTop: 'auto',
+                background: C.blueBg,
+                border: `1px solid ${C.blueBd}`,
+                borderRadius: 7,
+                padding: '6px 16px',
+                color: C.blue,
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: '0.07em',
               }}
             >
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.textSub }}>{underlyingSymbol}</div>
-              <div style={{ width: 1, height: 14, background: C.border }} />
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: underlyingChangePct >= 0 ? C.call : C.put,
-                }}
-              >
-                ${fmt(underlyingPrice)} {underlyingChangePct >= 0 ? '▲' : '▼'}{Math.abs(underlyingChangePct).toFixed(2)}%
-              </div>
+              ● {statusLabel}
             </div>
           </div>
 
-          {/* RIGHT PANEL */}
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              flex: 1,
-              padding: '42px 44px 36px 36px',
-            }}
-          >
-            {/* Status badge — top right */}
+          {/* Divider */}
+          <div style={{ height: 1, background: C.divider, margin: '0 48px' }} />
+
+          {/* ── CONTENT: LEFT + RIGHT PANELS ── */}
+          <div style={{ display: 'flex', flex: 1 }}>
+
+            {/* ── LEFT PANEL ── */}
             <div
               style={{
                 display: 'flex',
-                justifyContent: 'flex-end',
-                marginBottom: 24,
+                flexDirection: 'column',
+                width: 460,
+                padding: '20px 32px 28px 48px',
+                borderRight: `1px solid ${C.divider}`,
               }}
             >
+              {/* Entry price — dominant */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 2 }}>
+                  Entry Price
+                </div>
+                <div style={{ fontSize: 82, fontWeight: 900, color: C.text, lineHeight: 1, letterSpacing: '-2.5px' }}>
+                  ${fmt(entryPrice)}
+                </div>
+                <div style={{ fontSize: 13, color: C.textMuted, marginTop: 4 }}>
+                  {qty} contract{qty !== 1 ? 's' : ''} · ${(entryPrice * qty * 100).toFixed(0)} total
+                </div>
+              </div>
+
+              {/* Bid / Ask / Mid row */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.card,
+                    borderRadius: 8,
+                    padding: '9px 12px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Bid</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: hasBidAsk ? C.put : C.textSub }}>
+                    ${fmt(hasBidAsk ? bid : entryPrice)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.card,
+                    borderRadius: 8,
+                    padding: '9px 12px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Ask</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: hasBidAsk ? C.call : C.textSub }}>
+                    ${fmt(hasBidAsk ? ask : entryPrice)}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: 1,
+                    background: C.card,
+                    borderRadius: 8,
+                    padding: '9px 12px',
+                    border: `1px solid ${C.border}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Mid</div>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>
+                    ${fmt(hasBidAsk ? (bid + ask) / 2 : entryPrice)}
+                  </div>
+                </div>
+              </div>
+
+              {/* OI / Volume row */}
+              {(oi > 0 || vol > 0) && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+                  {oi > 0 && (
+                    <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '9px 12px', border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Open Int</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(oi)}</div>
+                    </div>
+                  )}
+                  {vol > 0 && (
+                    <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '9px 12px', border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Volume</div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: C.textSub }}>{compactNum(vol)}</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Underlying index */}
+              {underlyingPrice > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    background: C.card,
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    border: `1px solid ${C.border}`,
+                    marginTop: 'auto',
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: C.textSub }}>{underlyingSymbol}</div>
+                  <div style={{ width: 1, height: 13, background: C.border }} />
+                  <div style={{ fontSize: 13, fontWeight: 600, color: underlyingChangePct >= 0 ? C.call : C.put }}>
+                    ${fmt(underlyingPrice)} {underlyingChangePct >= 0 ? '▲' : '▼'}{Math.abs(underlyingChangePct).toFixed(2)}%
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ── RIGHT PANEL ── */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                padding: '20px 44px 28px 32px',
+              }}
+            >
+              {/* Greeks section */}
+              {hasGreeks && (
+                <>
+                  {/* Header: label + IV badge */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+                      Options Greeks
+                    </div>
+                    {iv > 0 && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: C.goldBg,
+                          border: `1px solid ${C.goldBd}`,
+                          borderRadius: 6,
+                          padding: '4px 12px',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, color: C.gold, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' }}>IV</div>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: C.gold }}>{(iv * 100).toFixed(1)}%</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Greeks 2×2 grid */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 7 }}>
+                      {/* Delta */}
+                      <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.06em' }}>Δ Delta</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: delta >= 0 ? C.call : C.put }}>{delta.toFixed(3)}</div>
+                      </div>
+                      {/* Gamma */}
+                      <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.06em' }}>Γ Gamma</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: C.blue }}>{gamma.toFixed(4)}</div>
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 7 }}>
+                      {/* Theta */}
+                      <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.06em' }}>Θ Theta</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: C.put }}>{theta.toFixed(3)}</div>
+                      </div>
+                      {/* Vega */}
+                      <div style={{ flex: 1, background: C.card, borderRadius: 8, padding: '10px 14px', border: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.06em' }}>V Vega</div>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: C.blue }}>{vega.toFixed(3)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Divider before targets */}
+                  <div style={{ height: 1, background: C.divider, marginBottom: 12 }} />
+                </>
+              )}
+
+              {/* Targets + Stop */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                {t1 !== null && (
+                  <div style={{ background: C.callBg, borderRadius: 10, padding: '12px 18px', border: `1px solid ${C.callBd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Target 1</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: C.call }}>${fmt(t1)}</div>
+                  </div>
+                )}
+                {t2 !== null && (
+                  <div style={{ background: 'rgba(39,199,111,0.06)', borderRadius: 10, padding: '12px 18px', border: '1px solid rgba(39,199,111,0.18)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Target 2</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: C.call }}>${fmt(t2)}</div>
+                  </div>
+                )}
+                {t1 === null && t2 === null && !hasGreeks && (
+                  <div style={{ background: C.card, borderRadius: 10, padding: '12px 18px', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center' }}>
+                    <div style={{ fontSize: 14, color: C.textMuted }}>Targets not yet set</div>
+                  </div>
+                )}
+                {stop !== null && (
+                  <div style={{ background: C.putBg, borderRadius: 10, padding: '12px 18px', border: `1px solid ${C.putBd}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Stop Loss</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: C.put }}>${fmt(stop)}</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer: analyst + time */}
               <div
                 style={{
-                  background: C.blueBg,
-                  border: `1px solid ${C.blueBd}`,
-                  borderRadius: 7,
-                  padding: '6px 16px',
-                  color: C.blue,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  letterSpacing: '0.07em',
+                  marginTop: 12,
+                  paddingTop: 12,
+                  borderTop: `1px solid ${C.divider}`,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
                 }}
               >
-                ● {statusLabel}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Analyst</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>{analystName}</div>
+                </div>
+                <div style={{ fontSize: 13, color: C.textMuted }}>{timeStr} ET</div>
               </div>
-            </div>
-
-            {/* Targets + Stop rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
-              {t1 !== null && (
-                <div
-                  style={{
-                    background: C.callBg,
-                    borderRadius: 10,
-                    padding: '16px 20px',
-                    border: `1px solid ${C.callBd}`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                    Target 1
-                  </div>
-                  <div style={{ fontSize: 36, fontWeight: 800, color: C.call }}>
-                    ${fmt(t1)}
-                  </div>
-                </div>
-              )}
-
-              {t2 !== null && (
-                <div
-                  style={{
-                    background: 'rgba(39,199,111,0.06)',
-                    borderRadius: 10,
-                    padding: '16px 20px',
-                    border: '1px solid rgba(39,199,111,0.18)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                    Target 2
-                  </div>
-                  <div style={{ fontSize: 36, fontWeight: 800, color: C.call }}>
-                    ${fmt(t2)}
-                  </div>
-                </div>
-              )}
-
-              {t1 === null && t2 === null && (
-                <div
-                  style={{
-                    background: C.card,
-                    borderRadius: 10,
-                    padding: '16px 20px',
-                    border: `1px solid ${C.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 14, color: C.textMuted }}>Targets not yet set</div>
-                </div>
-              )}
-
-              {stop !== null && (
-                <div
-                  style={{
-                    background: C.putBg,
-                    borderRadius: 10,
-                    padding: '16px 20px',
-                    border: `1px solid ${C.putBd}`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-                    Stop Loss
-                  </div>
-                  <div style={{ fontSize: 36, fontWeight: 800, color: C.put }}>
-                    ${fmt(stop)}
-                  </div>
-                </div>
-              )}
-
-              {/* Current price delta (only if meaningful movement) */}
-              {Math.abs(pricePct) > 0.2 && (
-                <div
-                  style={{
-                    background: C.card,
-                    borderRadius: 10,
-                    padding: '16px 20px',
-                    border: `1px solid ${C.border}`,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Current</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <div style={{ fontSize: 36, fontWeight: 800, color: pricePct >= 0 ? C.call : C.put }}>
-                      ${fmt(currentPrice)}
-                    </div>
-                    <div style={{ fontSize: 16, fontWeight: 600, color: pricePct >= 0 ? C.call : C.put }}>
-                      ({pricePct >= 0 ? '+' : ''}{pricePct.toFixed(2)}%)
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer: analyst + time */}
-            <div
-              style={{
-                marginTop: 16,
-                paddingTop: 16,
-                borderTop: `1px solid ${C.divider}`,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <div style={{ fontSize: 10, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Analyst</div>
-                <div style={{ fontSize: 20, fontWeight: 700, color: C.text }}>{analystName}</div>
-              </div>
-              <div style={{ fontSize: 14, color: C.textMuted }}>{timeStr} ET</div>
             </div>
           </div>
         </div>
