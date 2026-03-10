@@ -67,6 +67,16 @@ Deno.serve(async (req: Request) => {
 
     console.log('[generate-report-image] Report:', report.id, report.report_date, report.period_type);
 
+    // ── Fetch analyzer profile ───────────────────────────────────────────────
+    const analystId = report.author_id ?? report.generated_by;
+    const { data: analyzerProfile } = await supabase
+      .from('profiles')
+      .select('full_name, username, avatar_url')
+      .eq('id', analystId)
+      .single();
+    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.username || 'Analyst';
+    const initials = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+
     // ── Summary metrics ─────────────────────────────────────────────────────
     const summary = report.summary ?? {};
     const totalTrades = safeNum(summary.total_trades);
@@ -75,18 +85,20 @@ Deno.serve(async (req: Request) => {
     const winningTrades = safeNum(summary.winning_trades);
     const losingTrades = safeNum(summary.losing_trades);
     const totalProfit = safeNum(summary.total_profit_dollars ?? summary.total_profit);
-    const totalLoss = safeNum(summary.total_loss);
+    const totalLoss = safeNum(Math.abs(safeNum(summary.total_loss)));
     const netProfit = safeNum(summary.net_profit, totalProfit - totalLoss);
     const winRate =
       winningTrades + losingTrades > 0
         ? (winningTrades / (winningTrades + losingTrades)) * 100
         : 0;
+    const wlRatio = losingTrades > 0
+      ? (winningTrades / losingTrades).toFixed(1) + '×'
+      : winningTrades > 0 ? '∞' : '—';
     const avgWin = safeNum(summary.avg_profit_per_winning_trade);
     const bestTrade = safeNum(summary.best_trade);
     const worstTrade = safeNum(summary.worst_trade);
 
     // ── Fetch recent trades ──────────────────────────────────────────────────
-    const analystId = report.author_id ?? report.generated_by;
     const startDate = report.start_date ?? report.report_date;
     const endDate = report.end_date ?? report.report_date;
     const periodStart = new Date(startDate + 'T00:00:00.000Z');
@@ -142,19 +154,23 @@ Deno.serve(async (req: Request) => {
       const isLoss = profit < -20;
 
       const statusColor = isActive ? C.blue : isWin ? C.call : isLoss ? C.put : C.textSub;
-      const statusIcon = isActive ? '●' : isWin ? '✓' : isLoss ? '✗' : '○';
-      const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : ''}$${Math.abs(profit).toFixed(0)}` : '—';
+      const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(0)}` : '—';
       const profitColor = profit > 0 ? C.call : profit < 0 ? C.put : C.textSub;
 
       const entry = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
       const high = safeNum(t.contract_high_since ?? t.current_contract, entry);
       const strike = safeNum(t.strike);
-      const dir = (t.option_type ?? t.direction ?? 'call').toUpperCase().slice(0, 4);
+      const optType = (t.option_type ?? t.direction ?? 'call').toLowerCase();
+      const isCall = optType === 'call';
+      const dirLabel = isCall ? 'CALL' : 'PUT';
+      const dirColor = isCall ? C.call : C.put;
+      const dirBg = isCall ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.10)';
+      const dirBorder = isCall ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)';
 
       return { sym, strike: strike > 0 ? `$${strike.toFixed(0)}` : '—',
                entry: entry > 0 ? `$${entry.toFixed(2)}` : '—',
                high: high > 0 ? `$${high.toFixed(2)}` : '—',
-               profitStr, profitColor, statusColor, statusIcon, dir };
+               profitStr, profitColor, statusColor, dirLabel, dirColor, dirBg, dirBorder };
     });
 
     // ── Period title ─────────────────────────────────────────────────────────
@@ -193,23 +209,40 @@ Deno.serve(async (req: Request) => {
                   {
                     type: 'div',
                     props: {
-                      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+                      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 },
                       children: [
+                        // Left: brand + title + date
                         {
                           type: 'div',
                           props: {
-                            style: { display: 'flex', flexDirection: 'column', gap: 4 },
+                            style: { display: 'flex', flexDirection: 'column', gap: 5 },
                             children: [
-                              { type: 'div', props: { style: { fontSize: 34, fontWeight: 800, color: C.text, letterSpacing: '-0.5px' }, children: `📊 ${periodLabel}` } },
-                              { type: 'div', props: { style: { fontSize: 19, color: C.textSub }, children: dateLabel } },
+                              { type: 'div', props: { style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.25)', borderRadius: 6, padding: '3px 12px', color: C.blue, fontSize: 11, fontWeight: 700, letterSpacing: '0.13em', width: 'fit-content' }, children: 'ANALYZINGHUB' } },
+                              { type: 'div', props: { style: { fontSize: 32, fontWeight: 800, color: C.text, letterSpacing: '-0.5px', lineHeight: 1.15 }, children: periodLabel } },
+                              { type: 'div', props: { style: { fontSize: 17, color: C.textSub }, children: dateLabel } },
                             ],
                           },
                         },
+                        // Right: analyst avatar + name
                         {
                           type: 'div',
                           props: {
-                            style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.28)', borderRadius: 8, padding: '6px 16px', color: C.blue, fontSize: 16, fontWeight: 700, letterSpacing: '0.06em' },
-                            children: 'AnalyzingHub',
+                            style: { display: 'flex', alignItems: 'center', gap: 12 },
+                            children: [
+                              analyzerProfile?.avatar_url
+                                ? { type: 'img', props: { src: analyzerProfile.avatar_url, style: { width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
+                                : { type: 'div', props: { style: { width: 48, height: 48, borderRadius: '50%', background: 'rgba(88,166,255,0.10)', border: '2px solid rgba(88,166,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: C.blue }, children: initials } },
+                              {
+                                type: 'div',
+                                props: {
+                                  style: { display: 'flex', flexDirection: 'column', gap: 2 },
+                                  children: [
+                                    { type: 'div', props: { style: { fontSize: 15, fontWeight: 700, color: C.text }, children: analyzerName } },
+                                    { type: 'div', props: { style: { fontSize: 12, color: C.textMuted }, children: 'Index Analyst' } },
+                                  ],
+                                },
+                              },
+                            ],
                           },
                         },
                       ],
@@ -244,17 +277,19 @@ Deno.serve(async (req: Request) => {
                             children: [
                               { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Win Rate' } },
                               { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: winRate >= 50 ? C.call : C.put, lineHeight: 1 }, children: `${winRate.toFixed(0)}%` } },
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, marginTop: 2 }, children: `${winningTrades}W · ${losingTrades}L · W/L ${wlRatio}` } },
                             ],
                           },
                         },
-                        // Avg win
+                        // Best trade
                         {
                           type: 'div',
                           props: {
                             style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
                             children: [
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Avg Win' } },
-                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: C.call, lineHeight: 1 }, children: `+$${avgWin.toFixed(0)}` } },
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Best Trade' } },
+                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: C.gold, lineHeight: 1 }, children: `+$${bestTrade.toFixed(0)}` } },
+                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, marginTop: 2 }, children: `Avg win +$${avgWin.toFixed(0)}` } },
                             ],
                           },
                         },
@@ -318,9 +353,8 @@ Deno.serve(async (req: Request) => {
                                 props: {
                                   style: { flex: 2, display: 'flex', alignItems: 'center', gap: 8 },
                                   children: [
-                                    { type: 'div', props: { style: { fontSize: 13, fontWeight: 700, color: t.statusColor }, children: t.statusIcon } },
                                     { type: 'div', props: { style: { fontSize: 16, fontWeight: 800, color: C.text }, children: t.sym } },
-                                    { type: 'div', props: { style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.22)', borderRadius: 4, padding: '2px 6px', fontSize: 11, fontWeight: 700, color: C.blue }, children: t.dir } },
+                                    { type: 'div', props: { style: { background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 4, padding: '2px 6px', fontSize: 10, fontWeight: 800, color: t.dirColor, letterSpacing: '0.05em' }, children: t.dirLabel } },
                                   ],
                                 },
                               },
