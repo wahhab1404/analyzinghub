@@ -6,22 +6,42 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-function formatNumber(value: number, decimals: number = 0): string {
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+// ─── Design tokens (kept in sync with generate-advanced-daily-report) ─────────
+const D = {
+  bg: '#0D1117', card: '#161B22', elevated: '#1C2128',
+  border: '#30363D', borderLight: '#21262D',
+  text: '#E6EDF3', textSub: '#8B949E', textMuted: '#6E7681',
+  call: '#3FB950', put: '#F85149', blue: '#58A6FF',
+};
+
+// ─── Number helpers ───────────────────────────────────────────────────────────
+function fmt(v: number, d = 0): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtUSD(v: number, d = 0): string {
+  return `${v >= 0 ? '+' : '-'}$${fmt(Math.abs(v), d)}`;
+}
+function fmtPlain(v: number, d = 0): string {
+  return `${v >= 0 ? '$' : '-$'}${fmt(Math.abs(v), d)}`;
 }
 
-function formatCurrency(value: number, decimals: number = 0): string {
-  const formatted = formatNumber(Math.abs(value), decimals);
-  const sign = value >= 0 ? '+' : '-';
-  return `${sign}$${formatted}`;
+// ─── Price / profit helpers ───────────────────────────────────────────────────
+function getEntryPrice(trade: any): number {
+  const s = trade.entry_contract_snapshot ?? {};
+  const v = s.price ?? s.mid ?? s.last ?? 0;
+  return Number.isFinite(+v) ? +v : 0;
 }
-
-function formatCurrencySimple(value: number, decimals: number = 0): string {
-  const formatted = formatNumber(Math.abs(value), decimals);
-  return value >= 0 ? `$${formatted}` : `-$${formatted}`;
+function getHighestPrice(trade: any, entry: number): number {
+  const v = trade.contract_high_since ?? trade.current_contract ?? entry;
+  return Number.isFinite(+v) ? +v : entry;
+}
+function getTradeProfit(trade: any): number {
+  if (trade.pnl_usd      != null) return +trade.pnl_usd      || 0;
+  if (trade.final_profit != null) return +trade.final_profit  || 0;
+  if (trade.max_profit   != null) return +trade.max_profit    || 0;
+  const entry = getEntryPrice(trade);
+  const high  = getHighestPrice(trade, entry);
+  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
 }
 
 interface GeneratePeriodReportRequest {
@@ -317,357 +337,299 @@ Deno.serve(async (req) => {
   }
 });
 
+// ─── Period report HTML generator ─────────────────────────────────────────────
+// Unified premium dark design — matches generate-advanced-daily-report.
 function generatePeriodReportHTML(data: any): string {
   const { start_date, end_date, period_type, trades, metrics, language_mode, analyzer } = data;
 
-  // CRITICAL DEBUG LOGGING
   console.log(`[HTML Generator] Received trades array:`, Array.isArray(trades));
   console.log(`[HTML Generator] Trades length:`, trades?.length || 0);
-  if (trades && trades.length > 0) {
-    console.log(`[HTML Generator] First trade:`, {
-      id: trades[0].id,
-      symbol: trades[0].underlying_index_symbol,
-      status: trades[0].status
-    });
-  } else {
-    console.log(`[HTML Generator] ⚠️  NO TRADES RECEIVED - will show empty state`);
+
+  const isAr   = language_mode === 'ar';
+  const isDual = language_mode === 'dual';
+  const dir    = isAr ? 'rtl' : 'ltr';
+
+  function lbl(en: string, ar: string): string {
+    return isDual ? `${en} | ${ar}` : isAr ? ar : en;
   }
 
-  const isArabic = language_mode === 'ar';
-  const isDual = language_mode === 'dual';
-  const dir = isArabic ? 'rtl' : 'ltr';
+  const periodLabel =
+    period_type === 'weekly'  ? lbl('Weekly Report',  'تقرير أسبوعي') :
+    period_type === 'monthly' ? lbl('Monthly Report', 'تقرير شهري')   :
+    period_type === 'custom'  ? lbl('Period Report',  'تقرير الفترة') :
+                                lbl('Daily Report',   'تقرير يومي');
 
-  const periodTitle = {
-    'daily': isDual ? 'Daily Report | تقرير يومي' : isArabic ? 'تقرير يومي' : 'Daily Report',
-    'weekly': isDual ? 'Weekly Report | تقرير أسبوعي' : isArabic ? 'تقرير أسبوعي' : 'Weekly Report',
-    'monthly': isDual ? 'Monthly Report | تقرير شهري' : isArabic ? 'تقرير شهري' : 'Monthly Report',
-    'custom': isDual ? 'Period Report | تقرير الفترة' : isArabic ? 'تقرير الفترة' : 'Period Report'
-  }[period_type];
+  const startFormatted = new Date(start_date + 'T12:00:00Z').toLocaleDateString(
+    isAr ? 'ar-SA' : 'en-US',
+    { month: 'short', day: 'numeric', timeZone: 'UTC' },
+  );
+  const endFormatted = new Date(end_date + 'T12:00:00Z').toLocaleDateString(
+    isAr ? 'ar-SA' : 'en-US',
+    { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' },
+  );
+  const dateRangeStr = `${startFormatted} – ${endFormatted}`;
 
-  // Parse dates at noon UTC to avoid timezone shifts
-  const startFormatted = new Date(start_date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC'
-  });
+  const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyst';
+  const initials     = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+  const avatarHTML   = analyzer?.avatar_url
+    ? `<img src="${analyzer.avatar_url}" class="av-img" alt="${analyzerName}">`
+    : `<div class="av-ph">${initials}</div>`;
 
-  const endFormatted = new Date(end_date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC'
-  });
+  const netPos = metrics.net_profit >= 0;
+  const wrGood = metrics.win_rate >= 50;
 
-  const dateRange = `${startFormatted} - ${endFormatted}`;
+  const wlRatio = metrics.losing_trades > 0
+    ? (metrics.winning_trades / metrics.losing_trades).toFixed(2) + '×'
+    : metrics.winning_trades > 0 ? '∞' : '—';
 
-  const t = {
-    tradesTitle: isDual ? 'Period Trades | صفقات الفترة' : isArabic ? 'صفقات الفترة' : 'Period Trades',
-    entry: isDual ? 'Entry | الدخول' : isArabic ? 'الدخول' : 'Entry',
-    highest: isDual ? 'Highest | الأعلى' : isArabic ? 'الأعلى' : 'Highest',
-    strike: isDual ? 'Strike | السعر' : isArabic ? 'السعر' : 'Strike',
-    profit: isDual ? 'Profit | الربح' : isArabic ? 'الربح' : 'Profit',
-    noTrades: isDual ? 'No trades recorded | لا توجد صفقات مسجلة' : isArabic ? 'لا توجد صفقات مسجلة' : 'No trades recorded',
-    created: isDual ? 'Created | تاريخ الإنشاء' : isArabic ? 'تاريخ الإنشاء' : 'Created'
-  };
+  const avgWinStr = metrics.avg_profit_per_winning_trade > 0
+    ? `+$${fmt(metrics.avg_profit_per_winning_trade, 0)}`
+    : '—';
 
-  const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyzer';
-  const analyzerInitials = analyzerName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
-  const avatarHTML = analyzer?.avatar_url
-    ? `<img src="${analyzer.avatar_url}" alt="${analyzerName}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 4px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.2);" />`
-    : `<div style="width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; color: white; border: 4px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.2);">${analyzerInitials}</div>`;
+  const tradingDaysHint = metrics.trading_days
+    ? `${metrics.trading_days} ${lbl('trading days', 'يوم تداول')}`
+    : '';
 
-  const tradesHTML = trades.length === 0
-    ? `<div class="no-trades"><div class="no-trades-icon">📭</div><h3>${t.noTrades}</h3></div>`
-    : trades.map((trade: any) => {
-        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-        const highestPrice = trade.contract_high_since || trade.current_contract || 0;
-        const qty = trade.qty || 1;
-        const multiplier = 100;
+  // ── Trade rows ──────────────────────────────────────────────────────────────
+  const tradesHTML = (trades ?? []).length === 0
+    ? `<div class="empty"><div class="empty-icon">📭</div><div class="empty-title">${lbl('No trades in this period', 'لا توجد صفقات في هذه الفترة')}</div><div class="empty-sub">${lbl('Trades will appear here once recorded', 'ستظهر الصفقات هنا بعد تسجيلها')}</div></div>`
+    : (trades as any[]).map((t: any) => {
+        const entry   = getEntryPrice(t);
+        const high    = getHighestPrice(t, entry);
+        const current = t.current_contract ? +t.current_contract : 0;
+        const profit  = getTradeProfit(t);
+        const pct     = entry > 0 ? ((high - entry) / entry) * 100 : 0;
+        const win     = t.is_winning_trade === true;
+        const isCall  = (t.option_type ?? '').toLowerCase() === 'call';
+        const isActive = t.status === 'active';
 
-        // Use actual P&L from database for closed trades, otherwise calculate
-        let profitDollars: number;
-        if (trade.status === 'closed' && (trade.pnl_usd !== null && trade.pnl_usd !== undefined)) {
-          profitDollars = parseFloat(trade.pnl_usd.toString());
-        } else if (trade.final_profit !== null && trade.final_profit !== undefined) {
-          profitDollars = parseFloat(trade.final_profit.toString());
-        } else {
-          profitDollars = (highestPrice - entryPrice) * qty * multiplier;
-        }
+        const sClass = isActive ? 'sb-active' : win ? 'sb-win' : 'sb-loss';
+        const sLabel = isActive
+          ? lbl('ACTIVE', 'نشطة')
+          : t.status === 'closed'
+            ? (win ? lbl('WIN ✓', 'ربح ✓') : lbl('CLOSED', 'مغلقة'))
+            : (win ? lbl('WIN ✓', 'ربح ✓') : lbl('EXPIRED', 'منتهية'));
 
-        const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-        const profitClass = profitDollars > 0 ? 'positive' : profitDollars < 0 ? 'negative' : 'neutral';
-        const statusText = trade.status?.toUpperCase() || 'N/A';
-        const createdDate = new Date(trade.created_at).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
-          month: 'short',
-          day: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit'
-        });
+        const exp = t.expiry
+          ? new Date(t.expiry + 'T00:00:00Z').toLocaleDateString(
+              isAr ? 'ar-SA' : 'en-US',
+              { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' },
+            )
+          : '—';
 
-        return `
-          <div class="trade-card">
-            <div class="trade-header">
-              <div>
-                <span class="trade-symbol">${trade.underlying_index_symbol || 'N/A'}</span>
-                <span class="trade-type ${trade.option_type?.toLowerCase()}">${trade.option_type?.toUpperCase() || 'N/A'}</span>
-              </div>
-              <div>
-                <span class="trade-status ${trade.status}">${statusText}</span>
-              </div>
-            </div>
-            <div class="trade-details">
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.strike}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(trade.strike || 0, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.entry}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(entryPrice, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.highest}</div>
-                <div class="trade-detail-value">${formatCurrencySimple(highestPrice, 2)}</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.profit}</div>
-                <div class="profit-badge ${profitClass}">${profitDollars >= 0 ? '+' : ''}${formatCurrencySimple(profitDollars)} (${profitPercent >= 0 ? '+' : ''}${formatNumber(profitPercent, 1)}%)</div>
-              </div>
-              <div class="trade-detail">
-                <div class="trade-detail-label">${t.created}</div>
-                <div class="trade-detail-value" style="font-size: 14px;">${createdDate}</div>
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('');
+        const pColor  = profit > 0 ? '#22C55E' : profit < 0 ? '#EF4444' : '#8892A4';
+        const pDollar = `${profit >= 0 ? '+' : '-'}$${fmt(Math.abs(profit), 0)}`;
+        const pPct    = `${pct >= 0 ? '+' : ''}${fmt(pct, 1)}% ${lbl('gain', 'عائد')}`;
 
-  return `<!DOCTYPE html>
-<html lang="${isArabic ? 'ar' : 'en'}" dir="${dir}">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${periodTitle}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: ${isArabic || isDual ? "'Cairo', " : ''}-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 40px 20px;
-      color: #1a202c;
-      direction: ${dir};
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 40px;
-      text-align: center;
-    }
-    .header h1 { font-size: 36px; font-weight: 700; margin-bottom: 10px; }
-    .header p { font-size: 18px; opacity: 0.95; margin-bottom: 10px; }
-    .analyzer-info {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 15px;
-      margin-top: 20px;
-      padding: 15px 30px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50px;
-      backdrop-filter: blur(10px);
-      display: inline-flex;
-    }
-    .net-profit-hero {
-      padding: 40px;
-      margin: 0 40px 20px;
-      border-radius: 20px;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    .net-profit-hero.positive {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      box-shadow: 0 20px 60px rgba(16, 185, 129, 0.4);
-      animation: pulse-positive 3s ease-in-out infinite;
-    }
-    .net-profit-hero.negative {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      box-shadow: 0 20px 60px rgba(239, 68, 68, 0.4);
-      animation: pulse-negative 3s ease-in-out infinite;
-    }
-    .net-profit-hero::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.15), transparent);
-      transform: rotate(45deg);
-      animation: shine 3s infinite;
-    }
-    @keyframes shine {
-      0%, 100% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-      50% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-    }
-    @keyframes pulse-positive {
-      0%, 100% { box-shadow: 0 20px 60px rgba(16, 185, 129, 0.4); }
-      50% { box-shadow: 0 25px 80px rgba(16, 185, 129, 0.6); }
-    }
-    @keyframes pulse-negative {
-      0%, 100% { box-shadow: 0 20px 60px rgba(239, 68, 68, 0.4); }
-      50% { box-shadow: 0 25px 80px rgba(239, 68, 68, 0.6); }
-    }
-    .net-profit-icon {
-      font-size: 48px;
-      margin-bottom: 15px;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
-    }
-    .net-profit-value {
-      font-size: 56px;
-      font-weight: 800;
-      color: white;
-      margin-bottom: 10px;
-      text-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      position: relative;
-      z-index: 1;
-    }
-    .net-profit-label {
-      font-size: 18px;
-      color: rgba(255,255,255,0.95);
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 600;
-      position: relative;
-      z-index: 1;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      padding: 0 40px 40px;
-      background: #f7fafc;
-    }
-    .stat-card {
-      background: white;
-      padding: 25px;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.07);
-      text-align: center;
-      border-${dir === 'rtl' ? 'right' : 'left'}: 4px solid;
-    }
-    .stat-card.primary { border-${dir === 'rtl' ? 'right' : 'left'}-color: #667eea; }
-    .stat-card.success { border-${dir === 'rtl' ? 'right' : 'left'}-color: #48bb78; }
-    .stat-card.warning { border-${dir === 'rtl' ? 'right' : 'left'}-color: #ed8936; }
-    .stat-card.info { border-${dir === 'rtl' ? 'right' : 'left'}-color: #4299e1; }
-    .stat-value { font-size: 32px; font-weight: 700; color: #2d3748; margin-bottom: 5px; }
-    .stat-label { font-size: 14px; color: #718096; text-transform: uppercase; }
-    .trades-section { padding: 40px; }
-    .section-title { font-size: 24px; font-weight: 700; color: #2d3748; margin-bottom: 25px; }
-    .trade-card {
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 25px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    .trade-header { display: flex; justify-content: space-between; margin-bottom: 20px; align-items: center; }
-    .trade-symbol { font-size: 24px; font-weight: 700; color: #2d3748; }
-    .trade-type {
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 600;
-      margin-${dir === 'rtl' ? 'right' : 'left'}: 10px;
-    }
-    .trade-type.call { background: #c6f6d5; color: #22543d; }
-    .trade-type.put { background: #fed7d7; color: #742a2a; }
-    .trade-status { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
-    .trade-status.active { background: #bee3f8; color: #2c5282; }
-    .trade-status.closed { background: #c6f6d5; color: #22543d; }
-    .trade-status.expired { background: #fbd38d; color: #744210; }
-    .trade-details {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 20px;
-    }
-    .trade-detail { padding: 15px; background: #f7fafc; border-radius: 8px; }
-    .trade-detail-label { font-size: 12px; color: #718096; margin-bottom: 5px; }
-    .trade-detail-value { font-size: 18px; font-weight: 700; color: #2d3748; }
-    .profit-badge { padding: 8px 16px; border-radius: 8px; font-size: 16px; font-weight: 700; }
-    .profit-badge.positive { background: #c6f6d5; color: #22543d; }
-    .profit-badge.negative { background: #fed7d7; color: #742a2a; }
-    .profit-badge.neutral { background: #e2e8f0; color: #4a5568; }
-    .no-trades { text-align: center; padding: 60px 20px; color: #718096; }
-    .no-trades-icon { font-size: 64px; margin-bottom: 20px; }
-    .footer { background: #2d3748; color: white; padding: 30px; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>📊 ${periodTitle}</h1>
-      <p>${dateRange}</p>
-      <p style="font-size: 14px; opacity: 0.8;">${isDual ? `${metrics.trading_days} Trading Days | ${metrics.trading_days} يوم تداول` : isArabic ? `${metrics.trading_days} يوم تداول` : `${metrics.trading_days} Trading Days`}</p>
-      <div class="analyzer-info">
-        ${avatarHTML}
-        <span class="analyzer-name" style="font-size: 20px; font-weight: 600;">${analyzerName}</span>
-      </div>
+        const qty         = t.qty || 1;
+        const contractLbl = qty > 1 ? lbl(`${qty} contracts`, `${qty} عقود`) : lbl('1 contract', 'عقد');
+
+        const currentHTML = isActive && current > 0
+          ? `<span class="px-sep">·</span><div class="px-grp"><span class="px-lbl">${lbl('Cur','الحالي')}</span><span class="px-val cur">${fmtPlain(current, 2)}</span></div>`
+          : '';
+
+        return `<div class="tr">
+  <div class="tr-l">
+    <div class="tr-id">
+      <span class="sym">${t.underlying_index_symbol ?? '—'}</span>
+      <span class="dir-badge ${isCall ? 'dc' : 'dp'}">${isCall ? lbl('CALL','شراء') : lbl('PUT','بيع')}</span>
+      <span class="strike">${fmtPlain(t.strike ?? 0, 0)}</span>
+      <span class="qty-info">· ${contractLbl}</span>
+      <span class="exp-badge">${lbl('Exp','انتهاء')} ${exp}</span>
     </div>
-    <div class="net-profit-hero ${metrics.net_profit >= 0 ? 'positive' : 'negative'}">
-      <div class="net-profit-icon">${metrics.net_profit >= 0 ? '💰' : '📉'}</div>
-      <div class="net-profit-value">${formatCurrency(metrics.net_profit)}</div>
-      <div class="net-profit-label">${isDual ? 'Net Profit | صافي الربح' : isArabic ? 'صافي الربح' : 'Net Profit'}</div>
-    </div>
-    <div class="stats-grid">
-      <div class="stat-card success">
-        <div class="stat-value">+${formatCurrencySimple(metrics.total_profit)}</div>
-        <div class="stat-label">${isDual ? 'Total Profit | إجمالي الربح' : isArabic ? 'إجمالي الربح' : 'Total Profit'}</div>
-      </div>
-      <div class="stat-card warning">
-        <div class="stat-value">-${formatCurrencySimple(metrics.total_loss)}</div>
-        <div class="stat-label">${isDual ? 'Total Loss | إجمالي الخسارة' : isArabic ? 'إجمالي الخسارة' : 'Total Loss'}</div>
-      </div>
-      <div class="stat-card primary">
-        <div class="stat-value">${formatNumber(metrics.win_rate, 1)}%</div>
-        <div class="stat-label">${isDual ? 'Win Rate | معدل الربح' : isArabic ? 'معدل الربح' : 'Win Rate'}</div>
-      </div>
-      <div class="stat-card primary">
-        <div class="stat-value">${metrics.total_trades}</div>
-        <div class="stat-label">${isDual ? 'Total Trades | إجمالي الصفقات' : isArabic ? 'إجمالي الصفقات' : 'Total Trades'}</div>
-      </div>
-      <div class="stat-card info">
-        <div class="stat-value">${metrics.active_trades}</div>
-        <div class="stat-label">${isDual ? 'Active | نشطة' : isArabic ? 'نشطة' : 'Active'}</div>
-      </div>
-      <div class="stat-card success">
-        <div class="stat-value">${metrics.winning_trades}</div>
-        <div class="stat-label">${isDual ? 'Winners | رابحة' : isArabic ? 'رابحة' : 'Winners'}</div>
-      </div>
-      <div class="stat-card warning">
-        <div class="stat-value">${metrics.losing_trades}</div>
-        <div class="stat-label">${isDual ? 'Losers | خاسرة' : isArabic ? 'خاسرة' : 'Losers'}</div>
-      </div>
-    </div>
-    <div class="trades-section">
-      <h2 class="section-title">📈 ${t.tradesTitle}</h2>
-      ${tradesHTML}
-    </div>
-    <div class="footer">
-      <p><strong>AnalyZHub</strong></p>
-      <p>© ${new Date().getFullYear()}</p>
+    <div class="tr-px">
+      <div class="px-grp"><span class="px-lbl">${lbl('Entry','الدخول')}</span><span class="px-val">${fmtPlain(entry, 2)}</span></div>
+      <span class="arr">→</span>
+      <div class="px-grp"><span class="px-lbl">${lbl('High','الأعلى')}</span><span class="px-val hi">${fmtPlain(high, 2)}</span></div>
+      ${currentHTML}
     </div>
   </div>
+  <div class="tr-r">
+    <span class="status-badge ${sClass}">${sLabel}</span>
+    <span class="pnl" style="color:${pColor}">${pDollar}</span>
+    <span class="pnl-pct" style="color:${pColor}">${pPct}</span>
+  </div>
+</div>`;
+      }).join('');
+
+  // ── CSS ─────────────────────────────────────────────────────────────────────
+  const genTime = new Date().toLocaleString(isAr ? 'ar-SA' : 'en-US', {
+    timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  const css = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:${isAr||isDual?"'Cairo',":''}Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:#0B0F18;color:#EEF2F9;direction:${dir};padding:28px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.page{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+.accent{height:4px;background:linear-gradient(90deg,#3B82F6 0%,#8B5CF6 50%,#EC4899 100%);border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.hdr{background:linear-gradient(135deg,#141923 0%,#1A2030 100%);border:1px solid #252D3D;border-radius:14px;padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.hdr-l{display:flex;flex-direction:column;gap:6px}
+.brand{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#3B82F6;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.22);border-radius:6px;padding:4px 10px;width:fit-content;margin-bottom:2px}
+.title{font-size:24px;font-weight:800;color:#EEF2F9;line-height:1.2;letter-spacing:-.3px}
+.sub{font-size:13px;color:#8892A4;margin-top:2px}
+.hdr-r{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.av-img{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid #252D3D}
+.av-ph{width:52px;height:52px;border-radius:50%;background:rgba(59,130,246,0.10);border:2px solid rgba(59,130,246,0.25);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#3B82F6}
+.an-name{font-size:14px;font-weight:700;color:#EEF2F9}
+.an-role{font-size:11px;color:#5A6478;margin-top:2px}
+.kpis{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+.kpi{border-radius:12px;padding:18px 20px;border:1px solid #252D3D}
+.kpi-lbl{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#5A6478;margin-bottom:8px}
+.kpi-val{font-size:30px;font-weight:900;line-height:1;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.kpi-hint{font-size:11.5px;color:#8892A4;margin-top:7px;line-height:1.5}
+.kpi-np{background:rgba(34,197,94,0.06);border-color:rgba(34,197,94,0.18);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.kpi-np .kpi-val{color:#22C55E}
+.kpi-nn{background:rgba(239,68,68,0.06);border-color:rgba(239,68,68,0.18);-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.kpi-nn .kpi-val{color:#EF4444}
+.kpi-wr{background:#141923} .kpi-wr.good .kpi-val{color:#22C55E} .kpi-wr.bad .kpi-val{color:#EF4444}
+.kpi-bt{background:#141923} .kpi-bt .kpi-val{color:#F59E0B}
+.strip{background:#141923;border:1px solid #252D3D;border-radius:12px;display:grid;grid-template-columns:repeat(7,1fr)}
+.st{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 8px;border-${dir==='rtl'?'left':'right'}:1px solid #1C2436;text-align:center}
+.st:last-child{border:none}
+.st-lbl{font-size:9px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:#5A6478}
+.st-val{font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
+.sh{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#5A6478;padding:0 2px}
+.sh::after{content:'';flex:1;height:1px;background:#1C2436}
+.trades{background:#141923;border:1px solid #252D3D;border-radius:12px;overflow:hidden}
+.tr{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 20px;border-bottom:1px solid #1C2436}
+.tr:last-child{border-bottom:none}
+.tr:hover{background:#1A2030}
+.tr-l{display:flex;flex-direction:column;gap:7px;flex:1;min-width:0}
+.tr-r{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.tr-id{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sym{font-size:17px;font-weight:800;color:#EEF2F9}
+.dir-badge{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:5px}
+.dc{background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.22);color:#22C55E;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.dp{background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.22);color:#EF4444;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.strike{font-size:13px;font-weight:700;color:#EEF2F9;font-variant-numeric:tabular-nums}
+.qty-info{font-size:11px;color:#5A6478}
+.exp-badge{font-size:10px;font-weight:600;color:#8892A4;background:rgba(138,146,164,0.08);border:1px solid rgba(138,146,164,0.15);border-radius:4px;padding:1px 7px}
+.tr-px{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.px-grp{display:flex;align-items:center;gap:4px}
+.px-lbl{font-size:10px;color:#5A6478;font-weight:600;letter-spacing:.04em;text-transform:uppercase}
+.px-val{font-size:12px;font-weight:700;color:#8892A4;font-variant-numeric:tabular-nums}
+.px-val.hi{color:#22C55E} .px-val.cur{color:#EEF2F9}
+.arr{color:#3B4558;font-size:12px} .px-sep{color:#252D3D}
+.status-badge{font-size:10px;font-weight:800;letter-spacing:.05em;padding:3px 8px;border-radius:5px;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.sb-active{background:rgba(59,130,246,0.10);border:1px solid rgba(59,130,246,0.22);color:#3B82F6}
+.sb-win{background:rgba(34,197,94,0.10);border:1px solid rgba(34,197,94,0.22);color:#22C55E}
+.sb-loss{background:rgba(90,100,120,0.10);border:1px solid rgba(90,100,120,0.22);color:#8892A4}
+.pnl{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pnl-pct{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:52px 24px;text-align:center}
+.empty-icon{font-size:44px}
+.empty-title{font-size:16px;font-weight:700;color:#8892A4}
+.empty-sub{font-size:13px;color:#5A6478}
+.ftr{background:#141923;border:1px solid #252D3D;border-radius:12px;padding:14px 22px;display:flex;align-items:center;justify-content:space-between}
+.ftr-brand{font-size:12px;font-weight:700;color:#8892A4}
+.ftr-note{font-size:11px;color:#5A6478}
+@media print{
+  body{background:#fff!important;color:#0f172a!important;padding:16px!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .page{max-width:100%!important;gap:12px!important}
+  .accent{background:linear-gradient(90deg,#3B82F6,#8B5CF6,#EC4899)!important}
+  .hdr,.strip,.trades,.ftr{background:#f8fafc!important;border-color:#e2e8f0!important}
+  .kpi-np{background:rgba(34,197,94,0.06)!important;border-color:rgba(34,197,94,0.22)!important}
+  .kpi-nn{background:rgba(239,68,68,0.06)!important;border-color:rgba(239,68,68,0.22)!important}
+  .kpi-wr,.kpi-bt{background:#f8fafc!important;border-color:#e2e8f0!important}
+  .brand{background:rgba(59,130,246,0.08)!important;border-color:rgba(59,130,246,0.22)!important;color:#2563eb!important}
+  .title,.an-name,.sym,.strike{color:#0f172a!important}
+  .sub,.kpi-hint,.an-role,.ftr-brand,.ftr-note{color:#475569!important}
+  .kpi-lbl,.st-lbl,.px-lbl,.empty-sub{color:#64748b!important}
+  .kpi-np .kpi-val{color:#16a34a!important}
+  .kpi-nn .kpi-val{color:#dc2626!important}
+  .kpi-wr.good .kpi-val{color:#16a34a!important}
+  .kpi-wr.bad .kpi-val{color:#dc2626!important}
+  .kpi-bt .kpi-val{color:#d97706!important}
+  .st{border-color:#e2e8f0!important} .sh::after{background:#e2e8f0!important}
+  .tr{border-color:#e2e8f0!important} .tr:hover{background:transparent!important}
+  .dc{background:rgba(22,163,74,0.08)!important;border-color:rgba(22,163,74,0.22)!important;color:#16a34a!important}
+  .dp{background:rgba(220,38,38,0.08)!important;border-color:rgba(220,38,38,0.22)!important;color:#dc2626!important}
+  .sb-active{background:rgba(37,99,235,0.08)!important;border-color:rgba(37,99,235,0.22)!important;color:#2563eb!important}
+  .sb-win{background:rgba(22,163,74,0.08)!important;border-color:rgba(22,163,74,0.22)!important;color:#16a34a!important}
+  .sb-loss{background:rgba(100,116,139,0.08)!important;border-color:rgba(100,116,139,0.22)!important;color:#64748b!important}
+  .px-val{color:#475569!important} .px-val.hi{color:#16a34a!important} .px-val.cur{color:#0f172a!important}
+  .empty-title{color:#475569!important}
+  .ftr{background:#f8fafc!important;border-color:#e2e8f0!important}
+}
+@media(max-width:640px){
+  body{padding:12px 8px}
+  .hdr{flex-direction:column;align-items:flex-start;padding:18px}
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpis .kpi:first-child{grid-column:span 2}
+  .strip{grid-template-columns:repeat(4,1fr)}
+  .st:nth-child(n+5){border-top:1px solid #1C2436}
+  .tr{flex-direction:column;align-items:flex-start}
+  .tr-r{flex-direction:row;align-items:center;gap:10px}
+}`;
+
+  return `<!DOCTYPE html>
+<html lang="${isAr?'ar':'en'}" dir="${dir}">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${periodLabel} — ${analyzerName}</title>
+${isAr||isDual?'<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">':''}
+<style>${css}</style>
+</head>
+<body>
+<div class="page">
+
+<div class="accent"></div>
+
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="brand">AnalyzingHub</div>
+    <div class="title">${periodLabel}</div>
+    <div class="sub">${dateRangeStr}${tradingDaysHint ? ` &nbsp;·&nbsp; ${tradingDaysHint}` : ''}</div>
+  </div>
+  <div class="hdr-r">
+    ${avatarHTML}
+    <div>
+      <div class="an-name">${analyzerName}</div>
+      <div class="an-role">${lbl('Analyst · Index Trading','محلل · تداول المؤشرات')}</div>
+    </div>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi ${netPos?'kpi-np':'kpi-nn'}">
+    <div class="kpi-lbl">${lbl('Net Profit','صافي الربح')}</div>
+    <div class="kpi-val">${fmtUSD(metrics.net_profit,0)}</div>
+    <div class="kpi-hint">${lbl('Profits','الأرباح')} +$${fmt(metrics.total_profit,0)} &nbsp;·&nbsp; ${lbl('Losses','الخسائر')} -$${fmt(Math.abs(metrics.total_loss),0)}</div>
+  </div>
+  <div class="kpi kpi-wr ${wrGood?'good':'bad'}">
+    <div class="kpi-lbl">${lbl('Win Rate','معدل النجاح')}</div>
+    <div class="kpi-val">${fmt(metrics.win_rate,1)}%</div>
+    <div class="kpi-hint">${metrics.winning_trades}${lbl('W','ر')} · ${metrics.losing_trades}${lbl('L','خ')} &nbsp;·&nbsp; ${lbl('W/L','ر/خ')} ${wlRatio}</div>
+  </div>
+  <div class="kpi kpi-bt">
+    <div class="kpi-lbl">${lbl('Best Trade','أفضل صفقة')}</div>
+    <div class="kpi-val">+$${fmt(metrics.best_trade,0)}</div>
+    <div class="kpi-hint">${lbl('Avg Win','متوسط الربح')} ${avgWinStr}</div>
+  </div>
+</div>
+
+<div class="strip">
+  <div class="st"><div class="st-lbl">${lbl('Total','إجمالي')}</div><div class="st-val" style="color:#EEF2F9">${metrics.total_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Active','نشطة')}</div><div class="st-val" style="color:#3B82F6">${metrics.active_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Closed','مغلقة')}</div><div class="st-val" style="color:#8892A4">${metrics.closed_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Won','رابحة')}</div><div class="st-val" style="color:#22C55E">${metrics.winning_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Lost','خاسرة')}</div><div class="st-val" style="color:#EF4444">${metrics.losing_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Best','أفضل')}</div><div class="st-val" style="color:#22C55E">+$${fmt(metrics.best_trade,0)}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Worst','أسوأ')}</div><div class="st-val" style="color:#EF4444">-$${fmt(Math.abs(metrics.worst_trade),0)}</div></div>
+</div>
+
+<div class="sh">${lbl('Trades','الصفقات')} (${(trades ?? []).length})</div>
+<div class="trades">${tradesHTML}</div>
+
+<div class="ftr">
+  <span class="ftr-brand">AnalyzingHub &nbsp;·&nbsp; ${lbl('Index Trading Report','تقرير تداول المؤشرات')}</span>
+  <span class="ftr-note">${lbl('Generated','تم الإنشاء')} ${genTime} UTC</span>
+</div>
+
+</div>
 </body>
 </html>`;
 }
+

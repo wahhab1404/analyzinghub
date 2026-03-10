@@ -814,7 +814,7 @@ export default function DashboardPage() {
 
                   {/* Points */}
                   <div className="text-right flex-shrink-0">
-                    <div className="text-sm font-black text-primary num">{row.points.toLocaleString()}</div>
+                    <div className="text-sm font-black text-primary num">{(row.points ?? 0).toLocaleString()}</div>
                     <div className="text-[9px] text-muted-foreground">pts</div>
                   </div>
                 </Link>

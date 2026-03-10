@@ -1174,16 +1174,19 @@ export default function ReportsPage() {
       </Tabs>
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-4">
           <DialogHeader>
             <DialogTitle>
               {language === 'ar' ? 'معاينة التقرير HTML' : 'HTML Report Preview'}
             </DialogTitle>
           </DialogHeader>
           {previewReport?.html_content && (
-            <div
-              className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: previewReport.html_content }}
+            <iframe
+              srcDoc={previewReport.html_content}
+              className="w-full border-0 rounded"
+              style={{ height: '70vh' }}
+              sandbox="allow-same-origin"
+              title="Report Preview"
             />
           )}
         </DialogContent>

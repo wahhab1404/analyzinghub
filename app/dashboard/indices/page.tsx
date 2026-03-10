@@ -1274,6 +1274,7 @@ export default function IndicesHubPage() {
                   </div>
 
                   {/* Total Profit Banner */}
+                  {previewData.metrics && (
                   <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-xl">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1297,6 +1298,7 @@ export default function IndicesHubPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
 
                 {/* Stats Grid */}
@@ -1588,16 +1590,19 @@ export default function IndicesHubPage() {
       </Dialog>
       {/* HTML Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-4">
           <DialogHeader>
             <DialogTitle>
               {language === 'ar' ? 'معاينة التقرير HTML' : 'HTML Report Preview'}
             </DialogTitle>
           </DialogHeader>
           {previewReport?.html_content && (
-            <div
-              className="prose prose-sm max-w-none"
-              dangerouslySetInnerHTML={{ __html: previewReport.html_content }}
+            <iframe
+              srcDoc={previewReport.html_content}
+              className="w-full border-0 rounded"
+              style={{ height: '70vh' }}
+              sandbox="allow-same-origin"
+              title="Report Preview"
             />
           )}
         </DialogContent>
