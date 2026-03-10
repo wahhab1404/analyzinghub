@@ -6,24 +6,63 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-function formatNumber(value: number, decimals: number = 0): string {
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
+// ─── Design Tokens (kept in sync with generate-report-image) ─────────────────
+const D = {
+  bg: '#0D1117', card: '#161B22', elevated: '#1C2128',
+  border: '#30363D', borderLight: '#21262D',
+  text: '#E6EDF3', textSub: '#8B949E', textMuted: '#6E7681',
+  call: '#3FB950', callBg: 'rgba(63,185,80,0.10)',  callBorder: 'rgba(63,185,80,0.25)',
+  put:  '#F85149', putBg:  'rgba(248,81,73,0.10)',  putBorder:  'rgba(248,81,73,0.25)',
+  blue: '#58A6FF', blueBg: 'rgba(88,166,255,0.10)', blueBorder: 'rgba(88,166,255,0.25)',
+};
+
+// ─── Number helpers ───────────────────────────────────────────────────────────
+function fmt(v: number, d = 0): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function fmtUSD(v: number, d = 0): string {
+  return `${v >= 0 ? '+' : '-'}$${fmt(Math.abs(v), d)}`;
+}
+function fmtPlain(v: number, d = 0): string {
+  return `${v >= 0 ? '$' : '-$'}${fmt(Math.abs(v), d)}`;
 }
 
-function formatCurrency(value: number, decimals: number = 0): string {
-  const formatted = formatNumber(Math.abs(value), decimals);
-  const sign = value >= 0 ? '+' : '-';
-  return `${sign}$${formatted}`;
+// ─── UNIFIED price / profit helpers ──────────────────────────────────────────
+// Single source of truth: price > mid > last > 0
+function getEntryPrice(trade: any): number {
+  const s = trade.entry_contract_snapshot ?? {};
+  const v = s.price ?? s.mid ?? s.last ?? 0;
+  return Number.isFinite(+v) ? +v : 0;
 }
 
-function formatCurrencySimple(value: number, decimals: number = 0): string {
-  const formatted = formatNumber(Math.abs(value), decimals);
-  return value >= 0 ? `$${formatted}` : `-$${formatted}`;
+function getHighestPrice(trade: any, entry: number): number {
+  const v = trade.contract_high_since ?? trade.current_contract ?? entry;
+  return Number.isFinite(+v) ? +v : entry;
 }
 
+// Realized P&L: DB fields take priority over calculated.
+function getTradeProfit(trade: any): number {
+  if (trade.pnl_usd      != null) return +trade.pnl_usd      || 0;
+  if (trade.final_profit != null) return +trade.final_profit  || 0;
+  if (trade.max_profit   != null) return +trade.max_profit    || 0;
+  const entry = getEntryPrice(trade);
+  const high  = getHighestPrice(trade, entry);
+  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+}
+
+// Max potential profit entry → highest (used for win classification).
+function getMaxProfit(trade: any): number {
+  const entry = getEntryPrice(trade);
+  const high  = getHighestPrice(trade, entry);
+  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+}
+
+// Win: reached ≥ $100 max profit from entry (single consistent definition).
+function isWinner(trade: any): boolean {
+  return getMaxProfit(trade) >= 100;
+}
+
+// ─── Request interface ────────────────────────────────────────────────────────
 interface GenerateReportRequest {
   date?: string;
   analyst_id: string;
@@ -33,896 +72,450 @@ interface GenerateReportRequest {
   dry_run?: boolean;
 }
 
+// ─── Main handler ─────────────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseUrl    = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
+    const supabase       = createClient(supabaseUrl, serviceRoleKey);
 
-    const { date, analyst_id, language_mode = 'dual', period_type = 'daily', telegram_channel_id, dry_run = false }: GenerateReportRequest = await req.json();
+    const {
+      date, analyst_id, language_mode = 'dual',
+      period_type = 'daily', telegram_channel_id, dry_run = false,
+    }: GenerateReportRequest = await req.json();
 
     const reportDate = date || new Date().toISOString().split('T')[0];
-    console.log(`[Report Generator] Starting for date: ${reportDate}, analyst: ${analyst_id}, language: ${language_mode}, period: ${period_type}, channel: ${telegram_channel_id || 'all'}`);
+    console.log(`[Report] date=${reportDate} analyst=${analyst_id} lang=${language_mode} period=${period_type} channel=${telegram_channel_id ?? 'all'}`);
 
-    let startOfDay: Date;
-    let endOfDay: Date;
+    // ── Date range ──────────────────────────────────────────────────────────
+    let startOfDay: Date, endOfDay: Date;
 
     if (period_type === 'weekly') {
-      const refDate = new Date(reportDate + 'T00:00:00.000Z');
-      const dayOfWeek = refDate.getUTCDay();
-      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      startOfDay = new Date(refDate);
-      startOfDay.setUTCDate(refDate.getUTCDate() - diff);
+      const ref   = new Date(reportDate + 'T00:00:00.000Z');
+      const dow   = ref.getUTCDay();
+      const toMon = dow === 0 ? 6 : dow - 1;
+      startOfDay  = new Date(ref);
+      startOfDay.setUTCDate(ref.getUTCDate() - toMon);
       startOfDay.setUTCHours(0, 0, 0, 0);
-
-      endOfDay = new Date(startOfDay);
+      endOfDay    = new Date(startOfDay);
       endOfDay.setUTCDate(startOfDay.getUTCDate() + 6);
       endOfDay.setUTCHours(23, 59, 59, 999);
     } else if (period_type === 'monthly') {
-      const refDate = new Date(reportDate + 'T00:00:00.000Z');
-      startOfDay = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth(), 1, 0, 0, 0, 0));
-      endOfDay = new Date(Date.UTC(refDate.getUTCFullYear(), refDate.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+      const ref  = new Date(reportDate + 'T00:00:00.000Z');
+      startOfDay = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), 1));
+      endOfDay   = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth() + 1, 0, 23, 59, 59, 999));
     } else {
       startOfDay = new Date(reportDate + 'T00:00:00.000Z');
-      endOfDay = new Date(reportDate + 'T23:59:59.999Z');
+      endOfDay   = new Date(reportDate + 'T23:59:59.999Z');
     }
 
-    let tradesQuery = supabase
+    // ── Fetch trades (channel-scoped, no test trades) ───────────────────────
+    let q = supabase
       .from('index_trades')
       .select('*')
       .eq('author_id', analyst_id)
       .eq('is_testing', false)
       .order('created_at', { ascending: false });
 
-    if (telegram_channel_id) {
-      tradesQuery = tradesQuery.eq('telegram_channel_id', telegram_channel_id);
-    }
+    if (telegram_channel_id) q = q.eq('telegram_channel_id', telegram_channel_id);
 
-    const { data: allTradesFromDB, error: tradesError } = await tradesQuery;
-
+    const { data: allTradesFromDB, error: tradesError } = await q;
     if (tradesError) throw tradesError;
 
-    console.log(`[Report Generator] Total trades from DB: ${allTradesFromDB?.length || 0}`);
-    console.log(`[Report Generator] Date range: ${startOfDay.toISOString()} to ${endOfDay.toISOString()}`);
+    console.log(`[Report] DB trades: ${allTradesFromDB?.length ?? 0}  range: ${startOfDay.toISOString()} – ${endOfDay.toISOString()}`);
 
-    const trades = (allTradesFromDB || []).filter(t => {
-      const createdAt = new Date(t.created_at);
-      const closedAt = t.closed_at ? new Date(t.closed_at) : null;
-      const expiryDate = t.expiry ? new Date(t.expiry) : null;
-
-      const matchCreated = createdAt >= startOfDay && createdAt <= endOfDay;
-      const matchClosed = closedAt && closedAt >= startOfDay && closedAt <= endOfDay;
-      const matchExpiry = expiryDate && expiryDate >= startOfDay && expiryDate <= endOfDay;
-      const matchActive = t.status === 'active' && createdAt <= endOfDay;
-
-      return matchCreated || matchClosed || matchExpiry || matchActive;
+    // ── Filter to period ────────────────────────────────────────────────────
+    const trades = (allTradesFromDB ?? []).filter(t => {
+      const created = new Date(t.created_at);
+      const closed  = t.closed_at ? new Date(t.closed_at) : null;
+      const expiry  = t.expiry    ? new Date(t.expiry)    : null;
+      return (created >= startOfDay && created <= endOfDay)
+          || (closed  && closed  >= startOfDay && closed  <= endOfDay)
+          || (expiry  && expiry  >= startOfDay && expiry  <= endOfDay)
+          || (t.status === 'active' && created <= endOfDay);
     });
 
-    console.log(`[Report Generator] Filtered trades for period: ${trades?.length || 0}`);
+    console.log(`[Report] Filtered trades: ${trades.length}`);
 
-    const activeTrades = trades.filter(t => t.status === 'active');
+    // ── Categorise ──────────────────────────────────────────────────────────
+    const activeTrades  = trades.filter(t => t.status === 'active');
+    const closedTrades  = trades.filter(t =>
+      t.status === 'closed' && t.closed_at &&
+      new Date(t.closed_at) >= startOfDay && new Date(t.closed_at) <= endOfDay,
+    );
+    const closedIds     = new Set(closedTrades.map(t => t.id));
+    const expiredTrades = trades.filter(t =>
+      !closedIds.has(t.id) && t.expiry &&
+      new Date(t.expiry) >= startOfDay && new Date(t.expiry) <= endOfDay,
+    );
+    const completedTrades = [...closedTrades, ...expiredTrades];
 
-    const closedTrades = trades.filter(t => {
-      if (!t.closed_at) return false;
-      const closedAt = new Date(t.closed_at);
-      return t.status === 'closed' &&
-        closedAt >= startOfDay &&
-        closedAt <= endOfDay;
-    });
+    // ── Win classification — single path, used everywhere ───────────────────
+    const winnerIds         = new Set(completedTrades.filter(isWinner).map(t => t.id));
+    const winningTradesList = completedTrades.filter(t =>  winnerIds.has(t.id));
+    const losingTradesList  = completedTrades.filter(t => !winnerIds.has(t.id));
 
-    const closedTradeIds = new Set(closedTrades.map(t => t.id));
-
-    const expiredTrades = trades.filter(t => {
-      if (closedTradeIds.has(t.id)) return false;
-      if (!t.expiry) return false;
-      const expiryDate = new Date(t.expiry);
-      return expiryDate >= startOfDay &&
-        expiryDate <= endOfDay;
-    });
-
-    const enrichedExpiredTrades = expiredTrades.map(trade => {
-      // Fix: use nullish coalescing so a legitimate price of 0 is preserved
-      const entryPrice = trade.entry_contract_snapshot?.price ?? trade.entry_contract_snapshot?.mid ?? trade.entry_contract_snapshot?.last ?? 0;
-      // Fix: for expired trades use contract_high_since; fall back to current_contract, not entryPrice
-      const highestPrice = trade.contract_high_since ?? trade.current_contract ?? entryPrice;
-      const qty = trade.qty || 1;
-      const multiplier = trade.contract_multiplier || 100;
-      const maxProfit = (highestPrice - entryPrice) * qty * multiplier;
-      
-      return {
-        ...trade,
-        is_expired_winner: maxProfit >= 100,
-        expired_status: maxProfit >= 100 
-          ? 'Expired (Counted as Close — Winner by +$100 rule)'
-          : 'Expired (Counted as Close)'
-      };
-    });
-
-    const allTrades = [...activeTrades, ...closedTrades, ...enrichedExpiredTrades];
-
-    const totalTrades = allTrades.length;
-    const totalActive = activeTrades.length;
-    const totalClosed = closedTrades.length;
-    const totalExpired = expiredTrades.length;
-
-    const profitableTrades = [...closedTrades, ...enrichedExpiredTrades].filter(t => {
-      // Fix: nullish coalescing for legitimate 0 prices
-      const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
-      const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
-      const qty = t.qty || 1;
-      const multiplier = t.contract_multiplier || 100;
-      const maxProfit = (highestPrice - entryPrice) * qty * multiplier;
-      return maxProfit >= 100;
-    });
-
-    const avgProfit = allTrades.length > 0
-      ? allTrades.reduce((sum, t) => {
-          // Fix: nullish coalescing for prices
-          const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
-          const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
-          return sum + (entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0);
-        }, 0) / allTrades.length
-      : 0;
-
-    const maxProfit = allTrades.length > 0
-      ? Math.max(...allTrades.map(t => {
-          // Fix: nullish coalescing for prices
-          const entryPrice = t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last ?? 0;
-          const highestPrice = t.contract_high_since ?? t.current_contract ?? entryPrice;
-          return entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-        }))
-      : 0;
-
-    const winRate = (closedTrades.length + expiredTrades.length) > 0
-      ? (profitableTrades.length / (closedTrades.length + expiredTrades.length) * 100)
-      : 0;
-
-    const completedTrades = [...closedTrades, ...enrichedExpiredTrades];
-    const winningTradesList = completedTrades.filter(t => t.is_winning_trade === true || t.is_expired_winner === true);
-    const losingTradesList = completedTrades.filter(t => t.is_winning_trade === false && !t.is_expired_winner);
-
-    // Calculate total profit (from winning trades)
-    const totalProfit = winningTradesList.reduce((sum, t) => {
-      // Priority: pnl_usd -> final_profit -> calculated from max_profit
-      let profit = 0;
-      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
-        profit = parseFloat(t.pnl_usd.toString());
-      } else if (t.final_profit !== null && t.final_profit !== undefined) {
-        profit = parseFloat(t.final_profit.toString());
-      } else if (t.max_profit !== null && t.max_profit !== undefined) {
-        profit = parseFloat(t.max_profit.toString());
-      } else {
-        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-        const highestPrice = t.contract_high_since || 0;
-        const qty = t.qty || 1;
-        const multiplier = t.contract_multiplier || 100;
-        profit = (highestPrice - entryPrice) * qty * multiplier;
-      }
-      return sum + Math.abs(profit);
-    }, 0);
-
-    // Calculate total loss (from losing trades)
-    const totalLoss = losingTradesList.reduce((sum, t) => {
-      // Priority: pnl_usd -> final_profit -> calculated from max_profit
-      let loss = 0;
-      if (t.pnl_usd !== null && t.pnl_usd !== undefined) {
-        loss = parseFloat(t.pnl_usd.toString());
-      } else if (t.final_profit !== null && t.final_profit !== undefined) {
-        loss = parseFloat(t.final_profit.toString());
-      } else if (t.max_profit !== null && t.max_profit !== undefined) {
-        loss = parseFloat(t.max_profit.toString());
-      } else {
-        const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-        const highestPrice = t.contract_high_since || 0;
-        const qty = t.qty || 1;
-        const multiplier = t.contract_multiplier || 100;
-        loss = (highestPrice - entryPrice) * qty * multiplier;
-      }
-      return sum + Math.abs(loss);
-    }, 0);
-
-    const netProfit = totalProfit - totalLoss;
-
+    // ── Core metrics ────────────────────────────────────────────────────────
+    const totalTrades   = trades.length;
+    const totalActive   = activeTrades.length;
+    const totalClosed   = closedTrades.length;
+    const totalExpired  = expiredTrades.length;
     const winningTrades = winningTradesList.length;
-    const losingTrades = losingTradesList.length;
+    const losingTrades  = losingTradesList.length;
 
-    // Calculate additional metrics for better reporting
-    const avgProfitPerWin = winningTrades > 0 ? (totalProfit / winningTrades) : 0;
-    const avgLossPerLoss = losingTrades > 0 ? (totalLoss / losingTrades) : 0;
+    // Win rate uses the same winner list — consistent with winning_trades count
+    const winRate = completedTrades.length > 0
+      ? (winningTrades / completedTrades.length) * 100 : 0;
 
-    const allProfits = winningTradesList.map(t => {
-      if (t.pnl_usd !== null && t.pnl_usd !== undefined) return Math.abs(parseFloat(t.pnl_usd.toString()));
-      if (t.final_profit !== null && t.final_profit !== undefined) return Math.abs(parseFloat(t.final_profit.toString()));
-      if (t.max_profit !== null && t.max_profit !== undefined) return Math.abs(parseFloat(t.max_profit.toString()));
-      const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-      const highestPrice = t.contract_high_since || 0;
-      return Math.abs((highestPrice - entryPrice) * (t.qty || 1) * (t.contract_multiplier || 100));
+    const totalProfit = winningTradesList.reduce((s, t) => s + Math.abs(getTradeProfit(t)), 0);
+    const totalLoss   = losingTradesList.reduce( (s, t) => s + Math.abs(getTradeProfit(t)), 0);
+    const netProfit   = totalProfit - totalLoss;
+
+    // Average return % across all trades (entry → highest)
+    const allPct = trades.map(t => {
+      const entry = getEntryPrice(t);
+      const high  = getHighestPrice(t, entry);
+      return entry > 0 ? ((high - entry) / entry) * 100 : 0;
     });
+    const avgProfit    = allPct.length > 0 ? allPct.reduce((s, v) => s + v, 0) / allPct.length : 0;
+    const maxProfitPct = allPct.length > 0 ? Math.max(...allPct) : 0;
 
-    const allLosses = losingTradesList.map(t => {
-      if (t.pnl_usd !== null && t.pnl_usd !== undefined) return Math.abs(parseFloat(t.pnl_usd.toString()));
-      if (t.final_profit !== null && t.final_profit !== undefined) return Math.abs(parseFloat(t.final_profit.toString()));
-      if (t.max_profit !== null && t.max_profit !== undefined) return Math.abs(parseFloat(t.max_profit.toString()));
-      const entryPrice = t.entry_contract_snapshot?.mid || t.entry_contract_snapshot?.last || 0;
-      const highestPrice = t.contract_high_since || 0;
-      return Math.abs((highestPrice - entryPrice) * (t.qty || 1) * (t.contract_multiplier || 100));
-    });
+    const allWins  = winningTradesList.map(t => Math.abs(getTradeProfit(t)));
+    const allLoss  = losingTradesList.map(t  => Math.abs(getTradeProfit(t)));
+    const bestTrade  = allWins.length  > 0 ? Math.max(...allWins)  : 0;
+    const worstTrade = allLoss.length  > 0 ? -Math.max(...allLoss) : 0;
 
-    const bestTrade = allProfits.length > 0 ? Math.max(...allProfits) : 0;
-    const worstTrade = allLosses.length > 0 ? -Math.max(...allLosses) : 0;
+    const avgProfitPerWin = winningTrades > 0 ? totalProfit / winningTrades : 0;
+    const avgLossPerLoss  = losingTrades  > 0 ? totalLoss   / losingTrades  : 0;
 
     const metrics = {
-      total_trades: totalTrades,
-      active_trades: totalActive,
-      closed_trades: totalClosed,
-      expired_trades: totalExpired,
-      avg_profit_percent: avgProfit,
-      max_profit_percent: maxProfit,
+      total_trades: totalTrades, active_trades: totalActive,
+      closed_trades: totalClosed, expired_trades: totalExpired,
+      winning_trades: winningTrades, losing_trades: losingTrades,
       win_rate: winRate,
-      winning_trades: winningTrades,
-      losing_trades: losingTrades,
-      total_profit: totalProfit,
-      total_loss: totalLoss,
-      net_profit: netProfit,
-      total_profit_dollars: netProfit,
+      total_profit: totalProfit, total_loss: totalLoss,
+      net_profit: netProfit, total_profit_dollars: netProfit,
+      avg_profit_percent: avgProfit, max_profit_percent: maxProfitPct,
       avg_profit_per_winning_trade: avgProfitPerWin,
       avg_loss_per_losing_trade: avgLossPerLoss,
-      best_trade: bestTrade,
-      worst_trade: worstTrade
+      best_trade: bestTrade, worst_trade: worstTrade,
     };
 
     const { data: analyzerProfile } = await supabase
-      .from('profiles')
-      .select('full_name, username, avatar_url')
-      .eq('id', analyst_id)
-      .single();
+      .from('profiles').select('full_name, username, avatar_url')
+      .eq('id', analyst_id).single();
 
-    const html = generateReportHTML({
-      date: reportDate,
-      trades: allTrades,
-      expiredTrades: enrichedExpiredTrades,
-      metrics,
-      language_mode,
-      analyzer: analyzerProfile
-    });
-
+    // ── Dry run ─────────────────────────────────────────────────────────────
     if (dry_run) {
-      const tradesForPreview = allTrades.map(trade => {
-        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-        const highestPrice = trade.contract_high_since || trade.current_contract || 0;
-        const currentPrice = trade.current_contract || 0;
-        const qty = trade.qty || 1;
-        const profit = (highestPrice - entryPrice) * qty * 100;
-        const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-
-        return {
-          id: trade.id,
-          symbol: trade.underlying_index_symbol,
-          type: trade.option_type,
-          strike: trade.strike,
-          entry_price: entryPrice,
-          highest_price: highestPrice,
-          current_price: currentPrice,
-          qty: qty,
-          profit: profit,
-          profit_percent: profitPercent,
-          status: trade.status,
-          expired_status: trade.expired_status,
-          created_at: trade.created_at,
-          expiry: trade.expiry
-        };
+      const preview = trades.map(t => {
+        const entry  = getEntryPrice(t);
+        const high   = getHighestPrice(t, entry);
+        const profit = getTradeProfit(t);
+        const pct    = entry > 0 ? ((high - entry) / entry) * 100 : 0;
+        return { id: t.id, symbol: t.underlying_index_symbol, type: t.option_type,
+                 strike: t.strike, entry_price: entry, highest_price: high,
+                 current_price: t.current_contract || 0, qty: t.qty || 1,
+                 profit, profit_percent: pct, status: t.status,
+                 created_at: t.created_at, expiry: t.expiry, is_winner: winnerIds.has(t.id) };
       });
-
       return new Response(
-        JSON.stringify({
-          success: true,
-          metrics,
-          trades: tradesForPreview,
-          analyzer: analyzerProfile,
-          dry_run: true
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: true, metrics, trades: preview, analyzer: analyzerProfile, dry_run: true }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
       );
     }
 
+    // ── Generate HTML ────────────────────────────────────────────────────────
+    const html = generateReportHTML({
+      date: reportDate, trades, winnerIds, metrics, language_mode,
+      analyzer: analyzerProfile, period_type,
+      startDate: startOfDay.toISOString().split('T')[0],
+      endDate:   endOfDay.toISOString().split('T')[0],
+    });
+
+    // ── Storage ─────────────────────────────────────────────────────────────
     const fileName = `${analyst_id}/${reportDate}-${language_mode}.html`;
-    
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('daily-reports')
-      .upload(fileName, new Blob([html], { type: 'text/html' }), {
-        upsert: true
-      });
-
+      .upload(fileName, new Blob([html], { type: 'text/html' }), { upsert: true });
     if (uploadError) throw uploadError;
-
-    const downloadFileName = `daily-report-${reportDate}.html`;
 
     const { data: urlData } = await supabase.storage
       .from('daily-reports')
-      .createSignedUrl(fileName, 60 * 60 * 24 * 7, {
-        download: downloadFileName
-      });
+      .createSignedUrl(fileName, 60 * 60 * 24 * 7, { download: `report-${reportDate}.html` });
 
+    // ── DB upsert ────────────────────────────────────────────────────────────
     const { data: reportRecord, error: insertError } = await supabase
       .from('daily_trade_reports')
       .upsert({
-        report_date: reportDate,
-        author_id: analyst_id,
+        report_date: reportDate, author_id: analyst_id,
         telegram_channel_id: telegram_channel_id || null,
         channel_key: telegram_channel_id || '',
-        html_content: html,
-        trade_count: totalTrades,
-        summary: metrics,
-        language_mode,
-        period_type,
+        html_content: html, trade_count: totalTrades, summary: metrics,
+        language_mode, period_type,
         start_date: startOfDay.toISOString().split('T')[0],
-        end_date: endOfDay.toISOString().split('T')[0],
-        file_path: fileName,
-        file_url: urlData?.signedUrl,
-        file_size_bytes: html.length,
-        status: 'generated'
+        end_date:   endOfDay.toISOString().split('T')[0],
+        file_path: fileName, file_url: urlData?.signedUrl,
+        file_size_bytes: html.length, status: 'generated',
       }, {
         onConflict: 'report_date,author_id,language_mode,period_type,channel_key',
-        returning: 'representation'
+        returning: 'representation',
       })
-      .select()
-      .single();
+      .select().single();
 
     if (insertError) throw insertError;
 
-    console.log(`[Report Generator] Successfully generated report ${reportRecord.id}`);
-
+    console.log(`[Report] Generated ${reportRecord.id}`);
     return new Response(
-      JSON.stringify({
-        success: true,
-        report_id: reportRecord.id,
-        file_url: urlData?.signedUrl,
-        metrics
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      JSON.stringify({ success: true, report_id: reportRecord.id, file_url: urlData?.signedUrl, metrics }),
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
 
   } catch (error: any) {
-    console.error('[Report Generator] Error:', error);
+    console.error('[Report] Error:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );
   }
 });
 
-function generateReportHTML(data: any): string {
-  const { date, trades, expiredTrades, metrics, language_mode, analyzer } = data;
-  
-  const isArabic = language_mode === 'ar';
+// ─── HTML Template ────────────────────────────────────────────────────────────
+// Dark terminal design — visually consistent with generate-report-image PNG.
+function generateReportHTML(data: {
+  date: string; trades: any[]; winnerIds: Set<string>; metrics: any;
+  language_mode: string; analyzer: any; period_type: string;
+  startDate: string; endDate: string;
+}): string {
+  const { date, trades, winnerIds, metrics, language_mode, analyzer, period_type, startDate, endDate } = data;
+
+  const isAr   = language_mode === 'ar';
   const isDual = language_mode === 'dual';
-  const dir = isArabic ? 'rtl' : 'ltr';
-  
-  // Parse date at noon UTC to avoid timezone shifts
-  const dateFormatted = new Date(date + 'T12:00:00Z').toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC'
-  });
+  const dir    = isAr ? 'rtl' : 'ltr';
 
-  const t = {
-    title: isDual ? 'Daily Trading Report | تقرير التداول اليومي' : isArabic ? 'تقرير التداول اليومي' : 'Daily Trading Report',
-    date: isDual ? `Date | التاريخ` : isArabic ? 'التاريخ' : 'Date',
-    summary: isDual ? 'Performance Summary | ملخص الأداء' : isArabic ? 'ملخص الأداء' : 'Performance Summary',
-    total: isDual ? 'Total Trades | إجمالي الصفقات' : isArabic ? 'إجمالي الصفقات' : 'Total Trades',
-    active: isDual ? 'Active | نشطة' : isArabic ? 'نشطة' : 'Active',
-    closed: isDual ? 'Closed | مغلقة' : isArabic ? 'مغلقة' : 'Closed',
-    expired: isDual ? 'Expired | منتهية' : isArabic ? 'منتهية' : 'Expired',
-    winners: isDual ? 'Winners | رابحة' : isArabic ? 'رابحة' : 'Winners',
-    losers: isDual ? 'Losers | خاسرة' : isArabic ? 'خاسرة' : 'Losers',
-    totalProfit: isDual ? 'Total Profit | إجمالي الربح' : isArabic ? 'إجمالي الربح' : 'Total Profit',
-    totalLoss: isDual ? 'Total Loss | إجمالي الخسارة' : isArabic ? 'إجمالي الخسارة' : 'Total Loss',
-    netProfit: isDual ? 'Net Profit | صافي الربح' : isArabic ? 'صافي الربح' : 'Net Profit',
-    avgProfit: isDual ? 'Avg Profit | متوسط الربح' : isArabic ? 'متوسط الربح' : 'Avg Profit',
-    maxProfit: isDual ? 'Max Profit | أقصى ربح' : isArabic ? 'أقصى ربح' : 'Max Profit',
-    winRate: isDual ? 'Win Rate | معدل النجاح' : isArabic ? 'معدل النجاح' : 'Win Rate',
-    todayTrades: isDual ? "Today's Trades | صفقات اليوم" : isArabic ? 'صفقات اليوم' : "Today's Trades",
-    tradeDetails: isDual ? 'Trade Details | تفاصيل الصفقة' : isArabic ? 'تفاصيل الصفقة' : 'Trade Details',
-    entry: isDual ? 'Entry | الدخول' : isArabic ? 'الدخول' : 'Entry',
-    highest: isDual ? 'Highest | الأعلى' : isArabic ? 'الأعلى' : 'Highest',
-    strike: isDual ? 'Strike | السعر' : isArabic ? 'السعر' : 'Strike',
-    expiry: isDual ? 'Expiry | الانتهاء' : isArabic ? 'الانتهاء' : 'Expiry',
-    profit: isDual ? 'Profit | الربح' : isArabic ? 'الربح' : 'Profit',
-    noTrades: isDual ? 'No trades recorded | لا توجد صفقات مسجلة' : isArabic ? 'لا توجد صفقات مسجلة' : 'No trades recorded',
-    call: isDual ? 'CALL | شراء' : isArabic ? 'شراء' : 'CALL',
-    put: isDual ? 'PUT | بيع' : isArabic ? 'بيع' : 'PUT',
-    activeStatus: isDual ? 'ACTIVE | نشطة' : isArabic ? 'نشطة' : 'ACTIVE',
-    closedStatus: isDual ? 'CLOSED | مغلقة' : isArabic ? 'مغلقة' : 'CLOSED',
-    expiredStatus: isDual ? 'EXPIRED | منتهية' : isArabic ? 'منتهية' : 'EXPIRED'
-  };
+  function lbl(en: string, ar: string): string {
+    return isDual ? `${en} | ${ar}` : isAr ? ar : en;
+  }
 
-  const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyzer';
-  const analyzerInitials = analyzerName.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase();
-  const avatarHTML = analyzer?.avatar_url 
-    ? `<img src="${analyzer.avatar_url}" alt="${analyzerName}" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 4px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.2);" />`
-    : `<div style="width: 80px; height: 80px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 700; color: white; border: 4px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.2);">${analyzerInitials}</div>`;
+  const dateFormatted = new Date(date + 'T12:00:00Z').toLocaleDateString(
+    isAr ? 'ar-SA' : 'en-US',
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' },
+  );
+  const dateRangeStr = period_type !== 'daily'
+    ? `${new Date(startDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' })} – ${new Date(endDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : dateFormatted;
 
+  const periodLabel =
+    period_type === 'weekly'  ? lbl('Weekly Report',  'تقرير أسبوعي')  :
+    period_type === 'monthly' ? lbl('Monthly Report', 'تقرير شهري')    :
+                                lbl('Daily Report',   'تقرير يومي');
+
+  const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyst';
+  const initials     = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+  const avatarHTML   = analyzer?.avatar_url
+    ? `<img src="${analyzer.avatar_url}" class="av-img" alt="${analyzerName}">`
+    : `<div class="av-ph">${initials}</div>`;
+
+  const netPos = metrics.net_profit >= 0;
+
+  // ── Trade rows ────────────────────────────────────────────────────────────
   const tradesHTML = trades.length === 0
-    ? `<div class="no-trades"><div class="no-trades-icon">📭</div><h3>${t.noTrades}</h3></div>`
-    : trades.map((trade: any) => {
-        const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-        const highestPrice = trade.contract_high_since || trade.current_contract || 0;
-        const currentPrice = trade.current_contract || 0;
-        const qty = trade.qty || 1;
-        const multiplier = 100;
+    ? `<div class="empty"><div style="font-size:40px;margin-bottom:12px">📭</div><div>${lbl('No trades in this period', 'لا توجد صفقات في هذه الفترة')}</div></div>`
+    : trades.map((t: any) => {
+        const entry  = getEntryPrice(t);
+        const high   = getHighestPrice(t, entry);
+        const profit = getTradeProfit(t);
+        const pct    = entry > 0 ? ((high - entry) / entry) * 100 : 0;
+        const win    = winnerIds.has(t.id);
+        const isCall = (t.option_type ?? '').toLowerCase() === 'call';
 
-        // Use actual P&L from database for closed trades, otherwise calculate
-        let profitDollars: number;
-        if (trade.status === 'closed' && (trade.pnl_usd !== null && trade.pnl_usd !== undefined)) {
-          profitDollars = parseFloat(trade.pnl_usd.toString());
-        } else if (trade.final_profit !== null && trade.final_profit !== undefined) {
-          profitDollars = parseFloat(trade.final_profit.toString());
-        } else {
-          profitDollars = (highestPrice - entryPrice) * qty * multiplier;
-        }
+        const sClass = t.status === 'active' ? 'sb-active' : win ? 'sb-win' : 'sb-loss';
+        const sLabel = t.status === 'active'
+          ? lbl('ACTIVE', 'نشطة')
+          : t.status === 'closed'
+            ? (win ? lbl('CLOSED ✓', 'مغلقة ✓') : lbl('CLOSED', 'مغلقة'))
+            : (win ? lbl('EXPIRED ✓', 'منتهية ✓') : lbl('EXPIRED', 'منتهية'));
 
-        const profitPercent = entryPrice > 0 ? ((highestPrice - entryPrice) / entryPrice * 100) : 0;
-        const profitClass = profitDollars > 0 ? 'positive' : profitDollars < 0 ? 'negative' : 'neutral';
+        const exp = t.expiry
+          ? new Date(t.expiry + 'T00:00:00Z').toLocaleDateString(
+              isAr ? 'ar-SA' : 'en-US',
+              { month: 'short', day: 'numeric', year: '2-digit' },
+            )
+          : '—';
 
-        const optionTypeText = trade.option_type?.toLowerCase() === 'call' ? t.call : trade.option_type?.toLowerCase() === 'put' ? t.put : trade.option_type?.toUpperCase();
-
-        let statusText = trade.expired_status || trade.status?.toUpperCase();
-        if (trade.status === 'active') {
-          statusText = t.activeStatus;
-        } else if (trade.status === 'closed') {
-          statusText = t.closedStatus;
-        } else if (trade.expired_status) {
-          statusText = t.expiredStatus;
-        }
+        const pColor = profit > 0 ? D.call : profit < 0 ? D.put : D.textSub;
+        const pLabel = profit !== 0
+          ? `${profit >= 0 ? '+' : '-'}$${fmt(Math.abs(profit), 0)} (${pct >= 0 ? '+' : ''}${fmt(pct, 1)}%)`
+          : `$0 (0.0%)`;
 
         return `
-          <div class="trade-card">
-            <div class="trade-compact-row">
-              <div class="trade-symbol-group">
-                <span class="trade-symbol">${trade.underlying_index_symbol}</span>
-                <span class="trade-type ${trade.option_type?.toLowerCase()}">${optionTypeText}</span>
-                <span class="trade-strike">${formatCurrencySimple(trade.strike || 0, 0)}</span>
-              </div>
-              <div class="trade-status ${trade.status}">${statusText}</div>
-            </div>
-            <div class="trade-compact-prices">
-              <span class="price-label">${t.entry}:</span>
-              <span class="price-value">${formatCurrencySimple(entryPrice, 2)}</span>
-              <span class="price-arrow">→</span>
-              <span class="price-label">${t.highest}:</span>
-              <span class="price-value">${formatCurrencySimple(highestPrice, 2)}</span>
-              <span class="trade-expiry">${trade.expiry ? new Date(trade.expiry).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' }) : 'N/A'}</span>
-            </div>
-            <div class="trade-profit-row">
-              <span class="profit-badge ${profitClass}">${profitDollars > 0 ? '+' : profitDollars < 0 ? '-' : ''}${formatCurrencySimple(Math.abs(profitDollars), 0)} (${profitPercent > 0 ? '+' : ''}${profitPercent.toFixed(1)}%)</span>
-            </div>
-          </div>
-        `;
-      }).join('');
-
-  return `<!DOCTYPE html>
-<html lang="${isArabic ? 'ar' : 'en'}" dir="${dir}">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${t.title}</title>
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: ${isArabic || isDual ? "'Cairo', " : ''}-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      padding: 40px 20px;
-      color: #1a202c;
-      direction: ${dir};
-    }
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      background: white;
-      border-radius: 20px;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-      overflow: hidden;
-    }
-    .header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 40px;
-      text-align: center;
-    }
-    .header-content {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 20px;
-    }
-    .header h1 { font-size: 36px; font-weight: 700; margin-bottom: 10px; }
-    .header p { font-size: 18px; opacity: 0.95; }
-    .analyzer-info {
-      display: flex;
-      align-items: center;
-      gap: 15px;
-      margin-top: 10px;
-      padding: 15px 30px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 50px;
-      backdrop-filter: blur(10px);
-    }
-    .analyzer-name {
-      font-size: 20px;
-      font-weight: 600;
-      color: white;
-    }
-    .net-profit-hero {
-      padding: 40px;
-      margin: 0 40px 20px;
-      border-radius: 20px;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-    }
-    .net-profit-hero.positive {
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      box-shadow: 0 20px 60px rgba(16, 185, 129, 0.4);
-      animation: pulse-positive 3s ease-in-out infinite;
-    }
-    .net-profit-hero.negative {
-      background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-      box-shadow: 0 20px 60px rgba(239, 68, 68, 0.4);
-      animation: pulse-negative 3s ease-in-out infinite;
-    }
-    .net-profit-hero::before {
-      content: '';
-      position: absolute;
-      top: -50%;
-      left: -50%;
-      width: 200%;
-      height: 200%;
-      background: linear-gradient(45deg, transparent, rgba(255,255,255,0.15), transparent);
-      transform: rotate(45deg);
-      animation: shine 3s infinite;
-    }
-    @keyframes shine {
-      0%, 100% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
-      50% { transform: translateX(100%) translateY(100%) rotate(45deg); }
-    }
-    @keyframes pulse-positive {
-      0%, 100% { box-shadow: 0 20px 60px rgba(16, 185, 129, 0.4); }
-      50% { box-shadow: 0 25px 80px rgba(16, 185, 129, 0.6); }
-    }
-    @keyframes pulse-negative {
-      0%, 100% { box-shadow: 0 20px 60px rgba(239, 68, 68, 0.4); }
-      50% { box-shadow: 0 25px 80px rgba(239, 68, 68, 0.6); }
-    }
-    .net-profit-icon {
-      font-size: 48px;
-      margin-bottom: 15px;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
-    }
-    .net-profit-value {
-      font-size: 56px;
-      font-weight: 800;
-      color: white;
-      margin-bottom: 10px;
-      text-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      position: relative;
-      z-index: 1;
-    }
-    .net-profit-label {
-      font-size: 18px;
-      color: rgba(255,255,255,0.95);
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      font-weight: 600;
-      position: relative;
-      z-index: 1;
-    }
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 20px;
-      padding: 0 40px 40px;
-      background: #f7fafc;
-    }
-    .stat-card {
-      background: white;
-      padding: 25px;
-      border-radius: 12px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.07);
-      text-align: center;
-      border-${dir === 'rtl' ? 'right' : 'left'}: 4px solid;
-    }
-    .stat-card.primary { border-${dir === 'rtl' ? 'right' : 'left'}-color: #667eea; }
-    .stat-card.success { border-${dir === 'rtl' ? 'right' : 'left'}-color: #48bb78; }
-    .stat-card.warning { border-${dir === 'rtl' ? 'right' : 'left'}-color: #ed8936; }
-    .stat-value { font-size: 32px; font-weight: 700; color: #2d3748; margin-bottom: 5px; }
-    .stat-label { font-size: 14px; color: #718096; text-transform: uppercase; }
-    .trades-section { padding: 40px; }
-    .section-title { font-size: 24px; font-weight: 700; color: #2d3748; margin-bottom: 25px; }
-    .trade-card {
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      padding: 15px;
-      margin-bottom: 12px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-    .trade-compact-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 10px;
-    }
-    .trade-symbol-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .trade-symbol { font-size: 18px; font-weight: 700; color: #2d3748; }
-    .trade-strike { font-size: 14px; font-weight: 600; color: #4a5568; }
-    .trade-type {
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .trade-type.call { background: #c6f6d5; color: #22543d; }
-    .trade-type.put { background: #fed7d7; color: #742a2a; }
-    .trade-status { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-    .trade-status.active { background: #bee3f8; color: #2c5282; }
-    .trade-status.closed { background: #c6f6d5; color: #22543d; }
-    .trade-compact-prices {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      margin-bottom: 10px;
-      font-size: 13px;
-      flex-wrap: wrap;
-    }
-    .price-label { color: #718096; font-weight: 500; }
-    .price-value { color: #2d3748; font-weight: 700; }
-    .price-arrow { color: #a0aec0; font-weight: 700; }
-    .trade-expiry {
-      margin-${dir === 'rtl' ? 'right' : 'left'}: auto;
-      color: #718096;
-      font-size: 12px;
-      font-weight: 500;
-    }
-    .trade-profit-row {
-      display: flex;
-      justify-content: flex-end;
-    }
-    .profit-badge { padding: 6px 12px; border-radius: 6px; font-size: 15px; font-weight: 700; }
-    .profit-badge.positive { background: #c6f6d5; color: #22543d; }
-    .profit-badge.negative { background: #fed7d7; color: #742a2a; }
-    .profit-badge.neutral { background: #e2e8f0; color: #4a5568; }
-    .no-trades { text-align: center; padding: 60px 20px; color: #718096; }
-    .no-trades-icon { font-size: 64px; margin-bottom: 20px; }
-    .footer { background: #2d3748; color: white; padding: 30px; text-align: center; }
-
-    /* Mobile Responsive Styles */
-    @media (max-width: 768px) {
-      body {
-        padding: 10px;
-      }
-      .container {
-        border-radius: 12px;
-      }
-      .header {
-        padding: 20px 15px;
-      }
-      .header h1 {
-        font-size: 24px;
-        margin-bottom: 8px;
-      }
-      .header p {
-        font-size: 14px;
-      }
-      .analyzer-info {
-        gap: 10px;
-        padding: 10px 20px;
-        margin-top: 8px;
-      }
-      .analyzer-name {
-        font-size: 16px;
-      }
-      .net-profit-hero {
-        padding: 25px 15px;
-        margin: 0 15px 15px;
-        border-radius: 12px;
-      }
-      .net-profit-icon {
-        font-size: 32px;
-        margin-bottom: 10px;
-      }
-      .net-profit-value {
-        font-size: 36px;
-        margin-bottom: 8px;
-      }
-      .net-profit-label {
-        font-size: 14px;
-        letter-spacing: 1px;
-      }
-      .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-        padding: 0 15px 20px;
-      }
-      .stat-card {
-        padding: 15px 10px;
-        border-radius: 8px;
-      }
-      .stat-value {
-        font-size: 22px;
-        margin-bottom: 4px;
-      }
-      .stat-label {
-        font-size: 11px;
-      }
-      .trades-section {
-        padding: 20px 15px;
-      }
-      .section-title {
-        font-size: 18px;
-        margin-bottom: 15px;
-      }
-      .trade-card {
-        padding: 12px;
-        margin-bottom: 10px;
-        border-radius: 8px;
-      }
-      .trade-compact-row {
-        flex-direction: row;
-        gap: 8px;
-        margin-bottom: 8px;
-      }
-      .trade-symbol-group {
-        gap: 6px;
-      }
-      .trade-symbol {
-        font-size: 16px;
-      }
-      .trade-strike {
-        font-size: 13px;
-      }
-      .trade-type, .trade-status {
-        padding: 3px 6px;
-        font-size: 10px;
-      }
-      .trade-compact-prices {
-        gap: 4px;
-        font-size: 12px;
-        margin-bottom: 8px;
-      }
-      .price-label {
-        font-size: 11px;
-      }
-      .price-value {
-        font-size: 12px;
-      }
-      .trade-expiry {
-        font-size: 11px;
-      }
-      .profit-badge {
-        padding: 5px 10px;
-        font-size: 14px;
-      }
-      .no-trades {
-        padding: 40px 15px;
-      }
-      .no-trades-icon {
-        font-size: 48px;
-        margin-bottom: 15px;
-      }
-      .footer {
-        padding: 20px 15px;
-        font-size: 14px;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .header h1 {
-        font-size: 20px;
-      }
-      .header p {
-        font-size: 12px;
-      }
-      .analyzer-name {
-        font-size: 14px;
-      }
-      .net-profit-value {
-        font-size: 30px;
-      }
-      .net-profit-label {
-        font-size: 12px;
-      }
-      .stat-value {
-        font-size: 20px;
-      }
-      .stat-label {
-        font-size: 10px;
-      }
-      .section-title {
-        font-size: 16px;
-      }
-      .trade-symbol {
-        font-size: 16px;
-      }
-      .trade-detail-value {
-        font-size: 14px;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <div class="header-content">
-        <div>
-          <h1>📊 ${t.title}</h1>
-          <p>${dateFormatted}</p>
-        </div>
-        <div class="analyzer-info">
-          ${avatarHTML}
-          <span class="analyzer-name">${analyzerName}</span>
-        </div>
-      </div>
+<div class="tr">
+  <div class="tr-l">
+    <div class="tr-sym">
+      <span class="sym">${t.underlying_index_symbol ?? '—'}</span>
+      <span class="dir-badge ${isCall ? 'dc' : 'dp'}">${isCall ? lbl('CALL','شراء') : lbl('PUT','بيع')}</span>
+      <span class="strike">${fmtPlain(t.strike ?? 0, 0)}</span>
     </div>
-    <div class="net-profit-hero ${metrics.net_profit >= 0 ? 'positive' : 'negative'}">
-      <div class="net-profit-icon">${metrics.net_profit >= 0 ? '💰' : '📉'}</div>
-      <div class="net-profit-value">${formatCurrency(metrics.net_profit)}</div>
-      <div class="net-profit-label">${isDual ? 'Net Profit | صافي الربح' : isArabic ? 'صافي الربح' : 'Net Profit'}</div>
-    </div>
-    <div class="stats-grid">
-      <div class="stat-card success">
-        <div class="stat-value">+${formatCurrencySimple(metrics.total_profit)}</div>
-        <div class="stat-label">${isDual ? 'Total Profit | إجمالي الربح' : isArabic ? 'إجمالي الربح' : 'Total Profit'}</div>
-      </div>
-      <div class="stat-card warning">
-        <div class="stat-value">-${formatCurrencySimple(metrics.total_loss)}</div>
-        <div class="stat-label">${isDual ? 'Total Loss | إجمالي الخسارة' : isArabic ? 'إجمالي الخسارة' : 'Total Loss'}</div>
-      </div>
-      <div class="stat-card primary">
-        <div class="stat-value">${formatNumber(metrics.win_rate, 1)}%</div>
-        <div class="stat-label">${t.winRate}</div>
-      </div>
-      <div class="stat-card primary">
-        <div class="stat-value">${metrics.total_trades}</div>
-        <div class="stat-label">${t.total}</div>
-      </div>
-      <div class="stat-card primary">
-        <div class="stat-value">${metrics.active_trades}</div>
-        <div class="stat-label">${t.active}</div>
-      </div>
-      <div class="stat-card success">
-        <div class="stat-value">${metrics.winning_trades}</div>
-        <div class="stat-label">${t.winners}</div>
-      </div>
-      <div class="stat-card warning">
-        <div class="stat-value">${metrics.losing_trades}</div>
-        <div class="stat-label">${t.losers}</div>
-      </div>
-      <div class="stat-card success">
-        <div class="stat-value">${formatNumber(metrics.max_profit_percent, 1)}%</div>
-        <div class="stat-label">${t.maxProfit}</div>
-      </div>
-    </div>
-    <div class="trades-section">
-      <h2 class="section-title">📈 ${t.todayTrades}</h2>
-      ${tradesHTML}
-    </div>
-    <div class="footer">
-      <p><strong>AnalyZHub</strong></p>
-      <p>© ${new Date().getFullYear()}</p>
+    <div class="tr-px">
+      <span class="px-lbl">${lbl('Entry','الدخول')}</span>
+      <span class="px-val">${fmtPlain(entry, 2)}</span>
+      <span class="arr">→</span>
+      <span class="px-lbl">${lbl('High','الأعلى')}</span>
+      <span class="px-val hi">${fmtPlain(high, 2)}</span>
+      <span class="exp-s">· ${lbl('Exp','ينتهي')} ${exp}</span>
     </div>
   </div>
+  <div class="tr-r">
+    <span class="status-badge ${sClass}">${sLabel}</span>
+    <span class="pnl" style="color:${pColor}">${pLabel}</span>
+  </div>
+</div>`;
+      }).join('');
+
+  // ── CSS ───────────────────────────────────────────────────────────────────
+  const css = `
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:${isAr || isDual ? "'Cairo'," : ''}-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:${D.bg};color:${D.text};direction:${dir};padding:28px 16px;min-height:100vh}
+a{color:inherit}
+.page{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.accent{height:3px;background:${D.blue};border-radius:2px}
+/* Header */
+.hdr{background:${D.card};border:1px solid ${D.border};border-radius:12px;padding:22px 26px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.hdr-l{display:flex;flex-direction:column;gap:5px}
+.brand{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${D.blue}}
+.title{font-size:21px;font-weight:800;color:${D.text};line-height:1.2}
+.sub{font-size:12px;color:${D.textSub};margin-top:1px}
+.hdr-r{display:flex;align-items:center;gap:11px;flex-shrink:0}
+.av-img{width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid ${D.border}}
+.av-ph{width:48px;height:48px;border-radius:50%;background:${D.blueBg};border:2px solid ${D.blueBorder};display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:${D.blue}}
+.an-name{font-size:13px;font-weight:700;color:${D.text}}
+.an-role{font-size:10px;color:${D.textMuted};margin-top:1px}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px}
+.kpi{background:${D.card};border:1px solid ${D.border};border-radius:10px;padding:15px 18px}
+.kpi-lbl{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${D.textMuted};margin-bottom:7px}
+.kpi-val{font-size:26px;font-weight:900;line-height:1;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.kpi-hint{font-size:11px;color:${D.textSub};margin-top:5px}
+.net-pos .kpi-val{color:${D.call}} .net-neg .kpi-val{color:${D.put}}
+.wr-good .kpi-val{color:${D.call}} .wr-bad .kpi-val{color:${D.put}}
+.avg .kpi-val{color:${D.blue}}
+/* Stats strip */
+.strip{background:${D.card};border:1px solid ${D.border};border-radius:10px;display:grid;grid-template-columns:repeat(7,1fr);gap:0}
+.st{display:flex;flex-direction:column;align-items:center;gap:3px;padding:13px 8px;border-right:1px solid ${D.borderLight};text-align:center}
+.st:last-child{border-right:none}
+.st-lbl{font-size:9px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;color:${D.textMuted}}
+.st-val{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+/* Section header */
+.sh{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${D.textMuted};padding:0 2px}
+.sh::after{content:'';flex:1;height:1px;background:${D.borderLight}}
+/* Trades */
+.trades{background:${D.card};border:1px solid ${D.border};border-radius:10px;overflow:hidden}
+.tr{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 18px;border-bottom:1px solid ${D.borderLight}}
+.tr:last-child{border-bottom:none}
+.tr:hover{background:${D.elevated}}
+.tr-l{display:flex;flex-direction:column;gap:5px}
+.tr-r{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex-shrink:0}
+.tr-sym{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.sym{font-size:16px;font-weight:800;color:${D.text}}
+.dir-badge{font-size:10px;font-weight:800;letter-spacing:.06em;padding:2px 6px;border-radius:4px}
+.dc{background:${D.callBg};border:1px solid ${D.callBorder};color:${D.call}}
+.dp{background:${D.putBg};border:1px solid ${D.putBorder};color:${D.put}}
+.strike{font-size:12px;font-weight:600;color:${D.textSub};font-variant-numeric:tabular-nums}
+.tr-px{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.px-lbl{font-size:11px;color:${D.textMuted}}
+.px-val{font-size:12px;font-weight:700;color:${D.textSub};font-variant-numeric:tabular-nums}
+.px-val.hi{color:${D.call}}
+.arr{color:${D.textMuted};font-size:11px}
+.exp-s{font-size:11px;color:${D.textMuted};margin-${dir==='rtl'?'right':'left'}:4px}
+.status-badge{font-size:10px;font-weight:800;letter-spacing:.05em;padding:3px 7px;border-radius:4px;white-space:nowrap}
+.sb-active{background:${D.blueBg};border:1px solid ${D.blueBorder};color:${D.blue}}
+.sb-win{background:${D.callBg};border:1px solid ${D.callBorder};color:${D.call}}
+.sb-loss{background:rgba(110,118,129,.10);border:1px solid rgba(110,118,129,.22);color:${D.textSub}}
+.pnl{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Empty / footer */
+.empty{display:flex;flex-direction:column;align-items:center;gap:10px;padding:44px 24px;color:${D.textMuted};font-size:13px;text-align:center}
+.ftr{background:${D.card};border:1px solid ${D.border};border-radius:10px;padding:14px 22px;display:flex;align-items:center;justify-content:space-between}
+.ftr-brand{font-size:12px;font-weight:700;color:${D.textSub}}
+.ftr-note{font-size:10px;color:${D.textMuted}}
+@media(max-width:640px){
+  body{padding:10px 8px}
+  .hdr{flex-direction:column;align-items:flex-start;padding:16px}
+  .kpis{grid-template-columns:1fr 1fr}
+  .kpis .kpi:first-child{grid-column:span 2}
+  .strip{grid-template-columns:repeat(4,1fr)}
+  .st:nth-child(n+5){border-top:1px solid ${D.borderLight}}
+  .tr{flex-direction:column;align-items:flex-start}
+  .tr-r{flex-direction:row;align-items:center;gap:10px}
+}`;
+
+  return `<!DOCTYPE html>
+<html lang="${isAr?'ar':'en'}" dir="${dir}">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${periodLabel} — ${analyzerName}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>${css}</style>
+</head>
+<body>
+<div class="page">
+
+<div class="accent"></div>
+
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="brand">AnalyzingHub</div>
+    <div class="title">${periodLabel}</div>
+    <div class="sub">${dateRangeStr}</div>
+  </div>
+  <div class="hdr-r">
+    ${avatarHTML}
+    <div>
+      <div class="an-name">${analyzerName}</div>
+      <div class="an-role">${lbl('Analyst','المحلل')}</div>
+    </div>
+  </div>
+</div>
+
+<div class="kpis">
+  <div class="kpi ${netPos?'net-pos':'net-neg'}">
+    <div class="kpi-lbl">${lbl('Net Profit','صافي الربح')}</div>
+    <div class="kpi-val">${fmtUSD(metrics.net_profit,0)}</div>
+    <div class="kpi-hint">${lbl('Profit','ربح')} +$${fmt(metrics.total_profit,0)} · ${lbl('Loss','خسارة')} -$${fmt(metrics.total_loss,0)}</div>
+  </div>
+  <div class="kpi ${metrics.win_rate>=50?'wr-good':'wr-bad'}">
+    <div class="kpi-lbl">${lbl('Win Rate','معدل النجاح')}</div>
+    <div class="kpi-val">${fmt(metrics.win_rate,1)}%</div>
+    <div class="kpi-hint">${metrics.winning_trades}W · ${metrics.losing_trades}L</div>
+  </div>
+  <div class="kpi avg">
+    <div class="kpi-lbl">${lbl('Avg Return','متوسط العائد')}</div>
+    <div class="kpi-val">${metrics.avg_profit_percent>=0?'+':''}${fmt(metrics.avg_profit_percent,1)}%</div>
+    <div class="kpi-hint">${lbl('Best','أفضل')} +$${fmt(metrics.best_trade,0)}</div>
+  </div>
+</div>
+
+<div class="strip">
+  <div class="st"><div class="st-lbl">${lbl('Total','إجمالي')}</div><div class="st-val" style="color:${D.text}">${metrics.total_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Active','نشطة')}</div><div class="st-val" style="color:${D.blue}">${metrics.active_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Closed','مغلقة')}</div><div class="st-val" style="color:${D.textSub}">${metrics.closed_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Won','رابحة')}</div><div class="st-val" style="color:${D.call}">${metrics.winning_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Lost','خاسرة')}</div><div class="st-val" style="color:${D.put}">${metrics.losing_trades}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Best','أفضل')}</div><div class="st-val" style="color:${D.call}">+$${fmt(metrics.best_trade,0)}</div></div>
+  <div class="st"><div class="st-lbl">${lbl('Worst','أسوأ')}</div><div class="st-val" style="color:${D.put}">$${fmt(metrics.worst_trade,0)}</div></div>
+</div>
+
+<div class="sh">${lbl('Trades','الصفقات')} (${trades.length})</div>
+<div class="trades">${tradesHTML}</div>
+
+<div class="ftr">
+  <span class="ftr-brand">AnalyzingHub</span>
+  <span class="ftr-note">${lbl('Generated','تم الإنشاء')} ${new Date().toLocaleString(isAr?'ar-SA':'en-US',{timeZone:'UTC'})} UTC</span>
+</div>
+
+</div>
 </body>
 </html>`;
 }
