@@ -73,7 +73,7 @@ export const ar: TranslationKeys = {
     indicesHub: 'مركز المؤشرات',
     indicesFeed: 'تحليلات المؤشرات',
     createIndexAnalysis: 'إنشاء صفقة مؤشر',
-    dailyReports: 'التقارير اليومية',
+    dailyReports: 'الصفقات والتقارير',
     rankings: 'التصنيفات',
     subscriptions: 'الاشتراكات',
     subscribers: 'مشتركيني',

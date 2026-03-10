@@ -92,10 +92,18 @@ Deno.serve(async (req: Request) => {
     const periodStart = new Date(startDate + 'T00:00:00.000Z');
     const periodEnd = new Date(endDate + 'T23:59:59.999Z');
 
-    const { data: allTrades } = await supabase
+    // Filter to the same channel + exclude test trades so the image matches the HTML report.
+    let tradesQuery = supabase
       .from('index_trades')
       .select('*')
-      .eq('author_id', analystId);
+      .eq('author_id', analystId)
+      .eq('is_testing', false);
+
+    if (report.telegram_channel_id) {
+      tradesQuery = tradesQuery.eq('telegram_channel_id', report.telegram_channel_id);
+    }
+
+    const { data: allTrades } = await tradesQuery;
 
     const periodTrades = (allTrades ?? [])
       .filter((t: any) => {

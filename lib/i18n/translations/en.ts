@@ -71,7 +71,7 @@ export const en = {
     indicesHub: 'Indices Hub',
     indicesFeed: 'Indices Analyses',
     createIndexAnalysis: 'Create Index Trade',
-    dailyReports: 'Daily Reports',
+    dailyReports: 'Trades & Reports',
     rankings: 'Rankings',
     subscriptions: 'Subscriptions',
     subscribers: 'My Subscribers',
