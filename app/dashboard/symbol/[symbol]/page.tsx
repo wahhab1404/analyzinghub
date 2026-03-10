@@ -126,7 +126,7 @@ const fmtCap = (v: number) => {
   if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`
   if (v >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`
   if (v >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`
-  return `$${v.toLocaleString()}`
+  return `$${(v ?? 0).toLocaleString()}`
 }
 const fmtVol = (v: number) => {
   if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`
@@ -135,7 +135,7 @@ const fmtVol = (v: number) => {
   return v.toString()
 }
 const usd = (v: number, sig = 2) =>
-  v.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: sig, maximumFractionDigits: sig })
+  (v ?? 0).toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: sig, maximumFractionDigits: sig })
 
 // ────────────────────────────────────────────────────────────────────────────
 // Mini sparkline SVG

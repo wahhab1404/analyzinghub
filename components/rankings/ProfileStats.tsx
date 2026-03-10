@@ -208,9 +208,9 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
           <div className="grid grid-cols-2 gap-2 mb-3">
             {[
               { icon: Users,  label: t.profileStats.closedAnalyses,      value: data.analyst.closedAnalyses,         color: '#E6EDF3' },
-              { icon: Zap,    label: t.profileStats.weeklyPoints,         value: data.analyst.weeklyPoints.toLocaleString(), color: '#E3B341' },
+              { icon: Zap,    label: t.profileStats.weeklyPoints,         value: (data.analyst.weeklyPoints ?? 0).toLocaleString(), color: '#E3B341' },
               { icon: Target, label: t.profileStats.targetsHit30Days,     value: data.analyst.targetHitsLast30Days,   color: '#58A6FF' },
-              { icon: Trophy, label: t.profileStats.totalPoints,          value: data.analyst.points.toLocaleString(), color: '#A371F7' },
+              { icon: Trophy, label: t.profileStats.totalPoints,          value: (data.analyst.points ?? 0).toLocaleString(), color: '#A371F7' },
             ].map(item => {
               const Icon = item.icon
               return (
@@ -254,7 +254,7 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
 
           {/* Points + Rank */}
           <div className="grid grid-cols-2 gap-3 mb-4 pb-4 border-b border-border">
-            <StatCell label={t.profileStats.totalPoints} value={data.trader.points.toLocaleString()} color="#A371F7" />
+            <StatCell label={t.profileStats.totalPoints} value={(data.trader.points ?? 0).toLocaleString()} color="#A371F7" />
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
                 {t.profileStats.rank}
@@ -280,7 +280,7 @@ export function ProfileStats({ userId }: ProfileStatsProps) {
               { icon: MessageSquare, label: t.profileStats.comments,     value: data.trader.comments,               color: '#58A6FF' },
               { icon: Star,          label: t.profileStats.likes,         value: data.trader.likes,                  color: '#E3B341' },
               { icon: Repeat2,       label: t.profileStats.reposts,       value: data.trader.reposts,                color: '#3FB950' },
-              { icon: Zap,           label: t.profileStats.weeklyPoints,  value: data.trader.weeklyPoints.toLocaleString(), color: '#A371F7' },
+              { icon: Zap,           label: t.profileStats.weeklyPoints,  value: (data.trader.weeklyPoints ?? 0).toLocaleString(), color: '#A371F7' },
             ].map(item => {
               const Icon = item.icon
               return (

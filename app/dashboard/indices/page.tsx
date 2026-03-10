@@ -1274,6 +1274,7 @@ export default function IndicesHubPage() {
                   </div>
 
                   {/* Total Profit Banner */}
+                  {previewData.metrics && (
                   <div className="relative bg-white/10 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-xl">
                     <div className="flex items-center justify-between">
                       <div>
@@ -1297,6 +1298,7 @@ export default function IndicesHubPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                 </div>
 
                 {/* Stats Grid */}
