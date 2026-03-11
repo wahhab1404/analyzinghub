@@ -4,7 +4,12 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Plus, TrendingUp, TrendingDown, Activity, ArrowLeft, FileText, CalendarIcon, Download, Send, RefreshCw, Settings, CheckCircle2, XCircle, Clock, Loader2, Eye, Save, Image, FileType } from 'lucide-react'
+import { Plus, TrendingUp, TrendingDown, Activity, ArrowLeft, FileText, CalendarIcon, Download, Send, RefreshCw, Settings, CheckCircle2, XCircle, Clock, Loader2, Eye, Save, Image, FileType, LayoutDashboard } from 'lucide-react'
+import { GlobalMarketBar } from '@/components/indices/terminal/GlobalMarketBar'
+import { TerminalSidebar } from '@/components/indices/terminal/TerminalSidebar'
+import type { TerminalTab } from '@/components/indices/terminal/TerminalSidebar'
+import { RightPanel } from '@/components/indices/terminal/RightPanel'
+import { OverviewTab } from '@/components/indices/terminal/OverviewTab'
 import { CreateIndexAnalysisForm } from '@/components/indices/CreateIndexAnalysisForm'
 import { IndexAnalysesList } from '@/components/indices/IndexAnalysesList'
 import { AddTradeForm } from '@/components/indices/AddTradeForm'
@@ -91,6 +96,7 @@ export default function IndicesHubPage() {
   const [selectedIndexSymbol, setSelectedIndexSymbol] = useState<string>('SPX')
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
   const [refreshStandaloneTrades, setRefreshStandaloneTrades] = useState(0)
+  const [activeTab, setActiveTab] = useState<TerminalTab>('overview')
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
@@ -498,113 +504,144 @@ export default function IndicesHubPage() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
-      {currentView === 'list' && (
-        <>
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold">{t.indicesHub.title}</h1>
-              <p className="text-muted-foreground">
-                {t.indicesHub.subtitle}
-              </p>
-            </div>
-            <Button onClick={() => setShowCreateForm(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              {t.indicesHub.createAnalysis}
-            </Button>
-          </div>
+    <div
+      className="-mx-4 sm:-mx-6 -mt-4 sm:-mt-6 -mb-16 bg-[#080d16] text-slate-300 flex flex-col overflow-hidden"
+      style={{ height: 'calc(100vh - 56px)' }}
+    >
+      {/* ── GLOBAL MARKET BAR ── */}
+      <GlobalMarketBar language={language} />
 
-          {showCreateForm && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{t.indicesHub.createAnalysis}</CardTitle>
-                <CardDescription>
-                  {t.indicesHub.subtitle}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <CreateIndexAnalysisForm onComplete={() => setShowCreateForm(false)} />
-              </CardContent>
-            </Card>
-          )}
+      {/* ── 3-COLUMN TERMINAL BODY ── */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
 
-          <Tabs defaultValue="analyses" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="analyses">
-                <Activity className="h-4 w-4 mr-2" />
-                {t.indicesHub.myAnalyses}
-              </TabsTrigger>
-              <TabsTrigger value="standalone">
-                <TrendingUp className="h-4 w-4 mr-2" />
-                Standalone Trades
-              </TabsTrigger>
-              <TabsTrigger value="reports">
-                <FileText className="h-4 w-4 mr-2" />
-                {language === 'ar' ? 'التقارير' : 'Reports'}
-              </TabsTrigger>
-              <TabsTrigger value="archive">
-                <TrendingDown className="h-4 w-4 mr-2" />
-                {t.indicesHub.archive}
-              </TabsTrigger>
-            </TabsList>
+        {/* LEFT SIDEBAR */}
+        <TerminalSidebar
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          currentView={currentView}
+          onBackToList={handleBackToList}
+          onShowCreateForm={() => setShowCreateForm(true)}
+          onShowTradeDialog={() => setShowStandaloneTradeDialog(true)}
+          language={language}
+        />
 
-            <TabsContent value="analyses" className="space-y-4">
-              <IndexAnalysesList
-                status="active"
-                onSelectContract={handleSelectTradeForMonitoring}
-                onManageTrades={handleManageTrades}
-              />
-            </TabsContent>
+        {/* MAIN WORKSPACE */}
+        <main className="flex-1 flex flex-col overflow-hidden min-h-0 min-w-0">
 
-            <TabsContent value="standalone" className="space-y-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold">Standalone Trades</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Trades not linked to any analysis
-                  </p>
-                </div>
-                <Button onClick={() => setShowStandaloneTradeDialog(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Standalone Trade
-                </Button>
-              </div>
-              <TradesList
-                standalone={true}
-                onSelectTrade={handleSelectTradeForMonitoring}
-                refreshKey={refreshStandaloneTrades}
-              />
-            </TabsContent>
-
-            <TabsContent value="reports" className="space-y-4">
-              <div className="flex justify-between items-center mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold">
-                    {language === 'ar' ? 'تقارير تداول المؤشرات' : 'Index Trading Reports'}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {language === 'ar'
-                      ? 'إنشاء وإدارة تقارير تداول المؤشرات'
-                      : 'Generate and manage index trading reports'}
-                  </p>
-                </div>
+          {/* ── LIST VIEW: Terminal tabbed workspace ── */}
+          {currentView === 'list' && (
+            <>
+              {/* Terminal Tab Bar */}
+              <div className="flex items-center border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0 px-4 gap-0 h-10">
+                {([
+                  { id: 'overview' as TerminalTab, label: 'Overview', labelAr: 'نظرة عامة', Icon: LayoutDashboard },
+                  { id: 'analyses' as TerminalTab, label: 'Analyses', labelAr: 'التحليلات', Icon: Activity },
+                  { id: 'trades' as TerminalTab, label: 'Trades', labelAr: 'التداولات', Icon: TrendingUp },
+                  { id: 'reports' as TerminalTab, label: 'Reports', labelAr: 'التقارير', Icon: FileText },
+                  { id: 'archive' as TerminalTab, label: 'Archive', labelAr: 'الأرشيف', Icon: TrendingDown },
+                ]).map(({ id, label, labelAr, Icon }) => {
+                  const isActive = activeTab === id
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setActiveTab(id)}
+                      className={`flex items-center gap-1.5 px-4 h-full text-[11px] font-medium transition-all border-b-2 whitespace-nowrap ${
+                        isActive
+                          ? 'text-blue-400 border-blue-500 bg-[#080d16]'
+                          : 'text-slate-500 border-transparent hover:text-slate-300 hover:bg-[#0d1525]'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      {language === 'ar' ? labelAr : label}
+                    </button>
+                  )
+                })}
               </div>
 
-              <Tabs defaultValue="generate" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 mb-6">
-                  <TabsTrigger value="generate" className="flex items-center gap-2">
-                    <FileText className="w-4 h-4" />
-                    {language === 'ar' ? 'إنشاء تقرير' : 'Generate'}
-                  </TabsTrigger>
-                  <TabsTrigger value="automated" className="flex items-center gap-2">
-                    <Settings className="w-4 h-4" />
-                    {language === 'ar' ? 'تقارير تلقائية' : 'Automated'}
-                  </TabsTrigger>
-                  <TabsTrigger value="history" className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    {language === 'ar' ? 'السجل' : 'History'}
-                  </TabsTrigger>
-                </TabsList>
+              {/* Tab Content Area */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+
+                {/* ── OVERVIEW TAB ── */}
+                {activeTab === 'overview' && <OverviewTab language={language} />}
+
+                {/* ── ANALYSES TAB ── */}
+                {activeTab === 'analyses' && (
+                  <div className="p-4">
+                    {showCreateForm && (
+                      <div className="mb-4 p-4 rounded-lg bg-[#0b1220] border border-[#1a2840]">
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-sm font-semibold text-slate-200">{t.indicesHub.createAnalysis}</span>
+                          <button
+                            onClick={() => setShowCreateForm(false)}
+                            className="text-slate-500 hover:text-slate-300 text-xs px-2 py-0.5 rounded hover:bg-[#1a2840] transition-colors"
+                          >
+                            ✕ Close
+                          </button>
+                        </div>
+                        <CreateIndexAnalysisForm onComplete={() => setShowCreateForm(false)} />
+                      </div>
+                    )}
+                    <IndexAnalysesList
+                      status="active"
+                      onSelectContract={handleSelectTradeForMonitoring}
+                      onManageTrades={handleManageTrades}
+                    />
+                  </div>
+                )}
+
+                {/* ── TRADES TAB ── */}
+                {activeTab === 'trades' && (
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-200">Standalone Trades</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">Trades not linked to any analysis</p>
+                      </div>
+                      <button
+                        onClick={() => setShowStandaloneTradeDialog(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-medium border border-blue-500/30 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Trade
+                      </button>
+                    </div>
+                    <TradesList
+                      standalone={true}
+                      onSelectTrade={handleSelectTradeForMonitoring}
+                      refreshKey={refreshStandaloneTrades}
+                    />
+                  </div>
+                )}
+
+                {/* ── REPORTS TAB ── */}
+                {activeTab === 'reports' && (
+                <div className="p-4">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-semibold text-slate-200">
+                      {language === 'ar' ? 'تقارير تداول المؤشرات' : 'Index Trading Reports'}
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {language === 'ar'
+                        ? 'إنشاء وإدارة تقارير تداول المؤشرات'
+                        : 'Generate and manage index trading reports'}
+                    </p>
+                  </div>
+
+                  <Tabs defaultValue="generate" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 mb-6 bg-[#0b1220] border border-[#1a2840] h-9">
+                      <TabsTrigger value="generate" className="text-xs data-[state=active]:bg-[#0d2040] data-[state=active]:text-blue-400">
+                        <FileText className="w-3.5 h-3.5 mr-1.5" />
+                        {language === 'ar' ? 'إنشاء تقرير' : 'Generate'}
+                      </TabsTrigger>
+                      <TabsTrigger value="automated" className="text-xs data-[state=active]:bg-[#0d2040] data-[state=active]:text-blue-400">
+                        <Settings className="w-3.5 h-3.5 mr-1.5" />
+                        {language === 'ar' ? 'تقارير تلقائية' : 'Automated'}
+                      </TabsTrigger>
+                      <TabsTrigger value="history" className="text-xs data-[state=active]:bg-[#0d2040] data-[state=active]:text-blue-400">
+                        <Clock className="w-3.5 h-3.5 mr-1.5" />
+                        {language === 'ar' ? 'السجل' : 'History'}
+                      </TabsTrigger>
+                    </TabsList>
 
                 <TabsContent value="generate" className="space-y-4">
                   {error && (
@@ -1149,83 +1186,99 @@ export default function IndicesHubPage() {
                     </CardContent>
                   </Card>
                 </TabsContent>
-              </Tabs>
-            </TabsContent>
+                  </Tabs>
+                </div>
+                )}{/* end activeTab === reports */}
 
-            <TabsContent value="archive" className="space-y-4">
-              <IndexAnalysesList
-                status="closed"
-                onSelectContract={handleSelectTradeForMonitoring}
-                onManageTrades={handleManageTrades}
+                {/* ── ARCHIVE TAB ── */}
+                {activeTab === 'archive' && (
+                  <div className="p-4">
+                    <IndexAnalysesList
+                      status="closed"
+                      onSelectContract={handleSelectTradeForMonitoring}
+                      onManageTrades={handleManageTrades}
+                    />
+                  </div>
+                )}
+
+              </div>{/* end tab content area */}
+
+              <NewTradeDialog
+                open={showStandaloneTradeDialog}
+                onOpenChange={setShowStandaloneTradeDialog}
+                onComplete={handleStandaloneTradeAdded}
+                standalone={true}
               />
-            </TabsContent>
-          </Tabs>
+            </>
+          )}{/* end currentView === list */}
 
-          <NewTradeDialog
-            open={showStandaloneTradeDialog}
-            onOpenChange={setShowStandaloneTradeDialog}
-            onComplete={handleStandaloneTradeAdded}
-            standalone={true}
-          />
-
-        </>
-      )}
-
-      {currentView === 'manage-trades' && selectedAnalysisId && (
-        <>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="sm" onClick={handleBackToList}>
-                <ArrowLeft className="h-4 w-4 mr-1" />
-                Back to Analyses
-              </Button>
-              <div>
-                <h1 className="text-3xl font-bold">Manage Trades</h1>
-                <p className="text-muted-foreground">
-                  Add and monitor trades for this analysis
-                </p>
+          {/* ── MANAGE TRADES VIEW ── */}
+          {currentView === 'manage-trades' && selectedAnalysisId && (
+            <div className="flex-1 overflow-y-auto min-h-0 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleBackToList}
+                    className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 text-xs transition-colors px-2 py-1 rounded hover:bg-[#1a2840]"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Back to Analyses
+                  </button>
+                  <div className="w-px h-4 bg-[#1a2840]" />
+                  <div>
+                    <h1 className="text-base font-bold text-slate-200">Manage Trades</h1>
+                    <p className="text-xs text-slate-500">Add and monitor trades for this analysis</p>
+                  </div>
+                </div>
+                {!showAddTradeForm && (
+                  <button
+                    onClick={() => setShowAddTradeForm(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-medium border border-blue-500/30 transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Trade
+                  </button>
+                )}
               </div>
-            </div>
-            {!showAddTradeForm && (
-              <Button onClick={() => setShowAddTradeForm(true)}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Trade
-              </Button>
-            )}
-          </div>
 
-          {showAddTradeForm && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Add New Trade</CardTitle>
-                <CardDescription>
-                  Add a new contract/trade to this analysis with live tracking
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AddTradeForm
-                  analysisId={selectedAnalysisId}
-                  indexSymbol={selectedIndexSymbol}
-                  onComplete={handleTradeAdded}
-                  onCancel={() => setShowAddTradeForm(false)}
-                />
-              </CardContent>
-            </Card>
+              {showAddTradeForm && (
+                <div className="mb-4 p-4 rounded-lg bg-[#0b1220] border border-[#1a2840]">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold text-slate-200">Add New Trade</span>
+                    <span className="text-xs text-slate-500">Add a new contract/trade with live tracking</span>
+                  </div>
+                  <AddTradeForm
+                    analysisId={selectedAnalysisId}
+                    indexSymbol={selectedIndexSymbol}
+                    onComplete={handleTradeAdded}
+                    onCancel={() => setShowAddTradeForm(false)}
+                  />
+                </div>
+              )}
+
+              <TradesList
+                analysisId={selectedAnalysisId}
+                onSelectTrade={handleSelectTradeForMonitoring}
+              />
+            </div>
           )}
 
-          <TradesList
-            analysisId={selectedAnalysisId}
-            onSelectTrade={handleSelectTradeForMonitoring}
-          />
-        </>
-      )}
+          {/* ── MONITOR TRADE VIEW ── */}
+          {currentView === 'monitor-trade' && selectedTradeId && (
+            <div className="flex-1 overflow-y-auto min-h-0 p-4">
+              <TradeMonitor
+                tradeId={selectedTradeId}
+                onBack={handleBackToTrades}
+              />
+            </div>
+          )}
 
-      {currentView === 'monitor-trade' && selectedTradeId && (
-        <TradeMonitor
-          tradeId={selectedTradeId}
-          onBack={handleBackToTrades}
-        />
-      )}
+        </main>{/* end main workspace */}
+
+        {/* RIGHT PANEL */}
+        <RightPanel language={language} />
+
+      </div>{/* end 3-column body */}
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent className="max-w-6xl max-h-[95vh] p-0 gap-0 overflow-hidden">
