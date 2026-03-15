@@ -347,16 +347,16 @@ export function IndexAnalysisDetailDialog({
         max-w-[92vw] so it breathes on large screens;
         h-[90vh] for fixed height split workspace
       */}
-      <DialogContent className="max-w-[92vw] w-full p-0 gap-0 bg-[#080d16] border-[#1a2840] overflow-hidden rounded-xl"
-        style={{ height: '90vh' }}
+      <DialogContent className="max-w-[96vw] sm:max-w-[92vw] w-full p-0 gap-0 bg-[#080d16] border-[#1a2840] overflow-hidden rounded-xl"
+        style={{ height: '92vh' }}
       >
-        <div className="flex h-full overflow-hidden">
+        <div className="flex flex-col md:flex-row h-full overflow-hidden">
 
-          {/* ── LEFT PANEL: Chart 65% ───────────────────────────── */}
-          <div className="flex flex-col border-r border-[#1a2840] overflow-hidden" style={{ width: '65%' }}>
+          {/* ── LEFT PANEL: Chart — 45vh on mobile, 65% wide on md+ ── */}
+          <div className="flex flex-col border-b md:border-b-0 md:border-r border-[#1a2840] overflow-hidden h-[45%] md:h-full md:w-[65%] flex-shrink-0">
 
             {/* Header strip */}
-            <div className="flex items-center gap-3 px-5 py-3 border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0">
+            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 sm:py-3 border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0 overflow-hidden">
               {/* Symbol */}
               <span className="text-[13px] font-bold font-mono text-blue-400 tracking-widest bg-blue-500/10 border border-blue-500/25 px-2.5 py-1 rounded">
                 {analysis.index_symbol}
@@ -470,8 +470,8 @@ export function IndexAnalysisDetailDialog({
             </div>
           </div>
 
-          {/* ── RIGHT PANEL: Analysis + Trades 35% ──────────────── */}
-          <div className="flex flex-col bg-[#0b1220] overflow-hidden" style={{ width: '35%' }}>
+          {/* ── RIGHT PANEL: Analysis + Trades — flex-1 on mobile, 35% on md+ ── */}
+          <div className="flex flex-col bg-[#0b1220] overflow-hidden flex-1 md:w-[35%] md:flex-none">
 
             {/* Right panel header */}
             <div className="flex items-center gap-2 px-5 py-3 border-b border-[#1a2840] flex-shrink-0">

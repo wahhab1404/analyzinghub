@@ -95,9 +95,10 @@ function determineMarketStatus(priceTimestamp: Date): 'open' | 'closed' | 'pre-m
 async function fetchPolygonSnapshot(symbol: string, apiKey: string) {
   const normalizedSymbol = normalizeSymbol(symbol)
 
-  // Use snapshot endpoint for stocks, crypto, or indices
+  // Use snapshot endpoint for stocks, crypto, forex, or indices
   const isGlobalMarket = normalizedSymbol.startsWith('X:')
   const isIndex = normalizedSymbol.startsWith('I:')
+  const isForex = normalizedSymbol.startsWith('C:')
 
   // For indices, use aggregates endpoint (more reliable across API tiers)
   if (isIndex) {
@@ -146,6 +147,8 @@ async function fetchPolygonSnapshot(symbol: string, apiKey: string) {
   let snapshotUrl: string
   if (isGlobalMarket) {
     snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/global/markets/crypto/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
+  } else if (isForex) {
+    snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/global/markets/forex/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
   } else {
     snapshotUrl = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${encodeURIComponent(normalizedSymbol)}?apiKey=${encodeURIComponent(apiKey)}`
   }

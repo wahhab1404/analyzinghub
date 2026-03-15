@@ -20,7 +20,7 @@ export function RightPanel({ language }: RightPanelProps) {
   const isAr = language === 'ar'
 
   return (
-    <div className="w-[256px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
+    <div className="hidden xl:flex w-[256px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
       {/* Panel Header */}
       <div className="flex items-center gap-2 px-4 h-10 border-b border-[#1a2840] flex-shrink-0">
         <BarChart2 className="w-3.5 h-3.5 text-slate-600" />

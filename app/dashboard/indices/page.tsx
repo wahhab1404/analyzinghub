@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Plus, TrendingUp, TrendingDown, Activity, ArrowLeft, FileText, CalendarIcon, Download, Send, RefreshCw, Settings, CheckCircle2, XCircle, Clock, Loader2, Eye, Save, Image, FileType, LayoutDashboard } from 'lucide-react'
 import { GlobalMarketBar } from '@/components/indices/terminal/GlobalMarketBar'
-import { TerminalSidebar } from '@/components/indices/terminal/TerminalSidebar'
+import { TerminalSidebar, MobileTabBar } from '@/components/indices/terminal/TerminalSidebar'
 import type { TerminalTab } from '@/components/indices/terminal/TerminalSidebar'
 import { RightPanel } from '@/components/indices/terminal/RightPanel'
 import { OverviewTab } from '@/components/indices/terminal/OverviewTab'
@@ -511,10 +511,10 @@ export default function IndicesHubPage() {
       {/* ── GLOBAL MARKET BAR ── */}
       <GlobalMarketBar language={language} />
 
-      {/* ── 3-COLUMN TERMINAL BODY ── */}
+      {/* ── TERMINAL BODY (sidebar + workspace + right panel) ── */}
       <div className="flex flex-1 overflow-hidden min-h-0">
 
-        {/* LEFT SIDEBAR */}
+        {/* LEFT SIDEBAR — icon-only on md, full on xl, hidden on mobile */}
         <TerminalSidebar
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -531,8 +531,8 @@ export default function IndicesHubPage() {
           {/* ── LIST VIEW: Terminal tabbed workspace ── */}
           {currentView === 'list' && (
             <>
-              {/* Terminal Tab Bar */}
-              <div className="flex items-center border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0 px-4 gap-0 h-10">
+              {/* Terminal Tab Bar — visible on md+ only (mobile uses bottom bar) */}
+              <div className="hidden md:flex items-center border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0 px-2 sm:px-4 gap-0 h-10">
                 {([
                   { id: 'overview' as TerminalTab, label: 'Overview', labelAr: 'نظرة عامة', Icon: LayoutDashboard },
                   { id: 'analyses' as TerminalTab, label: 'Analyses', labelAr: 'التحليلات', Icon: Activity },
@@ -1273,9 +1273,18 @@ export default function IndicesHubPage() {
             </div>
           )}
 
+          {/* ── MOBILE BOTTOM TAB BAR ── */}
+          <MobileTabBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            currentView={currentView}
+            onBackToList={handleBackToList}
+            language={language}
+          />
+
         </main>{/* end main workspace */}
 
-        {/* RIGHT PANEL */}
+        {/* RIGHT PANEL — visible on xl+ only */}
         <RightPanel language={language} />
 
       </div>{/* end 3-column body */}

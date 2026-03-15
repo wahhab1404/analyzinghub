@@ -55,7 +55,6 @@ export function OverviewTab({ language }: OverviewTabProps) {
       backgroundColor: 'rgba(8, 13, 22, 1)',
       gridColor: 'rgba(26, 40, 64, 0.5)',
       watchlist: ['SP:SPX', 'NASDAQ:NDX', 'DJ:DJI', 'CBOE:VIX'],
-      studies: ['STD;Fib_Retracement'],
       show_popup_button: true,
       popup_width: '1000',
       popup_height: '650',
@@ -75,7 +74,7 @@ export function OverviewTab({ language }: OverviewTabProps) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Symbol Selector Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-[#0b1220] border-b border-[#1a2840] flex-shrink-0">
+      <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-[#0b1220] border-b border-[#1a2840] flex-shrink-0 overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-1.5 mr-2">
           <TrendingUp className="w-3.5 h-3.5 text-slate-600" />
           <span className="text-[10px] font-bold tracking-widest text-slate-600 uppercase">
@@ -121,7 +120,7 @@ export function OverviewTab({ language }: OverviewTabProps) {
 
       {/* Bottom Stats Strip */}
       <div className="flex-shrink-0 border-t border-[#1a2840] bg-[#0b1220]">
-        <div className="grid grid-cols-4 divide-x divide-[#1a2840]">
+        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-[#1a2840] divide-y sm:divide-y-0">
           <StripStat
             icon={BarChart3}
             label={isAr ? 'المؤشرات المدعومة' : 'Supported Indices'}
