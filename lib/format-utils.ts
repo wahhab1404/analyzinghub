@@ -1,17 +1,20 @@
-export function formatNumber(value: number, decimals: number = 0): string {
+export function formatNumber(value: number | null | undefined, decimals: number = 0): string {
+  if (value == null || !isFinite(value)) return '—'
   return value.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })
 }
 
-export function formatCurrency(value: number, decimals: number = 0): string {
+export function formatCurrency(value: number | null | undefined, decimals: number = 0): string {
+  if (value == null || !isFinite(value)) return '—'
   const formatted = formatNumber(Math.abs(value), decimals)
   const sign = value >= 0 ? '+' : '-'
   return `${sign}$${formatted}`
 }
 
-export function formatCurrencySimple(value: number, decimals: number = 0): string {
+export function formatCurrencySimple(value: number | null | undefined, decimals: number = 0): string {
+  if (value == null || !isFinite(value)) return '—'
   const formatted = formatNumber(Math.abs(value), decimals)
   return value >= 0 ? `$${formatted}` : `-$${formatted}`
 }

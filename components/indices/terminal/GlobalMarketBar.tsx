@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, Clock, Radio } from 'lucide-react'
+import { Clock, Radio } from 'lucide-react'
 
 interface MarketStatus {
   isOpen: boolean
@@ -49,54 +49,61 @@ export function GlobalMarketBar({ language }: { language: string }) {
   }).format(currentTime)
 
   return (
-    <div className="flex items-center justify-between px-4 py-0 h-9 bg-[#060b14] border-b border-[#1a2840] text-xs font-mono flex-shrink-0 select-none">
-      {/* Left: Branding + Index Labels */}
-      <div className="flex items-center gap-5 h-full">
+    <div className="flex items-center justify-between px-3 sm:px-4 py-0 h-9 bg-[#060b14] border-b border-[#1a2840] text-xs font-mono flex-shrink-0 select-none overflow-hidden">
+      {/* Left: Branding + Index chips (desktop only) */}
+      <div className="flex items-center gap-3 sm:gap-5 h-full min-w-0">
         {/* Logo mark */}
-        <div className="flex items-center gap-2 pr-4 border-r border-[#1a2840] h-full">
+        <div className="flex items-center gap-1.5 sm:gap-2 pr-3 sm:pr-4 border-r border-[#1a2840] h-full flex-shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-          <span className="text-[10px] font-bold tracking-[0.2em] text-blue-400 uppercase">Indices Hub</span>
+          <span className="text-[10px] font-bold tracking-[0.15em] sm:tracking-[0.2em] text-blue-400 uppercase">
+            <span className="hidden sm:inline">Indices Hub</span>
+            <span className="sm:hidden">IDX</span>
+          </span>
         </div>
 
-        {/* Index tickers – static labels, live values would plug in here */}
-        <TickerChip label="S&P 500" symbol="SPX" />
-        <TickerChip label="NASDAQ" symbol="NDX" />
-        <TickerChip label="VOLATILITY" symbol="VIX" dim />
-        <TickerChip label="DOW" symbol="DJI" />
+        {/* Index tickers – hidden on mobile to save space */}
+        <div className="hidden md:flex items-center gap-4">
+          <TickerChip label="S&P 500" symbol="SPX" />
+          <TickerChip label="NASDAQ" symbol="NDX" />
+          <TickerChip label="VOLATILITY" symbol="VIX" dim />
+          <TickerChip label="DOW" symbol="DJI" />
+        </div>
       </div>
 
       {/* Right: Market Status + Clock */}
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-2 sm:gap-5 flex-shrink-0">
         {/* Market status indicator */}
         {marketStatus ? (
-          <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-bold tracking-wider ${
+              marketStatus.isOpen
+                ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'
+                : 'bg-red-900/30 text-red-400 border border-red-800/40'
+            }`}
+          >
             <span
-              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
-                marketStatus.isOpen
-                  ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'
-                  : 'bg-red-900/30 text-red-400 border border-red-800/40'
+              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                marketStatus.isOpen ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
               }`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  marketStatus.isOpen ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
-                }`}
-              />
-              {marketStatus.isOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}
-            </span>
-          </div>
+            />
+            <span className="hidden sm:inline">{marketStatus.isOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}</span>
+            <span className="sm:hidden">{marketStatus.isOpen ? 'OPEN' : 'CLOSED'}</span>
+          </span>
         ) : (
-          <div className="flex items-center gap-1.5 text-slate-600">
+          <div className="flex items-center gap-1 text-slate-600">
             <Radio className="w-3 h-3 animate-pulse" />
-            <span className="text-[10px]">Connecting...</span>
+            <span className="text-[9px] hidden sm:inline">Connecting...</span>
           </div>
         )}
 
-        {/* Clock */}
-        <div className="flex items-center gap-1.5 text-slate-500 pl-4 border-l border-[#1a2840]">
-          <Clock className="w-3 h-3" />
-          <span className="text-[10px]">{etDate}</span>
-          <span className="text-[10px] text-slate-300 tabular-nums">{etTime}</span>
+        {/* Clock – hide seconds on mobile */}
+        <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500 pl-2 sm:pl-4 border-l border-[#1a2840]">
+          <Clock className="w-3 h-3 flex-shrink-0" />
+          <span className="text-[9px] sm:text-[10px] hidden sm:inline">{etDate}</span>
+          <span className="text-[9px] sm:text-[10px] text-slate-300 tabular-nums">
+            {etTime.slice(0, 5)}
+            <span className="hidden sm:inline">{etTime.slice(5)}</span>
+          </span>
           <span className="text-[9px] text-slate-600">ET</span>
         </div>
       </div>
@@ -115,12 +122,8 @@ function TickerChip({
 }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className={`text-[9px] tracking-widest font-semibold ${dim ? 'text-slate-600' : 'text-slate-600'}`}>
-        {symbol}
-      </span>
-      <span className={`text-[10px] font-semibold tabular-nums ${dim ? 'text-amber-400' : 'text-slate-400'}`}>
-        —
-      </span>
+      <span className="text-[9px] tracking-widest font-semibold text-slate-600">{symbol}</span>
+      <span className={`text-[10px] font-semibold tabular-nums ${dim ? 'text-amber-400' : 'text-slate-400'}`}>—</span>
     </div>
   )
 }
