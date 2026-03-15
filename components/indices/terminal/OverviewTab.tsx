@@ -8,10 +8,10 @@ interface OverviewTabProps {
 }
 
 const CHART_SYMBOLS = [
-  { label: 'S&P 500', value: 'SP:SPX' },
-  { label: 'NASDAQ 100', value: 'NASDAQ:NDX' },
-  { label: 'DOW JONES', value: 'DJ:DJI' },
-  { label: 'VIX', value: 'CBOE:VIX' },
+  { label: 'S&P 500',     value: 'CAPITALCOM:US500'  },
+  { label: 'NASDAQ 100',  value: 'CAPITALCOM:US100'  },
+  { label: 'DOW JONES',   value: 'CAPITALCOM:US30'   },
+  { label: 'VIX',         value: 'CBOE:VIX'          },
 ]
 
 export function OverviewTab({ language }: OverviewTabProps) {
@@ -54,7 +54,7 @@ export function OverviewTab({ language }: OverviewTabProps) {
       save_image: false,
       backgroundColor: 'rgba(8, 13, 22, 1)',
       gridColor: 'rgba(26, 40, 64, 0.5)',
-      watchlist: ['SP:SPX', 'NASDAQ:NDX', 'DJ:DJI', 'CBOE:VIX'],
+      watchlist: ['CAPITALCOM:US500', 'CAPITALCOM:US100', 'CAPITALCOM:US30', 'CBOE:VIX'],
       show_popup_button: true,
       popup_width: '1000',
       popup_height: '650',
