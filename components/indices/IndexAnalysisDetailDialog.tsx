@@ -1,15 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Separator } from '@/components/ui/separator'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Clock,
@@ -20,12 +12,15 @@ import {
   AlertCircle,
   User,
   X,
-  ExternalLink,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  BarChart2,
+  ExternalLink,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
+
+/* ── Types (unchanged) ──────────────────────────────────────────────── */
 
 interface Trade {
   id: string
@@ -39,8 +34,8 @@ interface Trade {
   current_contract: number
   contract_high_since: number
   contract_low_since: number
-  targets: Array<{ price: number, percentage: number, hit?: boolean }>
-  stoploss: { price: number, percentage: number } | null
+  targets: Array<{ price: number; percentage: number; hit?: boolean }>
+  stoploss: { price: number; percentage: number } | null
   notes: string | null
   published_at: string
 }
@@ -80,11 +75,220 @@ interface IndexAnalysisDetailDialogProps {
   onSelectTrade: (tradeId: string) => void
 }
 
+/* ── Logic helpers (preserved exactly) ─────────────────────────────── */
+
+function calculatePnL(trade: Trade) {
+  const entryPrice = trade.entry_contract_snapshot.mid
+  const bestPrice =
+    trade.direction === 'call' || trade.direction === 'long'
+      ? trade.contract_high_since
+      : trade.contract_low_since
+  const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
+  const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
+  const adjustedPnL = pnlPercentage * multiplier
+  return { percentage: adjustedPnL, isPositive: adjustedPnL > 0, value: bestPrice - entryPrice }
+}
+
+function getActivationTypeLabel(type?: string) {
+  switch (type) {
+    case 'PASSING_PRICE': return 'Passing Price'
+    case 'ABOVE_PRICE': return 'Price Above'
+    case 'UNDER_PRICE': return 'Price Under'
+    default: return 'Unknown'
+  }
+}
+
+function getActivationStatusLabel(status?: string) {
+  switch (status) {
+    case 'published_inactive': return 'Waiting for Activation'
+    case 'active': return 'Active'
+    case 'completed_success': return 'Completed Successfully'
+    case 'completed_fail': return 'Failed'
+    case 'cancelled': return 'Cancelled'
+    case 'expired': return 'Expired'
+    default: return status
+  }
+}
+
+/* ── Sub-components ─────────────────────────────────────────────────── */
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <span className="text-[9px] font-bold tracking-[0.2em] text-slate-700 uppercase">{children}</span>
+      <div className="flex-1 h-px bg-[#1a2840]" />
+    </div>
+  )
+}
+
+function MetricCell({
+  label,
+  value,
+  color = 'text-slate-300',
+}: {
+  label: string
+  value: string | number | null | undefined
+  color?: string
+}) {
+  return (
+    <div className="flex flex-col items-center py-2 px-1">
+      <span className="text-[9px] text-slate-700 uppercase tracking-wider mb-1">{label}</span>
+      <span className={`text-[11px] font-bold font-mono tabular-nums ${color}`}>
+        {value != null && value !== '' ? value : '—'}
+      </span>
+    </div>
+  )
+}
+
+function DetailTradeCard({
+  trade,
+  onClick,
+}: {
+  trade: Trade
+  onClick: () => void
+}) {
+  const pnl = calculatePnL(trade)
+  const isCall = trade.direction === 'call' || trade.direction === 'long'
+
+  const statusConfig: Record<Trade['status'], { label: string; color: string; bg: string; border: string }> = {
+    active:   { label: 'ACTIVE',   color: 'text-blue-400',    bg: 'bg-blue-500/10',    border: 'border-blue-500/30' },
+    tp_hit:   { label: 'TP HIT',   color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/30' },
+    sl_hit:   { label: 'SL HIT',   color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/30' },
+    closed:   { label: 'CLOSED',   color: 'text-slate-500',   bg: 'bg-slate-500/10',   border: 'border-slate-500/20' },
+    draft:    { label: 'DRAFT',    color: 'text-amber-400',   bg: 'bg-amber-500/10',   border: 'border-amber-500/20' },
+    canceled: { label: 'CANCELED', color: 'text-slate-600',   bg: 'bg-slate-500/8',    border: 'border-slate-500/15' },
+  }
+  const sc = statusConfig[trade.status]
+
+  return (
+    <div
+      onClick={onClick}
+      className="rounded-lg overflow-hidden bg-[#141d2e] border border-[#1a2840] hover:border-blue-500/30 hover:shadow-lg hover:shadow-blue-950/30 transition-all duration-200 cursor-pointer group/tc"
+    >
+      {/* Card header */}
+      <div className="flex items-center gap-2 px-3 py-2.5 bg-[#0d1525] border-b border-[#1a2840]">
+        {/* Direction badge */}
+        <span
+          className={`text-[11px] font-bold font-mono tracking-widest px-2 py-0.5 rounded border ${
+            isCall
+              ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+              : 'bg-red-500/10 border-red-500/25 text-red-400'
+          }`}
+        >
+          {isCall ? '▲' : '▼'} {trade.direction.toUpperCase()}
+        </span>
+
+        {/* Instrument */}
+        <span className="text-[10px] text-slate-600 font-mono">{trade.instrument_type}</span>
+
+        {/* Strike */}
+        {trade.strike && (
+          <>
+            <span className="text-slate-700">@</span>
+            <span className="text-[11px] font-mono font-semibold text-slate-300">
+              ${trade.strike.toLocaleString()}
+            </span>
+          </>
+        )}
+
+        {/* Expiry */}
+        {trade.expiry && (
+          <span className="text-[10px] text-slate-600 font-mono ml-1">
+            {format(new Date(trade.expiry), 'MMM d')}
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Status */}
+          <span className={`text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border ${sc.bg} ${sc.border} ${sc.color}`}>
+            {sc.label}
+          </span>
+
+          {/* P&L */}
+          {(trade.status === 'active' || trade.status === 'tp_hit') && (
+            <span
+              className={`text-[12px] font-bold font-mono tabular-nums ${
+                pnl.isPositive ? 'text-emerald-400' : 'text-red-400'
+              }`}
+            >
+              {pnl.isPositive ? '+' : ''}
+              {pnl.percentage.toFixed(1)}%
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Metrics row */}
+      <div className="grid grid-cols-4 divide-x divide-[#1a2840] border-b border-[#1a2840]">
+        <MetricCell
+          label="Entry"
+          value={`$${trade.entry_contract_snapshot.mid.toFixed(2)}`}
+        />
+        <MetricCell
+          label="High"
+          value={`$${trade.contract_high_since.toFixed(2)}`}
+          color="text-emerald-400"
+        />
+        <MetricCell
+          label="Low"
+          value={`$${trade.contract_low_since.toFixed(2)}`}
+          color="text-red-400"
+        />
+        <MetricCell
+          label="Current"
+          value={`$${trade.current_contract.toFixed(2)}`}
+          color={trade.status === 'active' ? 'text-blue-400' : 'text-slate-500'}
+        />
+      </div>
+
+      {/* Targets + Stop Loss strip */}
+      {(trade.targets.length > 0 || trade.stoploss) && (
+        <div className="flex items-center gap-2 flex-wrap px-3 py-2">
+          {trade.targets.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Target className="w-2.5 h-2.5 text-emerald-600 flex-shrink-0" />
+              {trade.targets.map((target, idx) => (
+                <span
+                  key={idx}
+                  className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                    target.hit
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                      : 'bg-[#1a2840] border-[#2a3850] text-slate-500'
+                  }`}
+                >
+                  ${target.price} {target.hit ? '✓' : `(${target.percentage}%)`}
+                </span>
+              ))}
+            </div>
+          )}
+          {trade.stoploss && (
+            <div className="flex items-center gap-1.5 ml-auto">
+              <AlertCircle className="w-2.5 h-2.5 text-red-600 flex-shrink-0" />
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-red-500/8 border-red-500/20 text-red-400">
+                SL ${trade.stoploss.price}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Notes */}
+      {trade.notes && (
+        <div className="px-3 py-2 border-t border-[#1a2840]">
+          <p className="text-[10px] text-slate-600 italic leading-relaxed">{trade.notes}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Main Dialog ────────────────────────────────────────────────────── */
+
 export function IndexAnalysisDetailDialog({
   analysisId,
   open,
   onOpenChange,
-  onSelectTrade
+  onSelectTrade,
 }: IndexAnalysisDetailDialogProps) {
   const [analysis, setAnalysis] = useState<IndexAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
@@ -97,387 +301,284 @@ export function IndexAnalysisDetailDialog({
 
   const fetchAnalysisDetails = async () => {
     if (!analysisId) return
-
     setLoading(true)
     try {
       const response = await fetch(`/api/indices/analyses/${analysisId}`)
       if (response.ok) {
         const data = await response.json()
-        setAnalysis({
-          ...data.analysis,
-          trades: data.trades || []
-        })
+        setAnalysis({ ...data.analysis, trades: data.trades || [] })
       } else {
         toast.error('Failed to load analysis details')
       }
-    } catch (error) {
+    } catch {
       toast.error('Failed to load analysis details')
     } finally {
       setLoading(false)
     }
   }
 
-  const calculatePnL = (trade: Trade) => {
-    const entryPrice = trade.entry_contract_snapshot.mid
-
-    // For CALL/LONG: best profit is at highest price
-    // For PUT/SHORT: best profit is at lowest price
-    const bestPrice = (trade.direction === 'call' || trade.direction === 'long')
-      ? trade.contract_high_since
-      : trade.contract_low_since
-
-    const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
-
-    const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
-    const adjustedPnL = pnlPercentage * multiplier
-
-    return {
-      percentage: adjustedPnL,
-      isPositive: adjustedPnL > 0,
-      value: bestPrice - entryPrice
-    }
-  }
-
-  const getStatusBadge = (status: Trade['status']) => {
-    const config = {
-      draft: { variant: 'secondary' as const, label: 'Draft' },
-      active: { variant: 'default' as const, label: 'Active' },
-      tp_hit: { variant: 'default' as const, label: 'Target Hit', color: 'bg-green-500' },
-      sl_hit: { variant: 'destructive' as const, label: 'Stop Loss Hit' },
-      closed: { variant: 'outline' as const, label: 'Closed' },
-      canceled: { variant: 'secondary' as const, label: 'Canceled' },
-    }
-    return config[status]
-  }
-
-  const getActivationTypeLabel = (type?: string) => {
-    switch (type) {
-      case 'PASSING_PRICE': return 'Passing Price'
-      case 'ABOVE_PRICE': return 'Price Above'
-      case 'UNDER_PRICE': return 'Price Under'
-      default: return 'Unknown'
-    }
-  }
-
-  const getActivationStatusLabel = (status?: string) => {
-    switch (status) {
-      case 'published_inactive': return 'Waiting for Activation'
-      case 'active': return 'Active'
-      case 'completed_success': return 'Completed Successfully'
-      case 'completed_fail': return 'Failed'
-      case 'cancelled': return 'Cancelled'
-      case 'expired': return 'Expired'
-      default: return status
-    }
-  }
-
-  const isConditionMet = analysis?.activation_enabled &&
+  const isConditionMet =
+    analysis?.activation_enabled &&
     (analysis.activation_status === 'active' ||
-     analysis.activation_status === 'completed_success' ||
-     analysis.activation_status === 'completed_fail')
+      analysis.activation_status === 'completed_success' ||
+      analysis.activation_status === 'completed_fail')
 
-  if (!analysis) {
+  /* Loading state */
+  if (loading || !analysis) {
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh]">
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        <DialogContent className="max-w-6xl bg-[#080d16] border-[#1a2840] p-0">
+          <div className="flex items-center justify-center h-[70vh]">
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+              <span className="text-xs text-slate-600 font-mono">Loading analysis…</span>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
     )
   }
 
+  const activeTrades = analysis.trades.filter((t) => t.status === 'active').length
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] p-0">
-        <ScrollArea className="max-h-[90vh]">
-          <div className="p-6">
-            <DialogHeader className="space-y-4">
-              {/* Header with Index Symbol */}
-              <div className="flex items-start justify-between">
-                <div className="space-y-2">
-                  <Badge className="text-lg font-bold px-4 py-1.5">
-                    {analysis.index_symbol}
-                  </Badge>
-                  <DialogTitle className="text-2xl font-bold leading-tight">
-                    {analysis.title}
-                  </DialogTitle>
+      {/*
+        max-w-[92vw] so it breathes on large screens;
+        h-[90vh] for fixed height split workspace
+      */}
+      <DialogContent className="max-w-[92vw] w-full p-0 gap-0 bg-[#080d16] border-[#1a2840] overflow-hidden rounded-xl"
+        style={{ height: '90vh' }}
+      >
+        <div className="flex h-full overflow-hidden">
+
+          {/* ── LEFT PANEL: Chart 65% ───────────────────────────── */}
+          <div className="flex flex-col border-r border-[#1a2840] overflow-hidden" style={{ width: '65%' }}>
+
+            {/* Header strip */}
+            <div className="flex items-center gap-3 px-5 py-3 border-b border-[#1a2840] bg-[#0b1220] flex-shrink-0">
+              {/* Symbol */}
+              <span className="text-[13px] font-bold font-mono text-blue-400 tracking-widest bg-blue-500/10 border border-blue-500/25 px-2.5 py-1 rounded">
+                {analysis.index_symbol}
+              </span>
+
+              {/* Status dot */}
+              <span
+                className={`text-[9px] font-bold tracking-widest uppercase px-2 py-0.5 rounded border ${
+                  analysis.status === 'published'
+                    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                    : 'bg-amber-500/10 border-amber-500/25 text-amber-400'
+                }`}
+              >
+                {analysis.status}
+              </span>
+
+              <div className="w-px h-4 bg-[#1a2840]" />
+
+              {/* Title */}
+              <h2 className="text-sm font-semibold text-slate-300 truncate flex-1 leading-tight">
+                {analysis.title}
+              </h2>
+
+              {/* Active trades indicator */}
+              {activeTrades > 0 && (
+                <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/25 px-2 py-1 rounded flex-shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                  <span className="text-[10px] font-mono text-blue-400">{activeTrades} live</span>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onOpenChange(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
+              )}
 
-              {/* Meta Info */}
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                {analysis.author && (
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4" />
-                    <span>{analysis.author.full_name}</span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  <span>
-                    {analysis.published_at
-                      ? format(new Date(analysis.published_at), 'PPP p')
-                      : 'Not published'}
-                  </span>
-                </div>
-                <Badge variant={analysis.status === 'published' ? 'default' : 'secondary'}>
-                  {analysis.status}
-                </Badge>
-              </div>
-            </DialogHeader>
+              {/* Close */}
+              <button
+                onClick={() => onOpenChange(false)}
+                className="ml-1 p-1.5 rounded text-slate-600 hover:text-slate-300 hover:bg-[#1a2840] transition-colors flex-shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-            <Separator className="my-6" />
-
-            {/* Chart Image */}
-            {analysis.chart_image_url && (
-              <div className="mb-6 rounded-lg overflow-hidden border bg-muted/20">
+            {/* Chart area */}
+            <div className="flex-1 relative bg-[#060b14] overflow-hidden">
+              {analysis.chart_image_url ? (
                 <img
                   src={analysis.chart_image_url}
                   alt={analysis.title}
-                  className="w-full h-auto"
+                  className="w-full h-full object-contain"
                 />
-              </div>
-            )}
-
-            {/* Analysis Body */}
-            <div className="mb-6 space-y-2">
-              <h3 className="font-semibold text-lg">Analysis</h3>
-              <div className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                {analysis.body}
-              </div>
-            </div>
-
-            {/* Activation Condition */}
-            {analysis.activation_enabled && (
-              <div className="mb-6">
-                <div className={`border-2 rounded-lg p-4 ${
-                  isConditionMet
-                    ? 'border-green-500/50 bg-green-50 dark:bg-green-900/20'
-                    : analysis.preactivation_stop_touched
-                    ? 'border-orange-500/50 bg-orange-50 dark:bg-orange-900/20'
-                    : 'border-amber-500/50 bg-amber-50 dark:bg-amber-900/20'
-                }`}>
-                  <div className="flex items-start gap-3">
-                    {isConditionMet ? (
-                      <CheckCircle2 className="h-6 w-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-                    ) : (
-                      <Zap className="h-6 w-6 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    )}
-                    <div className="flex-1 space-y-3">
-                      <div>
-                        <h4 className="font-semibold text-base mb-1">
-                          {isConditionMet ? 'Activation Condition Met ✓' : 'Activation Condition Required'}
-                        </h4>
-                        <p className="text-sm opacity-90">
-                          This analysis will activate when price {getActivationTypeLabel(analysis.activation_type).toLowerCase()} ${analysis.activation_price?.toFixed(2)}
-                          {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
-                            <span> at {analysis.activation_timeframe.replace('_', ' ').toLowerCase()}</span>
-                          )}
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        <Badge variant={isConditionMet ? 'default' : 'outline'} className="text-xs">
-                          Status: {getActivationStatusLabel(analysis.activation_status)}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          Condition: {getActivationTypeLabel(analysis.activation_type)}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          Price: ${analysis.activation_price?.toFixed(2)}
-                        </Badge>
-                        {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
-                          <Badge variant="outline" className="text-xs">
-                            Timeframe: {analysis.activation_timeframe.replace('_', ' ')}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {analysis.preactivation_stop_touched && !isConditionMet && (
-                        <div className="flex items-start gap-2 p-2 rounded bg-orange-100 dark:bg-orange-900/30 text-sm">
-                          <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0 text-orange-600 dark:text-orange-400" />
-                          <div>
-                            <p className="font-medium">Stop Touched Before Activation</p>
-                            <p className="text-xs opacity-80 mt-1">
-                              The stop loss was touched at {analysis.preactivation_stop_touched_at && format(new Date(analysis.preactivation_stop_touched_at), 'PPP p')}. This is not counted as a failure since the analysis was not yet active.
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {isConditionMet && analysis.activated_at && (
-                        <div className="flex items-start gap-2 p-2 rounded bg-green-100 dark:bg-green-900/30 text-sm">
-                          <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0 text-green-600 dark:text-green-400" />
-                          <div>
-                            <p className="font-medium">Analysis Activated</p>
-                            <p className="text-xs opacity-80 mt-1">
-                              Condition was met on {format(new Date(analysis.activated_at), 'PPP p')}
-                              {analysis.activation_met_at && analysis.activation_met_at !== analysis.activated_at && (
-                                <span> (first detected at {format(new Date(analysis.activation_met_at), 'PPP p')})</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <Separator className="my-6" />
-
-            {/* Trades Section */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold text-lg flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Trades ({analysis.trades?.length || 0})
-                </h3>
-              </div>
-
-              {!analysis.trades || analysis.trades.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <Activity className="h-12 w-12 mx-auto mb-3 opacity-20" />
-                  <p>No trades added yet</p>
-                </div>
+              ) : analysis.chart_embed_url ? (
+                <iframe
+                  src={analysis.chart_embed_url}
+                  className="w-full h-full border-0"
+                  title="Chart"
+                />
               ) : (
-                <div className="space-y-3">
-                  {(analysis.trades || []).map((trade) => {
-                    const pnl = calculatePnL(trade)
-                    const statusConfig = getStatusBadge(trade.status)
-
-                    return (
-                      <div
-                        key={trade.id}
-                        className="border rounded-lg p-4 hover:shadow-md transition-all cursor-pointer hover:border-primary/50"
-                        onClick={() => {
-                          onSelectTrade(trade.id)
-                          onOpenChange(false)
-                        }}
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Badge variant="outline" className="text-xs">
-                                {trade.instrument_type.toUpperCase()}
-                              </Badge>
-                              <Badge variant={statusConfig.variant}>
-                                {statusConfig.label}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-2 text-sm">
-                              {trade.direction === 'call' || trade.direction === 'long' ? (
-                                <TrendingUp className="h-4 w-4 text-green-600" />
-                              ) : (
-                                <TrendingDown className="h-4 w-4 text-red-600" />
-                              )}
-                              <span className="font-semibold">
-                                {trade.direction.toUpperCase()}
-                              </span>
-                              {trade.strike && (
-                                <span className="text-muted-foreground">
-                                  Strike: ${trade.strike}
-                                </span>
-                              )}
-                              {trade.expiry && (
-                                <span className="text-muted-foreground">
-                                  Exp: {format(new Date(trade.expiry), 'MMM d')}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          {trade.status === 'active' && (
-                            <div className="text-right">
-                              <div className={`text-2xl font-bold ${pnl.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                {pnl.isPositive ? '+' : ''}{pnl.percentage.toFixed(2)}%
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {trade.current_contract.toFixed(2)}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Trade Metrics */}
-                        <div className="grid grid-cols-3 gap-4 text-sm">
-                          <div>
-                            <div className="text-muted-foreground text-xs">Entry</div>
-                            <div className="font-semibold">
-                              {trade.entry_contract_snapshot.mid.toFixed(2)}
-                            </div>
-                          </div>
-                          {trade.status === 'active' && (
-                            <>
-                              <div>
-                                <div className="text-muted-foreground text-xs">High</div>
-                                <div className="font-semibold text-green-600">
-                                  {trade.contract_high_since.toFixed(2)}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-muted-foreground text-xs">Low</div>
-                                <div className="font-semibold text-red-600">
-                                  {trade.contract_low_since.toFixed(2)}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-
-                        {/* Targets & Stop Loss */}
-                        {(trade.targets.length > 0 || trade.stoploss) && (
-                          <div className="mt-3 pt-3 border-t space-y-2">
-                            {trade.targets.length > 0 && (
-                              <div className="flex items-center gap-2 text-xs">
-                                <Target className="h-3 w-3 text-green-600" />
-                                <span className="text-muted-foreground">Targets:</span>
-                                {trade.targets.map((target, idx) => (
-                                  <Badge
-                                    key={idx}
-                                    variant={target.hit ? 'default' : 'outline'}
-                                    className="text-xs"
-                                  >
-                                    ${target.price} ({target.percentage}%)
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                            {trade.stoploss && (
-                              <div className="flex items-center gap-2 text-xs">
-                                <AlertCircle className="h-3 w-3 text-red-600" />
-                                <span className="text-muted-foreground">Stop Loss:</span>
-                                <Badge variant="outline" className="text-xs">
-                                  ${trade.stoploss.price} ({trade.stoploss.percentage}%)
-                                </Badge>
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {trade.notes && (
-                          <div className="mt-3 text-xs text-muted-foreground italic">
-                            {trade.notes}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                /* Placeholder */
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <div
+                    className="absolute inset-0 opacity-[0.03]"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(#94a3b8 1px, transparent 1px), linear-gradient(90deg, #94a3b8 1px, transparent 1px)',
+                      backgroundSize: '32px 32px',
+                    }}
+                  />
+                  <BarChart2 className="w-16 h-16 text-slate-700 mb-3 relative z-10" />
+                  <span className="text-sm text-slate-600 font-mono relative z-10">No chart attached</span>
+                  <span className="text-[11px] text-slate-700 mt-1 relative z-10">Chart image or embed URL not set</span>
                 </div>
               )}
+
+              {/* Embed link */}
+              {analysis.chart_embed_url && (
+                <a
+                  href={analysis.chart_embed_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="absolute bottom-3 right-3 flex items-center gap-1.5 bg-[#060b14]/80 backdrop-blur-sm border border-[#1a2840] hover:border-blue-500/30 text-slate-500 hover:text-blue-400 text-[10px] px-2.5 py-1.5 rounded transition-all"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  Open in TradingView
+                </a>
+              )}
+            </div>
+
+            {/* Chart footer: author + time */}
+            <div className="flex items-center gap-3 px-5 py-2.5 border-t border-[#1a2840] bg-[#0b1220] flex-shrink-0">
+              {analysis.author && (
+                <div className="flex items-center gap-2">
+                  {analysis.author.avatar_url ? (
+                    <img
+                      src={analysis.author.avatar_url}
+                      alt={analysis.author.full_name}
+                      className="w-5 h-5 rounded-full object-cover border border-[#1a2840]"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-[#1a2840] flex items-center justify-center">
+                      <User className="w-2.5 h-2.5 text-slate-600" />
+                    </div>
+                  )}
+                  <span className="text-[11px] text-slate-500">{analysis.author.full_name}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 ml-auto text-[10px] text-slate-700 font-mono">
+                <Clock className="w-3 h-3" />
+                {analysis.published_at
+                  ? format(new Date(analysis.published_at), 'PPP · HH:mm')
+                  : 'Not published'}
+              </div>
             </div>
           </div>
-        </ScrollArea>
+
+          {/* ── RIGHT PANEL: Analysis + Trades 35% ──────────────── */}
+          <div className="flex flex-col bg-[#0b1220] overflow-hidden" style={{ width: '35%' }}>
+
+            {/* Right panel header */}
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-[#1a2840] flex-shrink-0">
+              <Activity className="w-3.5 h-3.5 text-slate-600" />
+              <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">Research Note</span>
+              <span className="ml-auto text-[10px] font-mono text-slate-700">
+                {analysis.trades.length} trade{analysis.trades.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+
+            {/* Scrollable content */}
+            <ScrollArea className="flex-1">
+              <div className="p-5 space-y-6">
+
+                {/* ── Analysis text ── */}
+                <div>
+                  <SectionLabel>Analysis</SectionLabel>
+                  <p className="text-[12px] text-slate-400 leading-relaxed whitespace-pre-wrap">
+                    {analysis.body}
+                  </p>
+                </div>
+
+                {/* ── Activation condition ── */}
+                {analysis.activation_enabled && (
+                  <div>
+                    <SectionLabel>Activation Condition</SectionLabel>
+                    <div
+                      className={`rounded-lg border p-3 ${
+                        isConditionMet
+                          ? 'bg-emerald-500/8 border-emerald-500/25'
+                          : analysis.preactivation_stop_touched
+                          ? 'bg-orange-500/8 border-orange-500/25'
+                          : 'bg-amber-500/8 border-amber-500/25'
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        {isConditionMet ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <Zap className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[11px] font-semibold text-slate-300 mb-1">
+                            {isConditionMet ? 'Condition Met ✓' : 'Activation Required'}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(2)}
+                            {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
+                              <span className="ml-1 opacity-70">
+                                ({analysis.activation_timeframe.replace('_', ' ')})
+                              </span>
+                            )}
+                          </p>
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#1a2840] border border-[#2a3850] text-slate-500">
+                              {getActivationStatusLabel(analysis.activation_status)}
+                            </span>
+                          </div>
+                          {analysis.preactivation_stop_touched && !isConditionMet && (
+                            <p className="text-[10px] text-orange-400 mt-2 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              Stop touched before activation
+                            </p>
+                          )}
+                          {isConditionMet && analysis.activated_at && (
+                            <p className="text-[10px] text-emerald-400 mt-2 font-mono">
+                              Activated: {format(new Date(analysis.activated_at), 'MMM d, HH:mm')}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Trades ── */}
+                <div>
+                  <SectionLabel>
+                    Trades · {analysis.trades.length}
+                  </SectionLabel>
+
+                  {analysis.trades.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <Activity className="w-8 h-8 text-slate-700 mb-3" />
+                      <p className="text-[11px] text-slate-600">No trades added yet</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {analysis.trades.map((trade) => (
+                        <DetailTradeCard
+                          key={trade.id}
+                          trade={trade}
+                          onClick={() => {
+                            onSelectTrade(trade.id)
+                            onOpenChange(false)
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            </ScrollArea>
+          </div>
+
+        </div>
       </DialogContent>
     </Dialog>
   )
