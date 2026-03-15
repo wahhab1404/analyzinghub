@@ -1,9 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Loader2 } from 'lucide-react'
+import { Loader2, BarChart2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { IndexAnalysisCard } from './IndexAnalysisCard'
 import { IndexAnalysisDetailDialog } from './IndexAnalysisDetailDialog'
@@ -130,38 +128,78 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+        <span className="text-[11px] font-mono text-slate-600">Loading analyses…</span>
       </div>
     )
   }
 
   if (analyses.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <div className="text-center space-y-3">
-            <p className="text-muted-foreground">
-              No indices analyses available yet.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Subscribe to analyzers to see their indices analyses here.
-            </p>
-            <Button
-              variant="default"
-              onClick={() => window.location.href = '/dashboard/subscriptions'}
-            >
-              Browse Analyzers
-            </Button>
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div
+          className="absolute inset-0 opacity-[0.025] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(#94a3b8 1px, transparent 1px), linear-gradient(90deg, #94a3b8 1px, transparent 1px)',
+            backgroundSize: '28px 28px',
+          }}
+        />
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="w-16 h-16 rounded-full bg-[#141d2e] border border-[#1a2840] flex items-center justify-center mb-5">
+            <BarChart2 className="w-8 h-8 text-slate-700" />
           </div>
-        </CardContent>
-      </Card>
+          <h3 className="text-sm font-semibold text-slate-400 mb-2">No Analyses Available</h3>
+          <p className="text-[11px] text-slate-600 max-w-xs leading-relaxed mb-6">
+            {status === 'active'
+              ? 'No published analyses yet. Create your first analysis or subscribe to see others.'
+              : 'No archived analyses found.'}
+          </p>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={fetchAnalyses}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-[#1a2840] hover:border-[#2a3850] text-slate-500 hover:text-slate-300 text-[11px] transition-all"
+            >
+              <RefreshCw className="w-3 h-3" />
+              Refresh
+            </button>
+            {status === 'active' && (
+              <button
+                onClick={() => (window.location.href = '/dashboard/subscriptions')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 text-[11px] font-medium transition-all"
+              >
+                Browse Analyzers
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     )
   }
 
   return (
     <>
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Grid header */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-bold tracking-[0.2em] text-slate-700 uppercase">
+            {status === 'active' ? 'Active Analyses' : 'Archive'}
+          </span>
+          <span className="text-[9px] font-mono text-slate-700 bg-[#141d2e] border border-[#1a2840] px-1.5 py-0.5 rounded">
+            {analyses.length}
+          </span>
+        </div>
+        <button
+          onClick={fetchAnalyses}
+          className="flex items-center gap-1 text-[10px] text-slate-700 hover:text-slate-400 transition-colors"
+        >
+          <RefreshCw className="w-3 h-3" />
+          Refresh
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
         {analyses.map((analysis) => (
           <IndexAnalysisCard
             key={analysis.id}

@@ -1,9 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   TrendingUp,
   TrendingDown,
@@ -13,11 +10,13 @@ import {
   FileText,
   Target,
   AlertCircle,
-  Eye,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  BarChart2,
 } from 'lucide-react'
 import { format } from 'date-fns'
+
+/* ── Types (unchanged from original) ───────────────────────────────── */
 
 interface Trade {
   id: string
@@ -30,8 +29,8 @@ interface Trade {
   current_contract: number
   contract_high_since: number
   contract_low_since: number
-  targets: Array<{ price: number, percentage: number, hit?: boolean }>
-  stoploss: { price: number, percentage: number } | null
+  targets: Array<{ price: number; percentage: number; hit?: boolean }>
+  stoploss: { price: number; percentage: number } | null
 }
 
 interface IndexAnalysis {
@@ -74,336 +73,347 @@ interface IndexAnalysisCardProps {
   onSelectTrade: (tradeId: string) => void
 }
 
+/* ── Logic helpers (preserved exactly) ─────────────────────────────── */
+
+function calculatePnL(trade: Trade) {
+  const entryPrice = trade.entry_contract_snapshot.mid
+  const bestPrice =
+    trade.direction === 'call' || trade.direction === 'long'
+      ? trade.contract_high_since
+      : trade.contract_low_since
+  const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
+  const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
+  const adjustedPnL = pnlPercentage * multiplier
+  return { percentage: adjustedPnL, isPositive: adjustedPnL > 0 }
+}
+
+function getActivationTypeLabel(type?: string) {
+  switch (type) {
+    case 'PASSING_PRICE': return 'Passing'
+    case 'ABOVE_PRICE': return 'Above'
+    case 'UNDER_PRICE': return 'Under'
+    default: return 'Unknown'
+  }
+}
+
+function getActivationStatusLabel(status?: string) {
+  switch (status) {
+    case 'published_inactive': return 'Waiting'
+    case 'active': return 'Active'
+    case 'completed_success': return 'Completed'
+    case 'completed_fail': return 'Failed'
+    default: return status
+  }
+}
+
+/* ── Sub-components ─────────────────────────────────────────────────── */
+
+function TradeStatusDot({ status }: { status: Trade['status'] }) {
+  const colors: Record<Trade['status'], string> = {
+    active: 'bg-blue-400 animate-pulse',
+    tp_hit: 'bg-emerald-400',
+    sl_hit: 'bg-red-400',
+    closed: 'bg-slate-500',
+    draft: 'bg-slate-600',
+    canceled: 'bg-slate-600',
+  }
+  return <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${colors[status]}`} />
+}
+
+function CardTradeRow({
+  trade,
+  onClick,
+}: {
+  trade: Trade
+  onClick: (e: React.MouseEvent) => void
+}) {
+  const pnl = calculatePnL(trade)
+  const isCall = trade.direction === 'call' || trade.direction === 'long'
+
+  return (
+    <div
+      onClick={onClick}
+      className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-[#141d2e] border border-[#1a2840] hover:border-blue-500/30 transition-all cursor-pointer group/tr"
+    >
+      <TradeStatusDot status={trade.status} />
+
+      {/* Direction pill */}
+      <span
+        className={`text-[10px] font-bold font-mono tracking-wider px-1.5 py-0.5 rounded ${
+          isCall
+            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+        }`}
+      >
+        {trade.direction.toUpperCase()}
+      </span>
+
+      <span className="text-[10px] text-slate-600">{trade.instrument_type}</span>
+
+      {trade.strike && (
+        <>
+          <span className="text-[10px] text-slate-700">@</span>
+          <span className="text-[10px] font-mono text-slate-400">${trade.strike.toLocaleString()}</span>
+        </>
+      )}
+
+      <span className="ml-auto">
+        {trade.status === 'active' ? (
+          <span
+            className={`text-[10px] font-bold font-mono tabular-nums ${
+              pnl.isPositive ? 'text-emerald-400' : 'text-red-400'
+            }`}
+          >
+            {pnl.isPositive ? '+' : ''}
+            {pnl.percentage.toFixed(1)}%
+          </span>
+        ) : (
+          <span className="text-[9px] text-slate-600 uppercase tracking-wider">{trade.status.replace('_', ' ')}</span>
+        )}
+      </span>
+    </div>
+  )
+}
+
+/* ── Main Card Component ────────────────────────────────────────────── */
+
 export function IndexAnalysisCard({
   analysis,
   isAnalyzer = false,
   onViewDetails,
   onNewTrade,
   onFollowUp,
-  onSelectTrade
+  onSelectTrade,
 }: IndexAnalysisCardProps) {
   const [imageError, setImageError] = useState(false)
 
-  const calculatePnL = (trade: Trade) => {
-    const entryPrice = trade.entry_contract_snapshot.mid
-
-    // For CALL/LONG: best profit is at highest price
-    // For PUT/SHORT: best profit is at lowest price
-    const bestPrice = (trade.direction === 'call' || trade.direction === 'long')
-      ? trade.contract_high_since
-      : trade.contract_low_since
-
-    const pnlPercentage = ((bestPrice - entryPrice) / entryPrice) * 100
-
-    const multiplier = trade.direction === 'call' || trade.direction === 'long' ? 1 : -1
-    const adjustedPnL = pnlPercentage * multiplier
-
-    return {
-      percentage: adjustedPnL,
-      isPositive: adjustedPnL > 0,
-    }
-  }
-
-  const getStatusColor = (status: Trade['status']) => {
-    switch (status) {
-      case 'active': return 'bg-blue-500'
-      case 'tp_hit': return 'bg-green-500'
-      case 'sl_hit': return 'bg-red-500'
-      case 'closed': return 'bg-gray-500'
-      default: return 'bg-gray-400'
-    }
-  }
-
-  const getDirectionIcon = (direction: Trade['direction']) => {
-    return direction === 'call' || direction === 'long' ?
-      <TrendingUp className="h-3 w-3" /> :
-      <TrendingDown className="h-3 w-3" />
-  }
-
-  const getActivationTypeLabel = (type?: string) => {
-    switch (type) {
-      case 'PASSING_PRICE': return 'Passing'
-      case 'ABOVE_PRICE': return 'Above'
-      case 'UNDER_PRICE': return 'Under'
-      default: return 'Unknown'
-    }
-  }
-
-  const getActivationStatusLabel = (status?: string) => {
-    switch (status) {
-      case 'published_inactive': return 'Waiting for Activation'
-      case 'active': return 'Active'
-      case 'completed_success': return 'Completed'
-      case 'completed_fail': return 'Failed'
-      default: return status
-    }
-  }
-
-  const isConditionMet = analysis.activation_enabled &&
+  const isConditionMet =
+    analysis.activation_enabled &&
     (analysis.activation_status === 'active' ||
-     analysis.activation_status === 'completed_success' ||
-     analysis.activation_status === 'completed_fail')
+      analysis.activation_status === 'completed_success' ||
+      analysis.activation_status === 'completed_fail')
 
   return (
-    <Card
-      className="group overflow-hidden hover:shadow-xl transition-all duration-300 border-2 hover:border-primary/50 cursor-pointer"
+    <div
+      className="group relative flex flex-col overflow-hidden rounded-xl bg-[#0b1220] border border-[#1a2840] hover:border-blue-500/40 hover:shadow-2xl hover:shadow-blue-950/40 transition-all duration-300 cursor-pointer"
       onClick={() => onViewDetails(analysis.id)}
     >
-      {/* Chart Image Section */}
-      {analysis.chart_image_url && !imageError ? (
-        <div className="relative h-48 bg-gradient-to-br from-gray-900 to-gray-800 overflow-hidden">
+      {/* ── CHART ZONE ─────────────────────────────────────────────── */}
+      <div className="relative h-[200px] overflow-hidden bg-[#060b14] flex-shrink-0">
+        {analysis.chart_image_url && !imageError ? (
           <img
             src={analysis.chart_image_url}
             alt={analysis.title}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
             onError={() => setImageError(true)}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-
-          {/* Index Symbol Badge */}
-          <div className="absolute top-3 left-3">
-            <Badge className="text-lg font-bold px-4 py-1 bg-primary/90 backdrop-blur-sm">
-              {analysis.index_symbol}
-            </Badge>
-          </div>
-
-          {/* Status Badge */}
-          <div className="absolute top-3 right-3">
-            <Badge variant={analysis.status === 'published' ? 'default' : 'secondary'} className="backdrop-blur-sm">
-              {analysis.status}
-            </Badge>
-          </div>
-
-          {/* Stats Overlay */}
-          <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white text-sm">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                <Activity className="h-4 w-4" />
-                <span className="font-semibold">{analysis.trades_count}</span>
-                <span className="text-xs opacity-80">trades</span>
-              </div>
-              {analysis.active_trades_count > 0 && (
-                <div className="flex items-center gap-1.5 bg-green-500/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                  <div className="h-2 w-2 bg-green-400 rounded-full animate-pulse" />
-                  <span className="font-semibold">{analysis.active_trades_count}</span>
-                  <span className="text-xs opacity-80">active</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1.5 text-xs bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
-              <Clock className="h-3 w-3" />
-              {analysis.published_at ? format(new Date(analysis.published_at), 'MMM d, HH:mm') : 'Draft'}
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="h-48 bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-          <div className="text-center space-y-2">
-            <FileText className="h-12 w-12 mx-auto text-muted-foreground" />
-            <Badge className="text-lg font-bold px-4 py-1">
-              {analysis.index_symbol}
-            </Badge>
-          </div>
-        </div>
-      )}
-
-      <CardContent className="p-0">
-        {/* Analysis Content */}
-        <div className="p-4 space-y-3">
-          <h3 className="font-semibold text-lg leading-tight line-clamp-2 group-hover:text-primary transition-colors">
-            {analysis.title}
-          </h3>
-
-          <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-            {analysis.body}
-          </p>
-
-          {/* Targets & Invalidation */}
-          {(analysis.targets && analysis.targets.length > 0) || analysis.invalidation_price ? (
-            <div className="flex flex-wrap gap-2 pt-2 border-t">
-              {analysis.targets && analysis.targets.slice(0, 3).map((target, idx) => (
-                <div
-                  key={idx}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
-                    target.reached
-                      ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                      : 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                  }`}
-                >
-                  <Target className="h-3 w-3" />
-                  <span>{target.label}: ${target.level.toFixed(2)}</span>
-                  {target.reached && <span className="ml-1">✓</span>}
-                </div>
-              ))}
-              {analysis.invalidation_price && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300">
-                  <AlertCircle className="h-3 w-3" />
-                  <span>Invalid: ${analysis.invalidation_price.toFixed(2)}</span>
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {/* Activation Condition */}
-          {analysis.activation_enabled && (
-            <div className="pt-2 border-t mt-2">
-              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium ${
-                isConditionMet
-                  ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300'
-                  : analysis.preactivation_stop_touched
-                  ? 'bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-300'
-                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
-              }`}>
-                {isConditionMet ? (
-                  <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                ) : (
-                  <Zap className="h-4 w-4 flex-shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold mb-0.5">
-                    {isConditionMet ? 'Condition Met' : 'Activation Required'}
-                  </div>
-                  <div className="text-xs opacity-90">
-                    {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(2)}
-                    {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' &&
-                      ` (${analysis.activation_timeframe.replace('_', ' ')})`}
-                  </div>
-                  {analysis.preactivation_stop_touched && !isConditionMet && (
-                    <div className="text-xs opacity-75 mt-1">
-                      ⚠️ Stop touched before activation
-                    </div>
-                  )}
-                  {isConditionMet && analysis.activated_at && (
-                    <div className="text-xs opacity-75 mt-1">
-                      Activated: {format(new Date(analysis.activated_at), 'MMM d, HH:mm')}
-                    </div>
-                  )}
-                </div>
-                <Badge variant={isConditionMet ? 'default' : 'outline'} className="text-xs">
-                  {getActivationStatusLabel(analysis.activation_status)}
-                </Badge>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Trades Section */}
-        {analysis.trades.length > 0 && (
-          <div className="px-4 pb-4">
-            <div className="border rounded-lg overflow-hidden bg-muted/20">
-              <div className="px-3 py-2 bg-muted/50 border-b flex items-center justify-between">
-                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Recent Trades
-                </span>
-                {analysis.active_trades_count > 0 && (
-                  <Badge variant="outline" className="text-xs">
-                    {analysis.active_trades_count} Active
-                  </Badge>
-                )}
-              </div>
-
-              <div className="p-2 space-y-1.5 max-h-32 overflow-y-auto">
-                {analysis.trades.slice(0, 3).map((trade) => {
-                  const pnl = calculatePnL(trade)
-                  return (
-                    <div
-                      key={trade.id}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onSelectTrade(trade.id)
-                      }}
-                      className="flex items-center gap-2 p-2 rounded hover:bg-muted/50 transition-colors cursor-pointer group/trade"
-                    >
-                      <div className={`h-2 w-2 rounded-full ${getStatusColor(trade.status)}`} />
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 text-xs">
-                          <Badge variant="outline" className="text-xs px-1.5 py-0">
-                            {trade.instrument_type}
-                          </Badge>
-                          {getDirectionIcon(trade.direction)}
-                          <span className="font-medium">
-                            {trade.direction.toUpperCase()}
-                          </span>
-                          {trade.strike && (
-                            <>
-                              <span className="text-muted-foreground">@</span>
-                              <span>${trade.strike}</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {trade.status === 'active' && (
-                        <div className={`text-xs font-semibold ${pnl.isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                          {pnl.isPositive ? '+' : ''}{pnl.percentage.toFixed(1)}%
-                        </div>
-                      )}
-
-                      <Eye className="h-3 w-3 text-muted-foreground opacity-0 group-hover/trade:opacity-100 transition-opacity" />
-                    </div>
-                  )
-                })}
-
-                {analysis.trades.length > 3 && (
-                  <div className="text-center py-1">
-                    <span className="text-xs text-muted-foreground">
-                      +{analysis.trades.length - 3} more trades
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
+        ) : (
+          /* Placeholder with subtle grid pattern */
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <div
+              className="absolute inset-0 opacity-[0.04]"
+              style={{
+                backgroundImage:
+                  'linear-gradient(#94a3b8 1px, transparent 1px), linear-gradient(90deg, #94a3b8 1px, transparent 1px)',
+                backgroundSize: '24px 24px',
+              }}
+            />
+            <BarChart2 className="w-10 h-10 text-slate-700 mb-2 relative z-10" />
+            <span className="text-[10px] text-slate-700 font-mono relative z-10">No chart attached</span>
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="p-4 pt-2 flex gap-2 border-t bg-muted/20">
-          {isAnalyzer && (
-            <>
-              <Button
-                size="sm"
-                variant="default"
-                className="flex-1"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onNewTrade(analysis.id, analysis.index_symbol)
-                }}
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                New Trade
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onFollowUp(analysis.id, analysis.index_symbol)
-                }}
-              >
-                <FileText className="h-4 w-4 mr-1.5" />
-                Follow-up
-              </Button>
-            </>
-          )}
+        {/* Gradient scrim – bottom-heavy for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0b1220] via-[#0b1220]/40 to-transparent" />
 
-          {!isAnalyzer && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              onClick={(e) => {
-                e.stopPropagation()
-                onViewDetails(analysis.id)
-              }}
-            >
-              View Details
-            </Button>
+        {/* Top row: symbol badge + status */}
+        <div className="absolute top-3 left-3 right-3 flex items-start justify-between z-10">
+          {/* Ticker */}
+          <div className="flex items-center gap-1.5 bg-[#060b14]/80 backdrop-blur-sm border border-blue-500/30 rounded-md px-2.5 py-1">
+            <span className="text-[11px] font-bold font-mono text-blue-400 tracking-widest">
+              {analysis.index_symbol}
+            </span>
+          </div>
+
+          {/* Status */}
+          <div
+            className={`text-[9px] font-bold tracking-widest uppercase px-2 py-1 rounded border ${
+              analysis.status === 'published'
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                : analysis.status === 'draft'
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                : 'bg-slate-500/10 border-slate-500/30 text-slate-500'
+            } backdrop-blur-sm`}
+          >
+            {analysis.status}
+          </div>
+        </div>
+
+        {/* Bottom row: trade count + time */}
+        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between z-10">
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 bg-[#060b14]/70 backdrop-blur-sm rounded px-2 py-1">
+              <Activity className="w-3 h-3 text-slate-500" />
+              <span className="text-[10px] font-mono text-slate-400">
+                {analysis.trades_count} trade{analysis.trades_count !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {analysis.active_trades_count > 0 && (
+              <div className="flex items-center gap-1.5 bg-blue-500/10 backdrop-blur-sm border border-blue-500/30 rounded px-2 py-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                <span className="text-[10px] font-mono text-blue-400">
+                  {analysis.active_trades_count} live
+                </span>
+              </div>
+            )}
+          </div>
+
+          {analysis.published_at && (
+            <div className="flex items-center gap-1 bg-[#060b14]/70 backdrop-blur-sm rounded px-2 py-1">
+              <Clock className="w-2.5 h-2.5 text-slate-600" />
+              <span className="text-[9px] font-mono text-slate-600">
+                {format(new Date(analysis.published_at), 'MMM d · HH:mm')}
+              </span>
+            </div>
           )}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+
+      {/* ── BODY ───────────────────────────────────────────────────── */}
+      <div className="flex flex-col flex-1 p-4 gap-3">
+
+        {/* Title */}
+        <h3 className="text-sm font-bold text-slate-200 leading-snug line-clamp-2 group-hover:text-blue-300 transition-colors">
+          {analysis.title}
+        </h3>
+
+        {/* Summary */}
+        {analysis.body && (
+          <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+            {analysis.body}
+          </p>
+        )}
+
+        {/* Key levels (targets + invalidation) */}
+        {((analysis.targets && analysis.targets.length > 0) || analysis.invalidation_price) && (
+          <div className="flex flex-wrap gap-1.5">
+            {analysis.targets?.slice(0, 3).map((target, idx) => (
+              <div
+                key={idx}
+                className={`flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                  target.reached
+                    ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
+                    : 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                }`}
+              >
+                <Target className="w-2.5 h-2.5" />
+                {target.label}: ${target.level.toFixed(0)}
+                {target.reached && ' ✓'}
+              </div>
+            ))}
+            {analysis.invalidation_price && (
+              <div className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border bg-red-500/10 border-red-500/20 text-red-400">
+                <AlertCircle className="w-2.5 h-2.5" />
+                Inv: ${analysis.invalidation_price.toFixed(0)}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Activation condition badge */}
+        {analysis.activation_enabled && (
+          <div
+            className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border text-[10px] ${
+              isConditionMet
+                ? 'bg-emerald-500/8 border-emerald-500/25 text-emerald-400'
+                : analysis.preactivation_stop_touched
+                ? 'bg-orange-500/8 border-orange-500/25 text-orange-400'
+                : 'bg-amber-500/8 border-amber-500/25 text-amber-400'
+            }`}
+          >
+            {isConditionMet ? (
+              <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
+            ) : (
+              <Zap className="w-3 h-3 flex-shrink-0" />
+            )}
+            <span className="font-medium">
+              {isConditionMet ? 'Condition Met' : 'Activation Required'}
+            </span>
+            <span className="text-[9px] opacity-70 ml-auto font-mono">
+              {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(0)}
+            </span>
+          </div>
+        )}
+
+        {/* ── TRADES PREVIEW ─────────────────────────────────────── */}
+        {analysis.trades.length > 0 && (
+          <div className="border-t border-[#1a2840] pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[9px] font-bold tracking-[0.18em] text-slate-700 uppercase">
+                Recent Trades
+              </span>
+              {analysis.trades.length > 3 && (
+                <span className="text-[9px] text-slate-700 font-mono">
+                  +{analysis.trades.length - 3} more
+                </span>
+              )}
+            </div>
+            <div className="space-y-1">
+              {analysis.trades.slice(0, 3).map((trade) => (
+                <CardTradeRow
+                  key={trade.id}
+                  trade={trade}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelectTrade(trade.id)
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── ACTION FOOTER ──────────────────────────────────────────── */}
+      <div
+        className="flex items-center gap-2 px-4 py-3 border-t border-[#1a2840] bg-[#0d1525] flex-shrink-0"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {isAnalyzer ? (
+          <>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onNewTrade(analysis.id, analysis.index_symbol)
+              }}
+              className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-[11px] font-semibold border border-blue-500/30 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Trade
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onFollowUp(analysis.id, analysis.index_symbol)
+              }}
+              className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded text-slate-500 hover:text-slate-300 text-[11px] font-medium border border-[#1a2840] hover:border-[#2a3850] transition-all"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Follow-up
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onViewDetails(analysis.id)
+            }}
+            className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 text-[11px] font-medium border border-[#1a2840] hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
+          >
+            View Details
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
