@@ -42,6 +42,9 @@ export async function GET(request: NextRequest) {
       query = query.is('analysis_id', null);
     }
 
+    // Always exclude test trades from normal views
+    query = query.neq('is_test', true);
+
     if (status) {
       query = query.eq('status', status);
     }
@@ -484,7 +487,7 @@ export async function POST(request: NextRequest) {
         entry_cost_usd: entryContract * (body.qty || 1) * 100,
         max_contract_price: currentContractPrice,
         max_profit: 0,
-        is_testing: body.is_testing || false
+        is_test: body.is_testing === true,
       })
       .select(`
         *,
