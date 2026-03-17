@@ -17,7 +17,8 @@ export async function GET(request: NextRequest) {
     const { data: tradeStats } = await supabase
       .from('index_trades')
       .select('status, is_win, computed_profit_usd, peak_price_after_entry, contract_high_since, closed_at, entry_contract_snapshot, contract_multiplier, qty')
-      .eq('author_id', user.id);
+      .eq('author_id', user.id)
+      .neq('is_test', true);
 
     const totalTrades = tradeStats?.length || 0;
     const activeTrades = tradeStats?.filter(t => t.status === 'active').length || 0;
@@ -83,6 +84,7 @@ export async function GET(request: NextRequest) {
       `)
       .eq('author_id', user.id)
       .eq('status', 'closed')
+      .neq('is_test', true)
       .order('closed_at', { ascending: false })
       .limit(5);
 
