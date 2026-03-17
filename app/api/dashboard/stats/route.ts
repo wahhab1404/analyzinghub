@@ -14,11 +14,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: tradeStats } = await supabase
+    const statsSelect = 'status, is_win, computed_profit_usd, peak_price_after_entry, contract_high_since, closed_at, entry_contract_snapshot, contract_multiplier, qty';
+    let { data: tradeStats, error: statsError } = await supabase
       .from('index_trades')
-      .select('status, is_win, computed_profit_usd, peak_price_after_entry, contract_high_since, closed_at, entry_contract_snapshot, contract_multiplier, qty')
+      .select(statsSelect)
       .eq('author_id', user.id)
       .neq('is_test', true);
+    // Column doesn't exist yet (migration pending) — retry without filter
+    if (statsError?.code === '42703') {
+      ({ data: tradeStats } = await supabase
+        .from('index_trades')
+        .select(statsSelect)
+        .eq('author_id', user.id));
+    }
 
     const totalTrades = tradeStats?.length || 0;
     const activeTrades = tradeStats?.filter(t => t.status === 'active').length || 0;
@@ -60,33 +68,25 @@ export async function GET(request: NextRequest) {
       return sum;
     }, 0) || 0;
 
-    const { data: recentTrades } = await supabase
+    const recentSelect = `id, status, instrument_type, direction, underlying_index_symbol, strike, expiry, option_type, computed_profit_usd, is_win, peak_price_after_entry, contract_high_since, closed_at, created_at, entry_contract_snapshot, current_contract, qty, contract_multiplier`;
+    let { data: recentTrades, error: recentError } = await supabase
       .from('index_trades')
-      .select(`
-        id,
-        status,
-        instrument_type,
-        direction,
-        underlying_index_symbol,
-        strike,
-        expiry,
-        option_type,
-        computed_profit_usd,
-        is_win,
-        peak_price_after_entry,
-        contract_high_since,
-        closed_at,
-        created_at,
-        entry_contract_snapshot,
-        current_contract,
-        qty,
-        contract_multiplier
-      `)
+      .select(recentSelect)
       .eq('author_id', user.id)
       .eq('status', 'closed')
       .neq('is_test', true)
       .order('closed_at', { ascending: false })
       .limit(5);
+    // Column doesn't exist yet (migration pending) — retry without filter
+    if (recentError?.code === '42703') {
+      ({ data: recentTrades } = await supabase
+        .from('index_trades')
+        .select(recentSelect)
+        .eq('author_id', user.id)
+        .eq('status', 'closed')
+        .order('closed_at', { ascending: false })
+        .limit(5));
+    }
 
     const last7DaysData = [];
     for (let i = 6; i >= 0; i--) {

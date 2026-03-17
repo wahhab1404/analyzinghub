@@ -28,28 +28,29 @@ export async function GET(request: NextRequest) {
     const offset = parseInt(searchParams.get('offset') || '0');
     const includeAll = searchParams.get('all') === 'true';
 
-    let query = supabase
-      .from('index_trades')
-      .select(`
-        *,
-        author:profiles!author_id(id, full_name, avatar_url),
-        analysis:index_analyses(id, title)
-      `)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    const buildQuery = (excludeTests: boolean) => {
+      let q = supabase
+        .from('index_trades')
+        .select(`
+          *,
+          author:profiles!author_id(id, full_name, avatar_url),
+          analysis:index_analyses(id, title)
+        `)
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
 
-    if (!includeAll) {
-      query = query.is('analysis_id', null);
+      if (!includeAll) q = q.is('analysis_id', null);
+      if (excludeTests) q = q.neq('is_test', true);
+      if (status) q = q.eq('status', status);
+      return q;
+    };
+
+    let { data: trades, error: tradesError } = await buildQuery(true);
+
+    // Column doesn't exist yet (migration pending) — retry without filter
+    if (tradesError?.code === '42703') {
+      ({ data: trades, error: tradesError } = await buildQuery(false));
     }
-
-    // Always exclude test trades from normal views
-    query = query.neq('is_test', true);
-
-    if (status) {
-      query = query.eq('status', status);
-    }
-
-    const { data: trades, error: tradesError } = await query;
 
     if (tradesError) {
       console.error('Error fetching trades:', tradesError);
