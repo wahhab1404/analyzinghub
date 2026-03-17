@@ -137,7 +137,7 @@ function FullCard({ trade, monitorHref, className }: {
   monitorHref?: string
   className?: string
 }) {
-  const { entry, current, high, openPct, highPct, openUsd } = computePnL(trade)
+  const { entry, current, high, openPct, highPct, highUsd } = computePnL(trade)
   const snap = trade.entry_contract_snapshot
   const iv = snap?.implied_volatility
   const delta = snap?.delta
@@ -153,7 +153,7 @@ function FullCard({ trade, monitorHref, className }: {
 
   const hasGreeks = iv != null || delta != null || gamma != null || theta != null || vega != null
   const hasTargets = trade.targets && trade.targets.length > 0
-  const borderClass = statusBorderColor(openPct, trade.status)
+  const borderClass = statusBorderColor(highPct, trade.status)
 
   return (
     <div className={cn(
@@ -197,12 +197,12 @@ function FullCard({ trade, monitorHref, className }: {
           )}
         </div>
 
-        {/* P&L headline */}
+        {/* P&L headline — best price (HIGH) vs entry */}
         <div className="text-right flex-shrink-0">
-          {openPct >= 1 || openPct <= -1 ? (
-            <div className={cn('flex items-center gap-1 justify-end', openPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
-              {openPct >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-              <span className="text-xl font-black num leading-none">{pct(openPct)}</span>
+          {highPct >= 1 || highPct <= -1 ? (
+            <div className={cn('flex items-center gap-1 justify-end', highPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+              {highPct >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+              <span className="text-xl font-black num leading-none">{pct(highPct)}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1 justify-end text-muted-foreground">
@@ -210,14 +210,14 @@ function FullCard({ trade, monitorHref, className }: {
               <span className="text-xl font-black num leading-none">FLAT</span>
             </div>
           )}
-          <div className={cn('text-xs font-semibold num mt-0.5', openUsd >= 0 ? 'text-emerald-500/80' : 'text-red-500/80')}>
-            {openUsd >= 0 ? '+' : ''}${Math.abs(openUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className={cn('text-xs font-semibold num mt-0.5', highUsd >= 0 ? 'text-emerald-500/80' : 'text-red-500/80')}>
+            {highUsd >= 0 ? '+' : ''}${Math.abs(highUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         </div>
       </div>
 
       {/* P&L bar */}
-      <PnLBar pct={openPct} />
+      <PnLBar pct={highPct} />
 
       {/* Polygon ticker */}
       {trade.polygon_option_ticker && (
@@ -348,7 +348,7 @@ function CompactCard({ trade, monitorHref, className }: {
   const theta = snap?.theta
 
   const isCall = trade.option_type === 'call' || trade.direction === 'call' || trade.direction === 'long'
-  const borderClass = statusBorderColor(openPct, trade.status)
+  const borderClass = statusBorderColor(highPct, trade.status)
   const dte = daysToExpiry(trade.expiry)
 
   return (
@@ -404,13 +404,13 @@ function CompactCard({ trade, monitorHref, className }: {
         )}
       </div>
 
-      {/* Right: P&L */}
+      {/* Right: P&L — best price (HIGH) as main, current as sub */}
       <div className="text-right flex-shrink-0 ml-2">
-        <div className={cn('text-base font-black num leading-none', openPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
-          {pct(openPct)}
+        <div className={cn('text-base font-black num leading-none', highPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+          {pct(highPct)}
         </div>
-        <div className="text-[9px] text-muted-foreground/60 num mt-0.5">
-          +{pct(highPct)} high
+        <div className={cn('text-[9px] num mt-0.5', openPct >= 0 ? 'text-emerald-500/50' : 'text-red-500/50')}>
+          {pct(openPct)} now
         </div>
       </div>
 
