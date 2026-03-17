@@ -468,7 +468,7 @@ export function OptionsChainTable({ trades, emptyMessage = 'No options positions
             <th className="text-right">IV</th>
             <th className="text-right">Δ DELTA</th>
             <th className="text-right">Θ THETA</th>
-            <th className="text-right font-black">P&L %</th>
+            <th className="text-right font-black">BEST P&L</th>
             {showActions && <th className="text-right">—</th>}
           </tr>
         </thead>
@@ -481,12 +481,12 @@ export function OptionsChainTable({ trades, emptyMessage = 'No options positions
             const theta = snap?.theta
             const dte = daysToExpiry(trade.expiry)
             const isCall = trade.option_type === 'call' || trade.direction === 'call' || trade.direction === 'long'
-            const pnlColor = openPct >= 2 ? 'text-emerald-500' : openPct <= -2 ? 'text-red-500' : 'text-amber-500/80'
+            const pnlColor = highPct >= 2 ? 'text-emerald-500' : highPct <= -2 ? 'text-red-500' : 'text-amber-500/80'
 
             return (
               <tr key={trade.id} className={cn(
                 'opt-chain-row',
-                openPct >= 5 ? 'opt-chain-row-profit' : openPct <= -5 ? 'opt-chain-row-loss' : '',
+                highPct >= 5 ? 'opt-chain-row-profit' : highPct <= -5 ? 'opt-chain-row-loss' : '',
               )}>
                 {/* Type */}
                 <td className="py-2 pl-3 pr-2">
@@ -571,15 +571,15 @@ export function OptionsChainTable({ trades, emptyMessage = 'No options positions
                   ) : <span className="text-muted-foreground/40">—</span>}
                 </td>
 
-                {/* P&L % — most important column */}
+                {/* P&L % — best price (HIGH) vs entry */}
                 <td className="py-2 pl-2 pr-3 text-right">
                   <div className={cn('num font-black text-sm leading-none', pnlColor)}>
-                    {pct(openPct)}
+                    {pct(highPct)}
                   </div>
                   <div className="mt-0.5 h-0.5 w-full">
                     <div
-                      className={cn('h-full', openPct >= 0 ? 'bg-emerald-500/50' : 'bg-red-500/50')}
-                      style={{ width: `${Math.min(Math.abs(openPct) / 2, 100)}%`, marginLeft: openPct >= 0 ? 0 : 'auto' }}
+                      className={cn('h-full', highPct >= 0 ? 'bg-emerald-500/50' : 'bg-red-500/50')}
+                      style={{ width: `${Math.min(Math.abs(highPct) / 2, 100)}%`, marginLeft: highPct >= 0 ? 0 : 'auto' }}
                     />
                   </div>
                 </td>
