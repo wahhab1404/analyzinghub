@@ -1,30 +1,53 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Clock, Radio } from 'lucide-react'
+import { TrendingUp, TrendingDown, Clock, Activity } from 'lucide-react'
+
+interface TickerData {
+  sym: string
+  val: string
+  chg: string
+  up: boolean
+}
 
 interface MarketStatus {
   isOpen: boolean
-  session?: string
-  nextOpen?: string
+  label: string
+  status: string
+}
+
+interface BarData {
+  indices_bar: TickerData[]
+  marketStatus: MarketStatus
+}
+
+const LABELS: Record<string, string> = {
+  SPX: 'S&P 500',
+  NDX: 'NASDAQ',
+  VIX: 'VIX',
+  DJI: 'DOW',
 }
 
 export function GlobalMarketBar({ language }: { language: string }) {
-  const [marketStatus, setMarketStatus] = useState<MarketStatus | null>(null)
+  const [data, setData] = useState<BarData | null>(null)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   useEffect(() => {
-    const fetchStatus = async () => {
+    const fetchData = async () => {
       try {
-        const res = await fetch('/api/indices/market-status')
+        const res = await fetch('/api/market-ticker', { cache: 'no-store' })
         if (res.ok) {
-          const data = await res.json()
-          setMarketStatus(data)
+          const json = await res.json()
+          if (json.indices_bar) {
+            setData({ indices_bar: json.indices_bar, marketStatus: json.marketStatus })
+            setLastUpdated(new Date())
+          }
         }
       } catch {}
     }
-    fetchStatus()
-    const interval = setInterval(fetchStatus, 60000)
+    fetchData()
+    const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
   }, [])
 
@@ -48,58 +71,85 @@ export function GlobalMarketBar({ language }: { language: string }) {
     day: 'numeric',
   }).format(currentTime)
 
+  const ms = data?.marketStatus
+  const isOpen = ms?.isOpen ?? false
+  const statusLabel = ms?.label ?? '...'
+
   return (
-    <div className="flex items-center justify-between px-3 sm:px-4 py-0 h-9 bg-[#060b14] border-b border-[#1a2840] text-xs font-mono flex-shrink-0 select-none overflow-hidden">
-      {/* Left: Branding + Index chips (desktop only) */}
-      <div className="flex items-center gap-3 sm:gap-5 h-full min-w-0">
-        {/* Logo mark */}
-        <div className="flex items-center gap-1.5 sm:gap-2 pr-3 sm:pr-4 border-r border-[#1a2840] h-full flex-shrink-0">
-          <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-          <span className="text-[10px] font-bold tracking-[0.15em] sm:tracking-[0.2em] text-blue-400 uppercase">
-            <span className="hidden sm:inline">Indices Hub</span>
-            <span className="sm:hidden">IDX</span>
+    <div className="flex items-center justify-between px-3 sm:px-5 h-9 bg-[#060b14] border-b border-[#1a2840] text-xs font-mono flex-shrink-0 select-none overflow-hidden">
+
+      {/* LEFT: Brand + tickers */}
+      <div className="flex items-center gap-0 h-full min-w-0">
+
+        {/* Brand */}
+        <div className="flex items-center gap-2 pr-4 border-r border-[#1a2840] h-full flex-shrink-0">
+          <div className="relative flex items-center justify-center">
+            <span className="absolute w-2.5 h-2.5 rounded-full bg-blue-500/30 animate-ping" />
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+          </div>
+          <span className="text-[10px] font-bold tracking-[0.2em] text-blue-400 uppercase hidden sm:block">
+            Indices Hub
+          </span>
+          <span className="text-[10px] font-bold tracking-[0.15em] text-blue-400 uppercase sm:hidden">
+            IDX
           </span>
         </div>
 
-        {/* Index tickers – hidden on mobile to save space */}
-        <div className="hidden md:flex items-center gap-4">
-          <TickerChip label="S&P 500" symbol="SPX" />
-          <TickerChip label="NASDAQ" symbol="NDX" />
-          <TickerChip label="VOLATILITY" symbol="VIX" dim />
-          <TickerChip label="DOW" symbol="DJI" />
+        {/* Tickers */}
+        <div className="hidden md:flex items-center h-full divide-x divide-[#1a2840]">
+          {data
+            ? data.indices_bar.map((t) => (
+                <TickerChip key={t.sym} ticker={t} label={LABELS[t.sym] ?? t.sym} />
+              ))
+            : ['SPX', 'NDX', 'VIX', 'DJI'].map((sym) => (
+                <SkeletonChip key={sym} sym={sym} />
+              ))}
         </div>
       </div>
 
-      {/* Right: Market Status + Clock */}
-      <div className="flex items-center gap-2 sm:gap-5 flex-shrink-0">
-        {/* Market status indicator */}
-        {marketStatus ? (
-          <span
-            className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-bold tracking-wider ${
-              marketStatus.isOpen
-                ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-700/40'
-                : 'bg-red-900/30 text-red-400 border border-red-800/40'
-            }`}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                marketStatus.isOpen ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'
-              }`}
-            />
-            <span className="hidden sm:inline">{marketStatus.isOpen ? 'MARKET OPEN' : 'MARKET CLOSED'}</span>
-            <span className="sm:hidden">{marketStatus.isOpen ? 'OPEN' : 'CLOSED'}</span>
-          </span>
-        ) : (
-          <div className="flex items-center gap-1 text-slate-600">
-            <Radio className="w-3 h-3 animate-pulse" />
-            <span className="text-[9px] hidden sm:inline">Connecting...</span>
+      {/* RIGHT: status + clock */}
+      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+
+        {/* Live pulse */}
+        {lastUpdated && (
+          <div className="hidden sm:flex items-center gap-1.5 text-slate-600">
+            <Activity className="w-3 h-3 text-blue-600" />
+            <span className="text-[9px] tabular-nums text-slate-600">
+              {lastUpdated.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+            </span>
           </div>
         )}
 
-        {/* Clock – hide seconds on mobile */}
-        <div className="flex items-center gap-1 sm:gap-1.5 text-slate-500 pl-2 sm:pl-4 border-l border-[#1a2840]">
+        {/* Separator */}
+        <div className="hidden sm:block w-px h-4 bg-[#1a2840]" />
+
+        {/* Market status */}
+        <span
+          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[9px] sm:text-[10px] font-bold tracking-wider border ${
+            isOpen
+              ? 'bg-emerald-950/60 text-emerald-400 border-emerald-800/50'
+              : statusLabel === 'PRE-MKT' || statusLabel === 'AFTER-HRS'
+              ? 'bg-amber-950/50 text-amber-400 border-amber-800/40'
+              : 'bg-red-950/40 text-red-400 border-red-900/40'
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+              isOpen
+                ? 'bg-emerald-400 animate-pulse'
+                : statusLabel === 'PRE-MKT' || statusLabel === 'AFTER-HRS'
+                ? 'bg-amber-400'
+                : 'bg-red-500'
+            }`}
+          />
+          <span className="hidden sm:inline">{statusLabel}</span>
+          <span className="sm:hidden">{isOpen ? 'OPEN' : 'CLOSED'}</span>
+        </span>
+
+        {/* Clock */}
+        <div className="flex items-center gap-1.5 pl-2 sm:pl-3 border-l border-[#1a2840] text-slate-500">
           <Clock className="w-3 h-3 flex-shrink-0" />
-          <span className="text-[9px] sm:text-[10px] hidden sm:inline">{etDate}</span>
+          <span className="hidden sm:inline text-[9px]">{etDate}</span>
           <span className="text-[9px] sm:text-[10px] text-slate-300 tabular-nums">
             {etTime.slice(0, 5)}
             <span className="hidden sm:inline">{etTime.slice(5)}</span>
@@ -111,19 +161,43 @@ export function GlobalMarketBar({ language }: { language: string }) {
   )
 }
 
-function TickerChip({
-  label,
-  symbol,
-  dim,
-}: {
-  label: string
-  symbol: string
-  dim?: boolean
-}) {
+function TickerChip({ ticker, label }: { ticker: TickerData; label: string }) {
+  const isVix = ticker.sym === 'VIX'
+  // For VIX: rising is bad (amber), falling is good (emerald) — flip colour logic
+  const up = isVix ? !ticker.up : ticker.up
+  const priceColor = up ? 'text-emerald-400' : 'text-red-400'
+  const changeColor = up ? 'text-emerald-500' : 'text-red-500'
+  const Icon = ticker.up ? TrendingUp : TrendingDown
+
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[9px] tracking-widest font-semibold text-slate-600">{symbol}</span>
-      <span className={`text-[10px] font-semibold tabular-nums ${dim ? 'text-amber-400' : 'text-slate-400'}`}>—</span>
+    <div className="flex items-center gap-2 px-4 h-full hover:bg-white/[0.02] transition-colors">
+      {/* Symbol + label */}
+      <div className="flex flex-col items-start leading-none gap-0.5">
+        <span className="text-[9px] font-bold tracking-widest text-slate-400">{ticker.sym}</span>
+        <span className="text-[8px] text-slate-600 tracking-wide hidden lg:block">{label}</span>
+      </div>
+
+      {/* Price */}
+      <span className={`text-[11px] font-bold tabular-nums ${priceColor}`}>
+        {ticker.val === '—' ? <span className="text-slate-600">—</span> : ticker.val}
+      </span>
+
+      {/* Change */}
+      {ticker.chg !== '—' && (
+        <div className={`flex items-center gap-0.5 ${changeColor}`}>
+          <Icon className="w-2.5 h-2.5 flex-shrink-0" />
+          <span className="text-[9px] font-semibold tabular-nums">{ticker.chg}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SkeletonChip({ sym }: { sym: string }) {
+  return (
+    <div className="flex items-center gap-2 px-4 h-full">
+      <span className="text-[9px] font-bold tracking-widest text-slate-600">{sym}</span>
+      <span className="w-14 h-2.5 rounded bg-slate-800 animate-pulse" />
     </div>
   )
 }
