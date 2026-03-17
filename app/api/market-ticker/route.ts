@@ -99,7 +99,7 @@ export async function GET() {
   try {
     const [stocks, indices, marketStatus] = await Promise.all([
       fetchStockSnapshot(['SPY', 'QQQ', 'GLD'], apiKey),
-      fetchIndexSnapshot(['I:VIX', 'I:DXY'], apiKey),
+      fetchIndexSnapshot(['I:SPX', 'I:NDX', 'I:DJI', 'I:VIX', 'I:DXY'], apiKey),
       fetchMarketStatus(apiKey),
     ]);
 
@@ -126,8 +126,27 @@ export async function GET() {
       })(),
     ];
 
+    const indices_bar: TickerResult[] = [
+      (() => {
+        const d = indices['I:SPX'] || { price: 0, prevClose: 0 };
+        return { sym: 'SPX', val: fmt(d.price, 2), ...fmtChange(d.price, d.prevClose) };
+      })(),
+      (() => {
+        const d = indices['I:NDX'] || { price: 0, prevClose: 0 };
+        return { sym: 'NDX', val: fmt(d.price, 2), ...fmtChange(d.price, d.prevClose) };
+      })(),
+      (() => {
+        const d = indices['I:VIX'] || { price: 0, prevClose: 0 };
+        return { sym: 'VIX', val: fmt(d.price, 2), ...fmtChange(d.price, d.prevClose) };
+      })(),
+      (() => {
+        const d = indices['I:DJI'] || { price: 0, prevClose: 0 };
+        return { sym: 'DJI', val: fmt(d.price, 2), ...fmtChange(d.price, d.prevClose) };
+      })(),
+    ];
+
     return NextResponse.json(
-      { tickers, marketStatus },
+      { tickers, indices_bar, marketStatus },
       {
         headers: {
           'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
