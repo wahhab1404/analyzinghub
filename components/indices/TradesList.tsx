@@ -114,10 +114,18 @@ function TradeCard({
   const multiplier = trade.contract_multiplier ?? 100
   const isCall = trade.direction === 'call' || trade.direction === 'long'
 
-  // P&L calculation uses best price for direction
-  const bestPrice = isCall ? trade.contract_high_since : trade.contract_low_since
-  const pnlPct = entryPrice > 0 ? ((bestPrice - entryPrice) / entryPrice) * 100 * (isCall ? 1 : -1) : 0
-  const pnlDollars = (bestPrice - entryPrice) * qty * multiplier * (isCall ? 1 : -1)
+  // P&L calculation: options always use contract_high_since (contract price rises when profitable
+  // for both CALL and PUT). Only futures shorts use contract_low_since.
+  const isOptions = trade.instrument_type === 'options'
+  const bestPrice = (isOptions || isCall)
+    ? trade.contract_high_since
+    : trade.contract_low_since
+  const pnlPct = isOptions
+    ? (entryPrice > 0 ? ((bestPrice - entryPrice) / entryPrice) * 100 : 0)
+    : (entryPrice > 0 ? ((bestPrice - entryPrice) / entryPrice) * 100 * (isCall ? 1 : -1) : 0)
+  const pnlDollars = isOptions
+    ? (bestPrice - entryPrice) * qty * multiplier
+    : (bestPrice - entryPrice) * qty * multiplier * (isCall ? 1 : -1)
   const isPositive = pnlPct > 0
 
   // Current move from entry
