@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@/lib/supabase/server';
+import { createClient } from '@supabase/supabase-js';
 import { polygonService } from '@/services/indices/polygon.service';
 import { CreateTradeRequest } from '@/services/indices/types';
 
@@ -356,6 +357,8 @@ export async function POST(
     }
 
     // Publish to Telegram if requested
+    // Uses the outbox queue (same path as standalone trades) so image bytes are uploaded
+    // directly to Telegram via multipart — no dependency on Storage bucket public access.
     if (body.auto_publish_telegram) {
       try {
         const channelsToPublish: string[] = [];
@@ -363,7 +366,7 @@ export async function POST(
         // For test trades, use testing channels
         if (body.is_testing && body.testing_channel_ids && body.testing_channel_ids.length > 0) {
           channelsToPublish.push(...body.testing_channel_ids);
-          console.log(`Publishing test trade ${trade.id} to ${body.testing_channel_ids.length} testing channels`);
+          console.log(`[analysis-trade] Publishing test trade ${trade.id} to ${body.testing_channel_ids.length} testing channels`);
         } else {
           // For regular trades, determine which channel to use (trade override > analysis default)
           let channelId = trade.telegram_channel_id;
@@ -383,47 +386,91 @@ export async function POST(
           }
         }
 
+        console.log(`[analysis-trade] Channels to publish: ${channelsToPublish.length}`, channelsToPublish);
+        console.log(`[analysis-trade] Trade type: ${trade.instrument_type}, has snapshot: ${!!snapshotUrl}`);
+
         if (channelsToPublish.length > 0) {
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+          const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
           const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-          if (supabaseUrl && serviceRoleKey) {
-            // Publish to all channels
-            for (const channelId of channelsToPublish) {
-              console.log(`Publishing trade ${trade.id} to Telegram channel ${channelId}`);
+          if (supabaseUrlEnv && serviceRoleKey) {
+            const supabaseClient = createClient(supabaseUrlEnv, serviceRoleKey);
 
-              const response = await fetch(`${supabaseUrl}/functions/v1/indices-telegram-publisher`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${serviceRoleKey}`,
-                },
-                body: JSON.stringify({
-                  type: 'new_trade',
-                  data: trade,
-                  channelId: channelId,
-                  isNewHigh: false,
+            const tradeWithSnapshot = {
+              ...trade,
+              contract_url: snapshotUrl,
+              analysis: trade.analysis ?? {
+                id: analysisId,
+                title: 'Analysis Trade',
+                index_symbol: trade.underlying_index_symbol,
+              },
+            };
+
+            // Resolve each channel UUID to actual Telegram chat_id, then queue via outbox
+            for (const channelId of channelsToPublish) {
+              console.log(`[analysis-trade] Resolving channel: ${channelId}`);
+              let actualChannelId = channelId;
+
+              const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId);
+
+              if (isUUID) {
+                if (body.is_testing) {
+                  const { data: testChannel } = await supabaseClient
+                    .from('analyzer_testing_channels')
+                    .select('telegram_channel_id')
+                    .eq('id', channelId)
+                    .eq('is_enabled', true)
+                    .single();
+
+                  if (testChannel?.telegram_channel_id) {
+                    actualChannelId = testChannel.telegram_channel_id;
+                    console.log(`[analysis-trade] Resolved testing channel ${channelId} → ${actualChannelId}`);
+                  } else {
+                    console.warn(`[analysis-trade] Could not resolve testing channel UUID ${channelId} — skipping`);
+                    continue;
+                  }
+                } else {
+                  const { data: channel } = await supabaseClient
+                    .from('telegram_channels')
+                    .select('channel_id')
+                    .eq('id', channelId)
+                    .single();
+
+                  if (channel?.channel_id) {
+                    actualChannelId = channel.channel_id;
+                    console.log(`[analysis-trade] Resolved production channel ${channelId} → ${actualChannelId}`);
+                  } else {
+                    console.warn(`[analysis-trade] Could not resolve channel UUID ${channelId} — skipping`);
+                    continue;
+                  }
+                }
+              }
+
+              // Queue via outbox — outbox processor will generate image bytes and upload directly
+              // to Telegram via multipart (no Storage URL dependency).
+              await supabaseClient.from('telegram_outbox').insert({
+                message_type: 'new_trade',
+                payload: {
+                  trade: tradeWithSnapshot,
                   isTestingMode: body.is_testing || false,
-                }),
+                },
+                channel_id: actualChannelId,
+                status: 'pending',
+                priority: 5,
+                next_retry_at: new Date().toISOString(),
               });
 
-              if (!response.ok) {
-                const errorText = await response.text();
-                console.error(`Telegram trade publish to ${channelId} failed:`, errorText);
-              } else {
-                const result = await response.json();
-                console.log(`Successfully published trade to Telegram channel ${channelId}:`, result);
-              }
+              console.log(`[analysis-trade] ✅ Queued new_trade to outbox for channel ${actualChannelId} (snapshot: ${snapshotUrl ?? 'none'})`);
             }
           } else {
-            console.error('Missing Supabase URL or service role key for Telegram publishing');
+            console.error('[analysis-trade] Missing Supabase URL or service role key');
           }
         } else {
-          console.log('No telegram channels configured for this trade');
+          console.log('[analysis-trade] No telegram channels configured for this trade');
         }
       } catch (telegramError) {
-        console.error('Failed to publish trade to Telegram:', telegramError);
-        // Don't fail the request if Telegram fails
+        console.error('[analysis-trade] Failed to queue trade to Telegram outbox:', telegramError);
+        // Don't fail the request if Telegram queuing fails
       }
     }
 

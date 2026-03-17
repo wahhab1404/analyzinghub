@@ -158,16 +158,23 @@ Deno.serve(async (req) => {
           })
           .eq("id", trade.id);
 
-        // If newly won, send notifications
+        // Resolve app base URL for snapshot generation (pass explicitly so the edge
+        // function does not fall back to localhost:3000).
+        const appBaseUrl = Deno.env.get("APP_BASE_URL") ||
+          Deno.env.get("NEXT_PUBLIC_SITE_URL") ||
+          Deno.env.get("NEXT_PUBLIC_APP_URL") ||
+          null;
+
+        // ── WINNING TRADE ──────────────────────────────────────────────────
         if (updateResult.newly_won) {
-          console.log(`🎉 Trade ${trade.id} reached WIN status!`);
+          console.log(`🎉 [tracker] Trade ${trade.id} reached WIN status! max_profit=$${updateResult.max_profit_dollars?.toFixed(2)}`);
           results.newWins++;
 
           await supabase.from("index_trade_updates").insert({
             trade_id: trade.id,
             update_type: "milestone",
             title: "$100 Profit Milestone",
-            body: `🎉 Winning Trade! Max profit reached $${updateResult.max_profit_dollars.toFixed(2)} - صفقة رابحة`,
+            body: `🎉 Winning Trade! Max profit reached $${(updateResult.max_profit_dollars ?? 0).toFixed(2)} - صفقة رابحة`,
             changes: {
               type: "winning_trade",
               max_profit: updateResult.max_profit_dollars,
@@ -175,35 +182,47 @@ Deno.serve(async (req) => {
             },
           });
 
+          // Generate snapshot for the winning alert.
+          // Note: the outbox processor will also attempt image generation via generate-image
+          // bytes API — this pre-generation just caches the URL on the trade record.
           let winningSnapshotUrl = null;
-          try {
-            const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
-              },
-              body: JSON.stringify({
-                tradeId: trade.id,
-                isNewHigh: false,
-              }),
-            });
+          if (appBaseUrl) {
+            try {
+              console.log(`[tracker] Generating winning snapshot for trade ${trade.id}...`);
+              const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${supabaseKey}`,
+                },
+                body: JSON.stringify({
+                  tradeId: trade.id,
+                  isNewHigh: false,
+                  appBaseUrl,
+                }),
+              });
 
-            if (snapshotResponse.ok) {
-              const snapshotResult = await snapshotResponse.json();
-              winningSnapshotUrl = snapshotResult.imageUrl;
-              console.log(`✅ Snapshot generated for winning trade: ${winningSnapshotUrl}`);
-
-              await supabase
-                .from("index_trades")
-                .update({ contract_url: winningSnapshotUrl })
-                .eq("id", trade.id);
+              if (snapshotResponse.ok) {
+                const snapshotResult = await snapshotResponse.json();
+                winningSnapshotUrl = snapshotResult.imageUrl;
+                console.log(`[tracker] ✅ Winning snapshot generated: ${winningSnapshotUrl}`);
+                await supabase
+                  .from("index_trades")
+                  .update({ contract_url: winningSnapshotUrl })
+                  .eq("id", trade.id);
+              } else {
+                const errBody = await snapshotResponse.text().catch(() => '');
+                console.warn(`[tracker] Winning snapshot generation failed (${snapshotResponse.status}): ${errBody.substring(0, 200)}`);
+              }
+            } catch (snapshotError: any) {
+              console.error('[tracker] Exception generating winning snapshot:', snapshotError?.message);
             }
-          } catch (snapshotError) {
-            console.error('Failed to generate snapshot for winning trade:', snapshotError);
+          } else {
+            console.warn('[tracker] APP_BASE_URL not set — skipping pre-generation snapshot; outbox will handle image');
           }
 
           const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+          console.log(`[tracker] Winning trade channel resolved: ${channelId ?? 'NONE'}, send_enabled: ${trade.telegram_send_enabled}`);
           if (channelId && trade.telegram_send_enabled !== false) {
             await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
               tradeId: trade.id,
@@ -211,57 +230,137 @@ Deno.serve(async (req) => {
               high_watermark: updateResult.new_high,
               snapshotUrl: winningSnapshotUrl,
             });
+          } else {
+            console.warn(`[tracker] Skipping winning_trade Telegram queue — channelId: ${channelId}, send_enabled: ${trade.telegram_send_enabled}`);
           }
         }
 
-        // If new high, send notification
+        // ── PEAK / NEW HIGH ────────────────────────────────────────────────
+        // Only queue a Telegram alert when BOTH of these pass:
+        //   1. Gain gate  — new high must be ≥ 10 % above the entry price
+        //   2. Dedup gate — new high must be ≥ 20 % higher than the last
+        //                   alerted peak AND at least 5 minutes elapsed
+        // This prevents flooding the channel on every price tick.
         if (updateResult.is_new_high && !updateResult.newly_won) {
-          console.log(`🚀 NEW HIGH for trade ${trade.id}: ${updateResult.new_high.toFixed(4)}`);
+          const newHigh = updateResult.new_high as number;
+          const entryPrice: number = parseFloat(
+            trade.entry_contract_snapshot?.mid ??
+            trade.entry_contract_snapshot?.last ??
+            trade.entry_contract_snapshot?.price ??
+            0
+          ) || 0;
 
-          await supabase.from("index_trade_updates").insert({
-            trade_id: trade.id,
-            update_type: "new_high",
-            title: `New High: $${updateResult.new_high.toFixed(4)}`,
-            body: `New high! Contract price reached $${updateResult.new_high.toFixed(4)}`,
-            changes: { type: "new_high", price: updateResult.new_high },
+          // Gate 1: minimum gain from entry (avoid trivial noise)
+          const gainPct = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
+          const MIN_GAIN_PCT = 0.10; // 10 % gain from entry before any peak alert fires
+
+          // Gate 2: deduplication relative to last alerted peak
+          const lastAlertedPrice: number = parseFloat(trade.last_peak_alert_price ?? 0) || 0;
+          const lastAlertedAt: Date | null = trade.last_peak_alert_at
+            ? new Date(trade.last_peak_alert_at)
+            : null;
+          const minutesSinceLastAlert = lastAlertedAt
+            ? (now.getTime() - lastAlertedAt.getTime()) / 60_000
+            : Infinity;
+          const IMPROVEMENT_PCT = 0.20; // new high must be 20 % above the last alerted price
+          const MIN_COOLDOWN_MIN = 5;   // at least 5 minutes between peak alerts
+
+          const meetsGainGate = gainPct >= MIN_GAIN_PCT;
+          const meetsImprovementGate =
+            lastAlertedPrice === 0 ||
+            newHigh >= lastAlertedPrice * (1 + IMPROVEMENT_PCT);
+          const meetsCooldownGate = minutesSinceLastAlert >= MIN_COOLDOWN_MIN;
+
+          console.log(`[tracker] Peak check trade ${trade.id}:`, {
+            newHigh,
+            entryPrice,
+            gainPct: `${(gainPct * 100).toFixed(1)}%`,
+            lastAlertedPrice,
+            minutesSinceLastAlert: minutesSinceLastAlert === Infinity ? 'never' : minutesSinceLastAlert.toFixed(1),
+            meetsGainGate,
+            meetsImprovementGate,
+            meetsCooldownGate,
           });
 
-          let snapshotUrl = null;
-          try {
-            const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
-              },
-              body: JSON.stringify({
-                tradeId: trade.id,
-                isNewHigh: true,
-                newHighPrice: updateResult.new_high,
-              }),
+          if (!meetsGainGate) {
+            console.log(`[tracker] ⏭️  Peak alert SKIPPED — gain ${(gainPct*100).toFixed(1)}% < ${MIN_GAIN_PCT*100}% minimum for trade ${trade.id}`);
+          } else if (!meetsImprovementGate) {
+            console.log(`[tracker] ⏭️  Peak alert SKIPPED — improvement ${((newHigh/lastAlertedPrice-1)*100).toFixed(1)}% < ${IMPROVEMENT_PCT*100}% threshold for trade ${trade.id}`);
+          } else if (!meetsCooldownGate) {
+            console.log(`[tracker] ⏭️  Peak alert SKIPPED — only ${minutesSinceLastAlert.toFixed(1)} min since last alert (min ${MIN_COOLDOWN_MIN} min) for trade ${trade.id}`);
+          } else {
+            // All gates passed — record this high and send the alert
+            console.log(`🚀 [tracker] NEW HIGH ALERT qualifying for trade ${trade.id}: $${newHigh.toFixed(4)} (+${(gainPct*100).toFixed(1)}% from entry)`);
+
+            await supabase.from("index_trade_updates").insert({
+              trade_id: trade.id,
+              update_type: "new_high",
+              title: `New High: $${newHigh.toFixed(4)}`,
+              body: `New high! Contract price reached $${newHigh.toFixed(4)} (+${(gainPct*100).toFixed(1)}% from entry)`,
+              changes: { type: "new_high", price: newHigh, gain_pct: gainPct },
             });
 
-            if (snapshotResponse.ok) {
-              const snapshotResult = await snapshotResponse.json();
-              snapshotUrl = snapshotResult.imageUrl;
-              console.log(`✅ Snapshot generated for new high: ${snapshotUrl}`);
+            // Persist alert state BEFORE queuing so a crash doesn't cause duplicate
+            await supabase
+              .from("index_trades")
+              .update({
+                last_peak_alert_price: newHigh,
+                last_peak_alert_at: now.toISOString(),
+              })
+              .eq("id", trade.id);
 
-              await supabase
-                .from("index_trades")
-                .update({ contract_url: snapshotUrl })
-                .eq("id", trade.id);
+            // Attempt to pre-generate snapshot (best-effort)
+            let snapshotUrl: string | null = null;
+            if (appBaseUrl) {
+              try {
+                console.log(`[tracker] Generating peak snapshot for trade ${trade.id}...`);
+                const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${supabaseKey}`,
+                  },
+                  body: JSON.stringify({
+                    tradeId: trade.id,
+                    isNewHigh: true,
+                    newHighPrice: newHigh,
+                    appBaseUrl,
+                  }),
+                });
+
+                if (snapshotResponse.ok) {
+                  const snapshotResult = await snapshotResponse.json();
+                  snapshotUrl = snapshotResult.imageUrl;
+                  console.log(`[tracker] ✅ Peak snapshot generated: ${snapshotUrl}`);
+                  await supabase
+                    .from("index_trades")
+                    .update({ contract_url: snapshotUrl })
+                    .eq("id", trade.id);
+                } else {
+                  const errBody = await snapshotResponse.text().catch(() => '');
+                  console.warn(`[tracker] Peak snapshot generation failed (${snapshotResponse.status}): ${errBody.substring(0, 200)}`);
+                  console.warn('[tracker] Outbox processor will retry image generation via generate-image API');
+                }
+              } catch (snapshotError: any) {
+                console.error('[tracker] Exception generating peak snapshot:', snapshotError?.message);
+                console.warn('[tracker] Outbox processor will generate image at send time');
+              }
+            } else {
+              console.warn('[tracker] APP_BASE_URL not set — outbox processor will generate peak image at send time');
             }
-          } catch (snapshotError) {
-            console.error('Failed to generate snapshot for new high:', snapshotError);
-          }
 
-          const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-          if (channelId && trade.telegram_send_enabled !== false) {
-            await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
-              tradeId: trade.id,
-              highPrice: updateResult.new_high,
-              snapshotUrl,
-            });
+            const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+            console.log(`[tracker] Peak alert channel resolved: ${channelId ?? 'NONE'}, send_enabled: ${trade.telegram_send_enabled}`);
+            if (channelId && trade.telegram_send_enabled !== false) {
+              await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
+                tradeId: trade.id,
+                highPrice: newHigh,
+                snapshotUrl,
+              });
+              console.log(`[tracker] ✅ Peak alert queued for channel ${channelId}`);
+            } else {
+              console.warn(`[tracker] Skipping new_high Telegram queue — channelId: ${channelId}, send_enabled: ${trade.telegram_send_enabled}`);
+            }
           }
         }
 
