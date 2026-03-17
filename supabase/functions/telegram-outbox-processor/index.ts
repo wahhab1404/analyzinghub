@@ -58,6 +58,8 @@ Deno.serve(async (req) => {
 
     for (const message of messages) {
       try {
+        console.log(`[outbox] Processing message ${message.id} type=${message.message_type} channel=${message.channel_id} attempt=${message.retry_count + 1}`);
+
         await supabase
           .from('telegram_outbox')
           .update({ status: 'processing' })
@@ -178,20 +180,41 @@ async function processTradeMessage(
   const highPrice: number | undefined =
     isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;
 
-  const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
+  console.log(`[outbox:processTradeMessage] msgType=${msgType} tradeId=${trade?.id} chatId=${chatId}`, {
+    isNewHigh,
+    isWinning,
+    isTesting,
+    highPrice,
+    tradeInstrumentType: trade?.instrument_type,
+    tradeDirection: trade?.direction,
+    tradeSymbol: trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol,
+    existingContractUrl: trade?.contract_url ?? null,
+  });
 
-  // Try to generate image bytes directly from the API
+  const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
+  console.log(`[outbox:processTradeMessage] Caption built (${caption.length} chars)`);
+
+  // Try to generate image bytes directly from the generate-image API.
+  // This does NOT depend on Supabase Storage bucket accessibility — bytes are
+  // uploaded directly to Telegram via multipart form.
   if (trade?.id) {
+    console.log(`[outbox:processTradeMessage] Attempting image generation for trade ${trade.id} (isNewHigh=${isNewHigh}, highPrice=${highPrice})`);
     const imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
     if (imgBytes && imgBytes.byteLength > 1024) {
-      console.log(`[outbox] Sending photo (${imgBytes.byteLength} bytes) for trade ${trade.id}`);
+      console.log(`[outbox:processTradeMessage] ✅ Image generated (${imgBytes.byteLength} bytes) — sending sendPhoto`);
       return await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
     }
-    console.warn(`[outbox] Image generation failed for trade ${trade.id}, sending text fallback`);
+    console.warn(`[outbox:processTradeMessage] ⚠️  Image generation failed or empty for trade ${trade.id} — falling back to text-only alert`);
+    console.warn(`[outbox:processTradeMessage] Ensure APP_BASE_URL is configured and /api/indices/trades/${trade.id}/generate-image is reachable`);
+  } else {
+    console.warn(`[outbox:processTradeMessage] No trade.id in payload — sending text fallback`);
   }
 
   // Text fallback — suppress link preview so website OG doesn't appear
-  return await sendTelegramMessage(botToken, chatId, caption, true);
+  console.log(`[outbox:processTradeMessage] Sending text-only fallback via sendMessage to ${chatId}`);
+  const result = await sendTelegramMessage(botToken, chatId, caption, true);
+  console.log(`[outbox:processTradeMessage] ✅ Text message sent to ${chatId}`);
+  return result;
 }
 
 // ─── Image byte generation ───────────────────────────────────────────────────
@@ -207,7 +230,12 @@ async function fetchImageBytes(
     if (newHighPrice != null) params.set('newHighPrice', String(newHighPrice));
 
     const url = `${BASE_URL}/api/indices/trades/${tradeId}/generate-image${params.size ? '?' + params : ''}`;
-    console.log('[outbox] Fetching image from:', url);
+    console.log('[outbox:fetchImageBytes] GET', url);
+
+    if (!BASE_URL || BASE_URL.includes('localhost')) {
+      console.error('[outbox:fetchImageBytes] ❌ BASE_URL is not configured or points to localhost — image generation will fail. Set APP_BASE_URL in Supabase edge function secrets.');
+      return null;
+    }
 
     const res = await fetch(url, {
       signal: AbortSignal.timeout(28_000),
@@ -216,15 +244,22 @@ async function fetchImageBytes(
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.warn(`[outbox] generate-image returned ${res.status}: ${body.substring(0, 200)}`);
+      console.error(`[outbox:fetchImageBytes] ❌ generate-image returned HTTP ${res.status}: ${body.substring(0, 300)}`);
+      return null;
+    }
+
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.startsWith('image/')) {
+      const body = await res.text().catch(() => '');
+      console.error(`[outbox:fetchImageBytes] ❌ Unexpected Content-Type "${contentType}": ${body.substring(0, 200)}`);
       return null;
     }
 
     const buf = await res.arrayBuffer();
-    console.log(`[outbox] Image bytes received: ${buf.byteLength}`);
+    console.log(`[outbox:fetchImageBytes] ✅ Image received: ${buf.byteLength} bytes, Content-Type: ${contentType}`);
     return buf;
   } catch (err: any) {
-    console.warn('[outbox] fetchImageBytes error:', err.message);
+    console.error('[outbox:fetchImageBytes] ❌ Exception:', err.message, err.stack?.substring(0, 300));
     return null;
   }
 }
