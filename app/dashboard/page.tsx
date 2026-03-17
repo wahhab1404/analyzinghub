@@ -570,7 +570,7 @@ export default function DashboardPage() {
                     <th className="text-right px-2 py-1.5 section-label text-[9px]">ENTRY</th>
                     <th className="text-right px-2 py-1.5 section-label text-[9px]">CURRENT</th>
                     <th className="text-right px-2 py-1.5 section-label text-[9px]">HIGH</th>
-                    <th className="text-right px-3 py-1.5 section-label text-[9px]">P&L %</th>
+                    <th className="text-right px-3 py-1.5 section-label text-[9px]">BEST P&L</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -603,8 +603,8 @@ export default function DashboardPage() {
                               <div className="text-[9px] text-emerald-500/60 num leading-none">+{highPct.toFixed(0)}%</div>
                             </td>
                             <td className="px-3 py-2 text-right">
-                              <span className={cn('num font-black text-sm', pct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
-                                {pct >= 0 ? '+' : ''}{pct.toFixed(1)}%
+                              <span className={cn('num font-black text-sm', highPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+                                {highPct >= 0 ? '+' : ''}{highPct.toFixed(1)}%
                               </span>
                             </td>
                           </tr>
