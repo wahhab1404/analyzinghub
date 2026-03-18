@@ -241,9 +241,14 @@ export function formatTradeMessage(
   });
 
   const analysisUrl = trade.analysis ? `${baseUrl}/dashboard/analysis/${trade.analysis.id}` : '#';
-  const entryPrice = trade.entry_contract_snapshot?.price || trade.entry_contract_snapshot?.mid || trade.entry_contract_snapshot?.last || 0;
-  const target1 = trade.targets && trade.targets.length > 0 ? trade.targets[0].level : null;
-  const stopPrice = trade.stoploss?.level;
+  const snap = trade.entry_contract_snapshot || {};
+  const entryPrice = snap.price || snap.mid || snap.last || 0;
+  const bid = snap.bid || 0;
+  const ask = snap.ask || 0;
+  const qty = (trade as any).qty || 1;
+  const currentPrice = trade.current_contract || entryPrice;
+  const target1 = trade.targets && trade.targets.length > 0 ? (trade.targets[0].level ?? trade.targets[0].price) : null;
+  const stopPrice = trade.stoploss?.level ?? trade.stoploss?.price;
 
   let cleanSymbol = trade.analysis?.index_symbol || (trade as any).underlying_index_symbol || 'Index';
   if (trade.polygon_option_ticker) {
@@ -254,77 +259,49 @@ export function formatTradeMessage(
     }
   }
 
+  const hasBidAsk = bid > 0 && ask > 0 && bid !== ask;
+
   let message = '';
   if (isTestingMode) {
     message = isNewHigh ? "🧪 <b>TEST - NEW HIGH ALERT!</b>\n\n" : "🧪 <b>TEST TRADE</b>\n\n";
   } else {
-    message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE</b>\n\n";
+    message = isNewHigh ? "🚀 <b>NEW HIGH ALERT!</b>\n\n" : "🎯 <b>NEW TRADE | صفقة جديدة</b>\n\n";
   }
-  message += `<b>Index:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
-  if (trade.analysis) {
-    message += `<b>Analysis:</b> ${trade.analysis.title}\n`;
-  }
-  message += `<b>Direction:</b> ${trade.direction.toUpperCase()}\n`;
+  message += `<b>Index | المؤشر:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
+  message += `<b>Direction | الاتجاه:</b> ${trade.direction === 'call' ? 'CALL شراء' : 'PUT بيع'}\n`;
 
-  if (trade.polygon_option_ticker) {
-    message += `<b>Contract:</b> ${cleanSymbol} ${trade.strike?.toFixed(0)}\n`;
-    message += `<b>Expiry:</b> ${trade.expiry}\n`;
+  if (trade.strike) {
+    message += `<b>Strike | السعر:</b> ${trade.strike.toFixed(0)}$\n`;
   }
 
-  message += `<b>Entry:</b> ${entryPrice.toFixed(2)}\n`;
+  message += `<b>Entry | الدخول:</b> ${entryPrice.toFixed(2)}$\n`;
+  message += `<b>Current | الحالي:</b> ${currentPrice.toFixed(2)}$\n`;
+
+  if (hasBidAsk) {
+    message += `<b>Bid/Ask | عرض/طلب:</b> ${bid.toFixed(2)}$ / ${ask.toFixed(2)}$\n`;
+  }
+
+  message += `<b>Quantity | الكمية:</b> ${qty} contract${qty !== 1 ? 's' : ''} عقود\n`;
 
   if (isNewHigh && trade.contract_high_since) {
-    message += `<b>Current:</b> ${trade.current_contract?.toFixed(2)} 🎉\n`;
-    message += `<b>Highest:</b> ${trade.contract_high_since.toFixed(2)}\n`;
+    message += `<b>Highest | الأعلى:</b> ${trade.contract_high_since.toFixed(2)}$ 🎉\n`;
   }
 
   if (target1) {
-    message += `<b>Target 1:</b> ${target1.toFixed(2)}\n`;
+    message += `<b>Target 1 | الهدف 1:</b> ${Number(target1).toFixed(2)}$\n`;
   }
 
   if (stopPrice) {
-    message += `<b>Stop Loss:</b> ${stopPrice.toFixed(2)}\n`;
+    message += `<b>Stop Loss | وقف الخسارة:</b> ${Number(stopPrice).toFixed(2)}$\n`;
   }
 
-  message += `\n<b>Analyst:</b> ${trade.author.full_name}\n\n`;
+  message += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
+
   if (trade.analysis) {
-    message += `<a href="${analysisUrl}">📊 View Analysis</a>`;
+    message += `\n<a href="${analysisUrl}">📊 View Analysis | عرض التحليل</a>`;
   }
 
-  message += "\n\n━━━━━━━━━━\n\n";
-  message += isNewHigh ? "🚀 <b>تنبيه قمة جديدة!</b>\n\n" : "🎯 <b>صفقة جديدة</b>\n\n";
-  message += `<b>المؤشر:</b> ${trade.analysis?.index_symbol || (trade as any).underlying_index_symbol}\n`;
-  if (trade.analysis) {
-    message += `<b>التحليل:</b> ${trade.analysis.title}\n`;
-  }
-  message += `<b>الاتجاه:</b> ${trade.direction === "call" ? "شراء" : "بيع"}\n`;
-
-  if (trade.polygon_option_ticker) {
-    message += `<b>العقد:</b> ${cleanSymbol}\n`;
-    message += `<b>سترايك:</b> ${trade.strike?.toFixed(0)}\n`;
-  }
-
-  message += `<b>الدخول:</b> ${entryPrice.toFixed(2)}\n`;
-
-  if (isNewHigh && trade.contract_high_since) {
-    message += `<b>الحالي:</b> ${trade.current_contract?.toFixed(2)} 🎉\n`;
-    message += `<b>الأعلى:</b> ${trade.contract_high_since.toFixed(2)}\n`;
-  }
-
-  if (target1) {
-    message += `<b>الهدف 1:</b> ${target1.toFixed(2)}\n`;
-  }
-
-  if (stopPrice) {
-    message += `<b>وقف الخسارة:</b> ${stopPrice.toFixed(2)}\n`;
-  }
-
-  message += `\n<b>المحلل:</b> ${trade.author.full_name}\n\n`;
-  if (trade.analysis) {
-    message += `<a href="${analysisUrl}">📊 عرض التحليل</a>`;
-  }
-
-  const snapshotImageUrl = trade.contract_url || undefined;
+  const snapshotImageUrl = `${baseUrl}/api/indices/trades/${trade.id}/generate-image${isNewHigh ? '?isNewHigh=true' : ''}`;
 
   return { text: message, snapshotImageUrl };
 }
