@@ -3,7 +3,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const BASE_URL = Deno.env.get('APP_BASE_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL') || 'https://analyzhub.com';
+const BASE_URL = Deno.env.get('APP_BASE_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL') || '';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -68,7 +68,7 @@ Deno.serve(async (req) => {
         let telegramResult: any;
         const msgType = message.message_type;
 
-        if (['new_trade', 'new_high', 'winning_trade'].includes(msgType)) {
+        if (['new_trade', 'new_high', 'winning_trade', 'milestone'].includes(msgType)) {
           telegramResult = await processTradeMessage(
             TELEGRAM_BOT_TOKEN,
             message.channel_id,
@@ -175,7 +175,7 @@ async function processTradeMessage(
 ): Promise<any> {
   const trade    = payload?.trade ?? payload;
   const isNewHigh = msgType === 'new_high';
-  const isWinning = msgType === 'winning_trade';
+  const isWinning = msgType === 'winning_trade' || msgType === 'milestone';
   const isTesting = payload?.isTestingMode ?? false;
   const highPrice: number | undefined =
     isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;

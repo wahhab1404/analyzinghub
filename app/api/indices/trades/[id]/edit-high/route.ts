@@ -74,7 +74,7 @@ export async function PATCH(
 
     const marketStatus = getMarketStatus();
     const entrySnapshot = trade.entry_contract_snapshot || {};
-    const entryPrice = entrySnapshot.mid || entrySnapshot.last || 0;
+    const entryPrice = entrySnapshot.mid || entrySnapshot.price || entrySnapshot.last || 0;
 
     const updates: any = {
       contract_high_since: highWatermark,
