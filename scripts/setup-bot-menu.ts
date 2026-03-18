@@ -1,148 +1,167 @@
+/**
+ * setup-bot-menu.ts
+ *
+ * Registers Telegram bot commands for both English and Arabic interfaces.
+ * Run once after deployment or after changing the command list.
+ *
+ * Usage:
+ *   npx ts-node -e "require('./scripts/setup-bot-menu')"
+ *   or:
+ *   TELEGRAM_BOT_TOKEN=xxx npx ts-node scripts/setup-bot-menu.ts
+ */
+
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 async function getBotToken(): Promise<string | null> {
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  if (supabaseUrl && supabaseKey) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'telegram_bot_token')
+      .maybeSingle();
 
-  const { data } = await supabase
-    .from('admin_settings')
-    .select('setting_value')
-    .eq('setting_key', 'telegram_bot_token')
-    .maybeSingle();
-
-  if (data?.setting_value && data.setting_value !== 'YOUR_BOT_TOKEN_HERE') {
-    return data.setting_value;
+    if (data?.setting_value && data.setting_value !== 'YOUR_BOT_TOKEN_HERE') {
+      return data.setting_value;
+    }
   }
 
   const envToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (envToken && envToken !== 'YOUR_BOT_TOKEN_HERE') {
-    return envToken;
-  }
-
+  if (envToken && envToken !== 'YOUR_BOT_TOKEN_HERE') return envToken;
   return null;
 }
 
-async function setupBotMenu() {
-  console.log('🤖 Setting up Telegram Bot Menu...\n');
+// ─── Command Definitions ──────────────────────────────────────────────────────
 
-  const botToken = await getBotToken();
+const EN_COMMANDS = [
+  { command: 'start',   description: 'Welcome screen & main menu' },
+  { command: 'menu',    description: 'Open the main menu' },
+  { command: 'help',    description: 'Help center & how-to guide' },
+  { command: 'status',  description: 'Check your account link status' },
+];
 
-  if (!botToken) {
-    console.error('❌ TELEGRAM_BOT_TOKEN not found in environment or database');
-    process.exit(1);
+const AR_COMMANDS = [
+  { command: 'start',   description: 'شاشة الترحيب والقائمة الرئيسية' },
+  { command: 'menu',    description: 'فتح القائمة الرئيسية' },
+  { command: 'help',    description: 'مركز المساعدة' },
+  { command: 'status',  description: 'التحقق من حالة ربط الحساب' },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function setCommands(
+  token:     string,
+  commands:  Array<{ command: string; description: string }>,
+  langCode?: string
+): Promise<boolean> {
+  const body: any = { commands };
+  if (langCode) {
+    body.language_code = langCode;
+    body.scope = { type: 'all_private_chats' };
   }
 
-  console.log('✅ Bot token retrieved\n');
-
-  const commands = [
-    {
-      command: 'start',
-      description: 'Link your account and get started'
-    },
-    {
-      command: 'help',
-      description: 'Show help menu with all features'
-    },
-    {
-      command: 'menu',
-      description: 'Display the bot menu'
-    },
-    {
-      command: 'status',
-      description: 'Check if your account is linked'
-    }
-  ];
-
-  const arabicCommands = [
-    {
-      command: 'start',
-      description: 'ربط حسابك والبدء'
-    },
-    {
-      command: 'help',
-      description: 'عرض قائمة المساعدة مع جميع المميزات'
-    },
-    {
-      command: 'menu',
-      description: 'عرض قائمة البوت'
-    },
-    {
-      command: 'status',
-      description: 'التحقق من ربط حسابك'
-    }
-  ];
-
-  try {
-    console.log('📝 Setting up default (English) commands...');
-    const defaultResponse = await fetch(
-      `https://api.telegram.org/bot${botToken}/setMyCommands`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ commands })
-      }
-    );
-
-    const defaultResult = await defaultResponse.json();
-
-    if (defaultResult.ok) {
-      console.log('✅ Default commands set successfully\n');
-      console.log('Commands:');
-      commands.forEach(cmd => {
-        console.log(`  /${cmd.command} - ${cmd.description}`);
-      });
-      console.log('');
-    } else {
-      console.error('❌ Failed to set default commands:', defaultResult);
-      process.exit(1);
-    }
-
-    console.log('📝 Setting up Arabic commands...');
-    const arabicResponse = await fetch(
-      `https://api.telegram.org/bot${botToken}/setMyCommands`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          commands: arabicCommands,
-          language_code: 'ar'
-        })
-      }
-    );
-
-    const arabicResult = await arabicResponse.json();
-
-    if (arabicResult.ok) {
-      console.log('✅ Arabic commands set successfully\n');
-      console.log('الأوامر:');
-      arabicCommands.forEach(cmd => {
-        console.log(`  /${cmd.command} - ${cmd.description}`);
-      });
-      console.log('');
-    } else {
-      console.error('❌ Failed to set Arabic commands:', arabicResult);
-    }
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ Bot menu setup complete!');
-    console.log('');
-    console.log('🎯 Users will now see the menu when they type "/" in your bot');
-    console.log('');
-    console.log('💡 Test it out:');
-    console.log('  1. Open your Telegram bot');
-    console.log('  2. Type "/"');
-    console.log('  3. You should see the commands menu');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  } catch (error) {
-    console.error('❌ Error setting up bot menu:', error);
-    process.exit(1);
-  }
+  const res    = await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body),
+  });
+  const result = await res.json();
+  return result.ok === true;
 }
 
-setupBotMenu();
+async function setBotDescription(token: string): Promise<void> {
+  await fetch(`https://api.telegram.org/bot${token}/setMyDescription`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      description: 'AnalyzingHub AI Market Intelligence Bot\n\n' +
+                   'Access AI-powered financial analysis, technical analysis, platform search, trades, and reports — in a premium bilingual experience.',
+    }),
+  });
+
+  await fetch(`https://api.telegram.org/bot${token}/setMyDescription`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      description: 'بوت الذكاء الاصطناعي لتحليل الأسواق — AnalyzingHub\n\n' +
+                   'احصل على تحليل مالي وفني بالذكاء الاصطناعي، البحث في المنصة، الصفقات، والتقارير — بتجربة احترافية ثنائية اللغة.',
+      language_code: 'ar',
+    }),
+  });
+}
+
+async function setBotShortDescription(token: string): Promise<void> {
+  await fetch(`https://api.telegram.org/bot${token}/setMyShortDescription`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      short_description: 'AI-powered market intelligence — financial analysis, technical analysis, trades & reports.',
+    }),
+  });
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+async function main() {
+  console.log('\n🤖  AnalyzingHub — Telegram Bot Setup\n');
+  console.log('━'.repeat(40));
+
+  const token = await getBotToken();
+  if (!token) {
+    console.error('❌  TELEGRAM_BOT_TOKEN not found in environment or database.');
+    process.exit(1);
+  }
+  console.log('✅  Bot token retrieved\n');
+
+  // Verify bot
+  const meRes  = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+  const meData = await meRes.json();
+  if (!meData.ok) {
+    console.error('❌  Invalid bot token:', meData);
+    process.exit(1);
+  }
+  console.log(`🤖  Bot: @${meData.result.username} (${meData.result.first_name})\n`);
+
+  // English commands (default)
+  console.log('📝  Setting English commands…');
+  const enOk = await setCommands(token, EN_COMMANDS);
+  console.log(enOk ? '✅  English commands set' : '❌  Failed to set English commands');
+  EN_COMMANDS.forEach(c => console.log(`     /${c.command}  —  ${c.description}`));
+  console.log('');
+
+  // Arabic commands
+  console.log('📝  Setting Arabic commands…');
+  const arOk = await setCommands(token, AR_COMMANDS, 'ar');
+  console.log(arOk ? '✅  Arabic commands set' : '❌  Failed to set Arabic commands');
+  AR_COMMANDS.forEach(c => console.log(`     /${c.command}  —  ${c.description}`));
+  console.log('');
+
+  // Bot description
+  console.log('📝  Setting bot description…');
+  await setBotDescription(token);
+  await setBotShortDescription(token);
+  console.log('✅  Description set\n');
+
+  console.log('━'.repeat(40));
+  console.log('🎉  Bot setup complete!');
+  console.log('');
+  console.log('💡  Next steps:');
+  console.log('     1. Ensure NEXT_PUBLIC_BASE_URL is set correctly');
+  console.log('     2. Ensure OPENAI_API_KEY is configured');
+  console.log('     3. Run the bot_sessions migration in Supabase');
+  console.log('     4. Run the ai_analysis_results migration in Supabase');
+  console.log('     5. Test by sending /start to the bot');
+  console.log('━'.repeat(40));
+  console.log('');
+}
+
+main().catch(err => {
+  console.error('❌  Setup failed:', err);
+  process.exit(1);
+});
