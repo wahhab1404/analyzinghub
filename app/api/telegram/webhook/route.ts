@@ -139,6 +139,14 @@ async function handleMessage(
     const parts = text.split(' ');
     const code  = parts[1]?.toUpperCase();
 
+    // Always reset session state on /start so old multi-step flows don't linger
+    try {
+      const sessions = getSessionManager();
+      await sessions.reset(chatId);
+    } catch {
+      // Non-fatal — proceed even if session reset fails
+    }
+
     // /start CODE → account linking
     if (code) {
       await handleLinkAccount(chatId, code, username, firstName, token, supabaseUrl, supabaseKey);
@@ -158,6 +166,12 @@ async function handleMessage(
 
   // ── /menu ────────────────────────────────────────────────────────────────────
   if (text === '/menu' || text === '/m') {
+    try {
+      const sessions = getSessionManager();
+      await sessions.reset(chatId);
+    } catch {
+      // Non-fatal
+    }
     await sendMainMenu(chatId, token);
     return;
   }
