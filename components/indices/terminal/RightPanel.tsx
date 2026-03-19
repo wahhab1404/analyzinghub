@@ -154,20 +154,20 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
         iconColor="text-blue-500"
         loading={loading && !data}
       >
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {/* Trend Bias */}
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500">
+            <span className="text-xs text-slate-400">
               {isAr ? 'التحيز العام' : 'Trend Bias'}
             </span>
-            <span className={`text-[10px] font-bold flex items-center gap-1 ${biasColor}`}>
-              <BiasIcon className="w-3 h-3" />
+            <span className={`text-xs font-bold flex items-center gap-1 ${biasColor}`}>
+              <BiasIcon className="w-3.5 h-3.5" />
               {biasLabel}
             </span>
           </div>
 
           {/* Bull/Bear bar */}
-          <div className="relative w-full bg-[#1a2840] rounded-full h-1.5 overflow-hidden">
+          <div className="relative w-full bg-[#1a2840] rounded-full h-2.5 overflow-hidden">
             <div
               className={`absolute left-0 top-0 h-full rounded-full transition-all duration-500 ${
                 bullScore >= 50
@@ -177,14 +177,23 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
               style={{ width: `${bullScore}%` }}
             />
           </div>
-          <div className="flex justify-between text-[9px] text-slate-700 font-medium">
-            <span>{isAr ? 'هابط' : 'BEAR'}</span>
-            <span className="text-slate-500 tabular-nums">{bullScore}%</span>
-            <span>{isAr ? 'صاعد' : 'BULL'}</span>
+          {/* BEAR / score% / BULL row — colorful labels */}
+          <div className="flex justify-between items-center text-xs font-bold">
+            <span className="text-red-400 tracking-wide">
+              {isAr ? 'هابط' : 'BEAR'} {100 - bullScore}%
+            </span>
+            <span className={`tabular-nums font-mono text-[11px] ${bullScore >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {bullScore >= 50
+                ? `↑ ${bullScore}%`
+                : `↓ ${100 - bullScore}%`}
+            </span>
+            <span className="text-emerald-400 tracking-wide">
+              {bullScore}% {isAr ? 'صاعد' : 'BULL'}
+            </span>
           </div>
 
           {/* Fear/Greed + Volatility */}
-          <div className="grid grid-cols-2 gap-1.5 pt-1">
+          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
             <MiniStat
               label={isAr ? 'خوف/طمع' : 'Fear/Greed'}
               value={
@@ -434,11 +443,11 @@ function MiniStat({
   valueColor?: string
 }) {
   return (
-    <div className="bg-[#141d2e] border border-[#1a2840] rounded p-1.5 text-center">
-      <p className="text-[9px] text-slate-600 mb-0.5">{label}</p>
-      <p className={`text-[10px] font-mono font-semibold tabular-nums ${valueColor}`}>{value}</p>
+    <div className="bg-[#141d2e] border border-[#1a2840] rounded p-2 text-center">
+      <p className="text-[11px] text-slate-500 mb-0.5">{label}</p>
+      <p className={`text-sm font-mono font-bold tabular-nums ${valueColor}`}>{value}</p>
       {subLabel && (
-        <p className="text-[8px] text-slate-700 mt-0.5 truncate">{subLabel}</p>
+        <p className="text-[10px] text-slate-600 mt-0.5 truncate">{subLabel}</p>
       )}
     </div>
   )
@@ -506,10 +515,10 @@ function TradeRow({ trade, isAr }: { trade: RecentTradeItem; isAr: boolean }) {
           {trade.expiry ? ` ${trade.expiry.slice(5)}` : ''}
         </span>
       </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
+      <div className="flex items-center gap-1 flex-shrink-0">
         {trade.profitPct != null ? (
-          <span className={`font-mono text-[9px] tabular-nums ${pnlColor}`}>
-            {fmtPct(trade.profitPct)}
+          <span className={`font-mono text-[10px] tabular-nums font-semibold ${pnlColor}`}>
+            ↑{fmtPct(trade.profitPct)}
           </span>
         ) : (
           <span className="font-mono text-[9px] text-slate-600">
