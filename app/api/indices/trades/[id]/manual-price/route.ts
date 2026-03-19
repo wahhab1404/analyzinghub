@@ -238,7 +238,8 @@ export async function POST(
         }
 
         const channelId = existing.telegram_channel_id || existing.analysis?.telegram_channel_id;
-        if (channelId && existing.telegram_send_enabled !== false) {
+        // Dedup: only notify if this high exceeds what was last sent to Telegram
+        if (channelId && existing.telegram_send_enabled !== false && newHigh > (existing.last_telegram_high_sent || 0)) {
           const { data: channel } = await supabase
             .from('telegram_channels')
             .select('channel_id')
@@ -264,7 +265,15 @@ export async function POST(
             next_retry_at: new Date().toISOString(),
           });
 
+          // Track the last high we notified about to prevent duplicate alerts
+          await supabase
+            .from('index_trades')
+            .update({ last_telegram_high_sent: newHigh })
+            .eq('id', id);
+
           console.log(`📤 Queued new high notification to channel ${actualChannelId}`);
+        } else if (channelId && !(newHigh > (existing.last_telegram_high_sent || 0))) {
+          console.log(`ℹ️ [Manual High] Telegram skipped — already notified at $${existing.last_telegram_high_sent}`);
         }
       } catch (notifError) {
         console.error('Error sending new high notification:', notifError);

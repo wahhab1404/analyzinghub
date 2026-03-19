@@ -156,10 +156,10 @@ export function EditHighWatermarkDialog({
           <Alert variant="default" className="border-blue-200 bg-blue-50">
             <AlertCircle className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-sm text-blue-800">
-              <strong>Market Hours Behavior:</strong>
+              <strong>Update Behavior:</strong>
               <ul className="mt-1 ml-4 list-disc space-y-1">
-                <li><strong>Market Open:</strong> Updates DB, generates image, sends Telegram notification</li>
-                <li><strong>Market Closed:</strong> Updates DB and reports only (no Telegram notification)</li>
+                <li><strong>Always:</strong> Updates DB and triggers Telegram notification when new high exceeds last sent high</li>
+                <li><strong>Market Open only:</strong> Also generates a fresh chart snapshot image</li>
               </ul>
             </AlertDescription>
           </Alert>
