@@ -62,20 +62,30 @@ async function sendTelegramPhoto(
   photoUrl: string,
   caption: string
 ) {
-  console.log('[sendTelegramPhoto] Sending HIGH QUALITY image as document');
-  const url = `https://api.telegram.org/bot${botToken}/sendDocument`;
+  console.log('[sendTelegramPhoto] Fetching generated image from:', photoUrl);
 
-  const body = {
-    chat_id: chatId,
-    document: photoUrl,
-    caption,
-    parse_mode: 'HTML',
-  };
+  // Fetch the PNG image bytes from the Next.js generate-image route
+  const imageRes = await fetch(photoUrl);
+  if (!imageRes.ok) {
+    const errText = await imageRes.text();
+    throw new Error(`Failed to fetch trade image (${imageRes.status}): ${errText}`);
+  }
+
+  const imageBytes = await imageRes.arrayBuffer();
+  console.log('[sendTelegramPhoto] Image fetched, size:', imageBytes.byteLength, 'bytes');
+
+  // Upload as multipart/form-data using sendPhoto so Telegram shows it inline
+  const url = `https://api.telegram.org/bot${botToken}/sendPhoto`;
+
+  const formData = new FormData();
+  formData.append('chat_id', chatId);
+  formData.append('caption', caption);
+  formData.append('parse_mode', 'HTML');
+  formData.append('photo', new Blob([imageBytes], { type: 'image/png' }), 'trade.png');
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: formData,
   });
 
   if (!response.ok) {
@@ -85,7 +95,7 @@ async function sendTelegramPhoto(
   }
 
   const result = await response.json();
-  console.log('[sendTelegramPhoto] Successfully sent high quality image');
+  console.log('[sendTelegramPhoto] Successfully sent inline trade photo');
   return result;
 }
 
