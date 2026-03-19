@@ -163,7 +163,7 @@ Deno.serve(async (req) => {
         const appBaseUrl = Deno.env.get("APP_BASE_URL") ||
           Deno.env.get("NEXT_PUBLIC_SITE_URL") ||
           Deno.env.get("NEXT_PUBLIC_APP_URL") ||
-          null;
+          'https://analyzhub.com';
 
         // ── WINNING TRADE ──────────────────────────────────────────────────
         if (updateResult.newly_won) {
