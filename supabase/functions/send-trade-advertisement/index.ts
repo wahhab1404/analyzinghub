@@ -19,9 +19,20 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN')!;
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data: botTokenSetting } = await supabase
+      .from('admin_settings')
+      .select('setting_value')
+      .eq('setting_key', 'telegram_bot_token')
+      .maybeSingle();
+
+    const botToken = botTokenSetting?.setting_value || Deno.env.get('TELEGRAM_BOT_TOKEN');
+
+    if (!botToken) {
+      throw new Error('Telegram bot token not configured');
+    }
 
     const { tradeId, channelIds, userId }: TradeAdData & { userId: string } = await req.json();
 

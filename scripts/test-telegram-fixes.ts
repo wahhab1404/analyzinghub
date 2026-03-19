@@ -85,23 +85,23 @@ test('passes userId to edge function', () => {
   );
 });
 
-// ─── Test 2: indices-telegram-publisher BASE_URL typo fixed ───────────────────
+// ─── Test 2: indices-telegram-publisher BASE_URL uses correct production domain ─
 
-console.log('\n[2] indices-telegram-publisher/index.ts — BASE_URL typo');
+console.log('\n[2] indices-telegram-publisher/index.ts — BASE_URL production domain');
 
 const publisher = readFile('supabase/functions/indices-telegram-publisher/index.ts');
 
-test('does NOT contain analyzhub.com (typo)', () => {
+test('does NOT contain wrong analyzinghub.com domain in BASE_URL', () => {
   assert(
-    !publisher.includes('analyzhub.com'),
-    "Typo 'analyzhub.com' still present in publisher"
+    !publisher.includes('analyzinghub.com'),
+    "Wrong domain 'analyzinghub.com' found — should be 'analyzhub.com'"
   );
 });
 
-test('contains correct analyzinghub.com fallback', () => {
+test('contains correct analyzhub.com fallback', () => {
   assert(
-    publisher.includes('analyzinghub.com'),
-    "Missing 'analyzinghub.com' fallback URL"
+    publisher.includes('analyzhub.com'),
+    "Missing correct 'analyzhub.com' fallback URL"
   );
 });
 
@@ -224,6 +224,84 @@ test('generate-image handles isNewHigh param', () => {
   assert(
     generateImage.includes("searchParams.get('isNewHigh')"),
     'Missing isNewHigh query param handling'
+  );
+});
+
+// ─── Test 8: telegram-outbox-processor BASE_URL fallback ─────────────────────
+
+console.log('\n[8] telegram-outbox-processor/index.ts — BASE_URL fallback');
+
+const outboxProcessor = readFile('supabase/functions/telegram-outbox-processor/index.ts');
+
+test('outbox processor BASE_URL fallback is not empty string', () => {
+  // Should NOT fall back to '' which causes image generation to be skipped
+  const baseUrlLine = outboxProcessor.split('\n').find((l: string) => l.includes("const BASE_URL ="));
+  assert(
+    !!baseUrlLine && !baseUrlLine.endsWith("|| '';"),
+    "outbox processor BASE_URL still falls back to empty string"
+  );
+});
+
+test('outbox processor BASE_URL fallback uses analyzhub.com', () => {
+  const baseUrlLine = outboxProcessor.split('\n').find((l: string) => l.includes("const BASE_URL ="));
+  assert(
+    !!baseUrlLine && baseUrlLine.includes('analyzhub.com'),
+    "outbox processor BASE_URL missing 'analyzhub.com' fallback"
+  );
+});
+
+// ─── Test 9: indices-trade-tracker appBaseUrl fallback ───────────────────────
+
+console.log('\n[9] indices-trade-tracker/index.ts — appBaseUrl fallback');
+
+const tradeTracker = readFile('supabase/functions/indices-trade-tracker/index.ts');
+
+test('trade tracker appBaseUrl does not fall back to null', () => {
+  const appBaseUrlBlock = tradeTracker.slice(
+    tradeTracker.indexOf('const appBaseUrl ='),
+    tradeTracker.indexOf('const appBaseUrl =') + 300
+  );
+  assert(
+    !appBaseUrlBlock.includes('null;'),
+    "trade tracker appBaseUrl still falls back to null — image generation will be skipped"
+  );
+});
+
+test('trade tracker appBaseUrl fallback uses analyzhub.com', () => {
+  const appBaseUrlBlock = tradeTracker.slice(
+    tradeTracker.indexOf('const appBaseUrl ='),
+    tradeTracker.indexOf('const appBaseUrl =') + 300
+  );
+  assert(
+    appBaseUrlBlock.includes('analyzhub.com'),
+    "trade tracker appBaseUrl missing 'analyzhub.com' fallback"
+  );
+});
+
+// ─── Test 10: send-trade-advertisement bot token from DB ─────────────────────
+
+console.log('\n[10] send-trade-advertisement/index.ts — bot token from admin_settings');
+
+const sendTradeAd = readFile('supabase/functions/send-trade-advertisement/index.ts');
+
+test('send-trade-advertisement reads bot token from admin_settings table', () => {
+  assert(
+    sendTradeAd.includes('admin_settings') && sendTradeAd.includes('telegram_bot_token'),
+    'Missing admin_settings lookup for bot token'
+  );
+});
+
+test('send-trade-advertisement falls back to TELEGRAM_BOT_TOKEN env var', () => {
+  assert(
+    sendTradeAd.includes("Deno.env.get('TELEGRAM_BOT_TOKEN')"),
+    "Missing TELEGRAM_BOT_TOKEN env var fallback"
+  );
+});
+
+test('send-trade-advertisement throws if no bot token found', () => {
+  assert(
+    sendTradeAd.includes('Telegram bot token not configured'),
+    'Missing error throw when no bot token available'
   );
 });
 

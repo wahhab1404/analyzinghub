@@ -112,18 +112,18 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
   const recent: RecentTradeItem[] = data?.recentTrades ?? []
 
   return (
-    <div className="hidden xl:flex w-[256px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
+    <div className="hidden xl:flex w-[320px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
 
       {/* Panel Header */}
-      <div className="flex items-center justify-between px-4 h-10 border-b border-[#1a2840] flex-shrink-0">
+      <div className="flex items-center justify-between px-4 h-12 border-b border-[#1a2840] flex-shrink-0">
         <div className="flex items-center gap-2">
-          <BarChart2 className="w-3.5 h-3.5 text-slate-600" />
-          <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">
+          <BarChart2 className="w-5 h-5 text-slate-600" />
+          <span className="text-sm font-bold tracking-[0.18em] text-slate-600 uppercase">
             {isAr ? 'استخبارات السوق' : 'Market Intel'}
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-mono text-slate-700 bg-[#141d2e] px-1.5 py-0.5 rounded border border-[#1a2840]">
+          <span className="text-xs font-mono text-slate-700 bg-[#141d2e] px-2 py-0.5 rounded border border-[#1a2840]">
             {symbol}
           </span>
           <button
@@ -132,7 +132,7 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
             title="Refresh"
             className="text-slate-700 hover:text-slate-400 transition-colors disabled:opacity-40"
           >
-            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
@@ -140,8 +140,8 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
       {/* Error banner — only shown on total failure */}
       {error && !data && (
         <div className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 border-b border-red-500/20">
-          <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
-          <span className="text-[9px] text-red-400 leading-tight">
+          <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+          <span className="text-xs text-red-400 leading-tight">
             {isAr ? 'فشل تحميل البيانات' : 'Failed to load data'}
           </span>
         </div>
@@ -157,17 +157,17 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
         <div className="space-y-3">
           {/* Trend Bias */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-400">
+            <span className="text-sm text-slate-400">
               {isAr ? 'التحيز العام' : 'Trend Bias'}
             </span>
-            <span className={`text-xs font-bold flex items-center gap-1 ${biasColor}`}>
-              <BiasIcon className="w-3.5 h-3.5" />
+            <span className={`text-sm font-bold flex items-center gap-1 ${biasColor}`}>
+              <BiasIcon className="w-5 h-5" />
               {biasLabel}
             </span>
           </div>
 
           {/* Bull/Bear bar */}
-          <div className="relative w-full bg-[#1a2840] rounded-full h-2.5 overflow-hidden">
+          <div className="relative w-full bg-[#1a2840] rounded-full h-3.5 overflow-hidden">
             <div
               className={`absolute left-0 top-0 h-full rounded-full transition-all duration-500 ${
                 bullScore >= 50
@@ -178,11 +178,11 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
             />
           </div>
           {/* BEAR / score% / BULL row — colorful labels */}
-          <div className="flex justify-between items-center text-xs font-bold">
+          <div className="flex justify-between items-center text-sm font-bold">
             <span className="text-red-400 tracking-wide">
               {isAr ? 'هابط' : 'BEAR'} {100 - bullScore}%
             </span>
-            <span className={`tabular-nums font-mono text-[11px] ${bullScore >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+            <span className={`tabular-nums font-mono text-sm ${bullScore >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
               {bullScore >= 50
                 ? `↑ ${bullScore}%`
                 : `↓ ${100 - bullScore}%`}
@@ -193,7 +193,7 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
           </div>
 
           {/* Fear/Greed + Volatility */}
-          <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+          <div className="grid grid-cols-2 gap-2 pt-0.5">
             <MiniStat
               label={isAr ? 'خوف/طمع' : 'Fear/Greed'}
               value={
@@ -227,7 +227,7 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
         iconColor="text-amber-500"
         loading={loading && !data}
       >
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <FlowRow
             label={isAr ? 'حجم الشراء' : 'Call Vol'}
             value={fmtVol(opts?.callVol)}
@@ -311,13 +311,13 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
         iconColor="text-slate-500"
         loading={loading && !data}
       >
-        <div className="space-y-1.5 text-[10px]">
+        <div className="space-y-2 text-xs">
           {pulse.length > 0 ? (
             pulse.map(item => (
               <PulseRow key={item.id} item={item} isAr={isAr} />
             ))
           ) : (
-            <div className="p-2.5 rounded bg-[#141d2e] border border-[#1a2840]">
+            <div className="p-3 rounded bg-[#141d2e] border border-[#1a2840]">
               <p className="text-slate-500 leading-relaxed">
                 {isAr
                   ? 'لا توجد صفقات نشطة حالياً.'
@@ -326,7 +326,7 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
             </div>
           )}
 
-          <div className="flex items-center justify-between text-slate-700 text-[9px] pt-0.5">
+          <div className="flex items-center justify-between text-slate-700 text-xs pt-0.5">
             <span>{isAr ? 'آخر تحديث' : 'Last updated'}</span>
             <span className="font-mono">{fmtTime(lastUpdated)}</span>
           </div>
@@ -347,8 +347,8 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
             ))}
           </div>
         ) : (
-          <div className="text-[10px] text-slate-600 text-center py-3">
-            <TrendingUp className="w-6 h-6 mx-auto mb-2 opacity-20" />
+          <div className="text-sm text-slate-600 text-center py-3">
+            <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-20" />
             <p>{isAr ? 'لا توجد صفقات حديثة' : 'No recent trades'}</p>
           </div>
         )}
@@ -374,13 +374,13 @@ function PanelSection({
 }) {
   return (
     <div className="border-b border-[#1a2840] flex-shrink-0">
-      <div className="flex items-center gap-1.5 px-4 pt-3 pb-2">
-        <Icon className={`w-3 h-3 ${iconColor}`} />
-        <span className="text-[9px] font-bold tracking-[0.18em] text-slate-600 uppercase">
+      <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+        <Icon className={`w-4 h-4 ${iconColor}`} />
+        <span className="text-xs font-bold tracking-[0.18em] text-slate-600 uppercase">
           {title}
         </span>
         {loading && (
-          <RefreshCw className="w-2.5 h-2.5 text-slate-700 animate-spin ml-auto" />
+          <RefreshCw className="w-3.5 h-3.5 text-slate-700 animate-spin ml-auto" />
         )}
       </div>
       <div className="px-4 pb-3">{children}</div>
@@ -400,9 +400,9 @@ function FlowRow({
   Icon?: React.ElementType
 }) {
   return (
-    <div className="flex items-center justify-between text-[10px]">
-      <span className="text-slate-600 flex items-center gap-1">
-        {Icon && <Icon className={`w-2.5 h-2.5 ${color}`} />}
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-slate-600 flex items-center gap-1.5">
+        {Icon && <Icon className={`w-3.5 h-3.5 ${color}`} />}
         {label}
       </span>
       <span className={`font-mono font-semibold tabular-nums ${color}`}>{value}</span>
@@ -424,7 +424,7 @@ function LevelRow({
   border: string
 }) {
   return (
-    <div className={`flex items-center justify-between px-2 py-1 rounded text-[10px] ${bg} border ${border}`}>
+    <div className={`flex items-center justify-between px-3 py-1.5 rounded text-sm ${bg} border ${border}`}>
       <span className="text-slate-600">{label}</span>
       <span className={`font-semibold tabular-nums ${color}`}>{value}</span>
     </div>
@@ -443,11 +443,11 @@ function MiniStat({
   valueColor?: string
 }) {
   return (
-    <div className="bg-[#141d2e] border border-[#1a2840] rounded p-2 text-center">
-      <p className="text-[11px] text-slate-500 mb-0.5">{label}</p>
-      <p className={`text-sm font-mono font-bold tabular-nums ${valueColor}`}>{value}</p>
+    <div className="bg-[#141d2e] border border-[#1a2840] rounded p-2.5 text-center">
+      <p className="text-sm text-slate-500 mb-0.5">{label}</p>
+      <p className={`text-base font-mono font-bold tabular-nums ${valueColor}`}>{value}</p>
       {subLabel && (
-        <p className="text-[10px] text-slate-600 mt-0.5 truncate">{subLabel}</p>
+        <p className="text-xs text-slate-600 mt-0.5 truncate">{subLabel}</p>
       )}
     </div>
   )
@@ -464,22 +464,22 @@ function PulseRow({ item, isAr }: { item: PulseItem; isAr: boolean }) {
     : 'text-slate-500'
 
   return (
-    <div className="p-2 rounded bg-[#141d2e] border border-[#1a2840] space-y-1">
+    <div className="p-2.5 rounded bg-[#141d2e] border border-[#1a2840] space-y-1.5">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1">
-          <span className={`text-[9px] font-bold ${dirColor}`}>{dirLabel}</span>
-          <span className="text-[9px] text-slate-600">{item.symbol}</span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-xs font-bold ${dirColor}`}>{dirLabel}</span>
+          <span className="text-xs text-slate-600">{item.symbol}</span>
           {item.strike && (
-            <span className="text-[9px] text-slate-500 font-mono">@{item.strike}</span>
+            <span className="text-xs text-slate-500 font-mono">@{item.strike}</span>
           )}
         </div>
         {item.profitPct != null && (
-          <span className={`text-[9px] font-mono font-bold tabular-nums ${pnlColor}`}>
+          <span className={`text-xs font-mono font-bold tabular-nums ${pnlColor}`}>
             {fmtPct(item.profitPct)}
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between text-[8px] text-slate-700">
+      <div className="flex items-center justify-between text-xs text-slate-700">
         <span>
           {isAr ? 'دخول' : 'Entry'}: {item.entryPrice != null ? item.entryPrice.toFixed(2) : '—'}
         </span>
@@ -506,9 +506,9 @@ function TradeRow({ trade, isAr }: { trade: RecentTradeItem; isAr: boolean }) {
     : 'text-slate-600'
 
   return (
-    <div className="flex items-center justify-between text-[10px] py-1 border-b border-[#1a2840] last:border-0">
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
+    <div className="flex items-center justify-between text-sm py-1.5 border-b border-[#1a2840] last:border-0">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${statusDot}`} />
         <span className={`font-bold ${dirColor}`}>{dirLabel}</span>
         <span className="text-slate-600 font-mono truncate">
           {trade.strike ? `${trade.strike}` : trade.symbol}
@@ -517,11 +517,11 @@ function TradeRow({ trade, isAr }: { trade: RecentTradeItem; isAr: boolean }) {
       </div>
       <div className="flex items-center gap-1 flex-shrink-0">
         {trade.profitPct != null ? (
-          <span className={`font-mono text-[10px] tabular-nums font-semibold ${pnlColor}`}>
+          <span className={`font-mono text-sm tabular-nums font-semibold ${pnlColor}`}>
             ↑{fmtPct(trade.profitPct)}
           </span>
         ) : (
-          <span className="font-mono text-[9px] text-slate-600">
+          <span className="font-mono text-xs text-slate-600">
             {trade.entryPrice != null ? `$${trade.entryPrice.toFixed(2)}` : '—'}
           </span>
         )}
