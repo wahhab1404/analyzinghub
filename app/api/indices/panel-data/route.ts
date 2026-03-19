@@ -81,7 +81,8 @@ export interface RecentTradeItem {
   expiry: string | null;
   entryPrice: number | null;
   currentPrice: number | null;
-  profitPct: number | null;
+  highPrice: number | null;
+  profitPct: number | null;  // calculated from entry → high price (contract_high_since)
   status: string;
   timestamp: string;
 }
@@ -382,9 +383,16 @@ function mapTradeRow(row: any): RecentTradeItem {
   const currentPrice: number | null =
     row.current_contract != null ? Number(row.current_contract) : null;
 
+  // Use contract_high_since (peak price since entry) for profit % so the
+  // display always reflects the best gain the trade has reached, not the
+  // current/last price which may have pulled back.
+  const highPrice: number | null =
+    row.contract_high_since != null ? Number(row.contract_high_since) : null;
+
   let profitPct: number | null = null;
-  if (entryPrice != null && entryPrice > 0 && currentPrice != null) {
-    profitPct = ((currentPrice - entryPrice) / entryPrice) * 100;
+  const priceForPct = highPrice ?? currentPrice;
+  if (entryPrice != null && entryPrice > 0 && priceForPct != null) {
+    profitPct = ((priceForPct - entryPrice) / entryPrice) * 100;
   }
 
   return {
@@ -396,6 +404,7 @@ function mapTradeRow(row: any): RecentTradeItem {
     expiry: row.expiry ?? null,
     entryPrice,
     currentPrice,
+    highPrice,
     profitPct,
     status: row.status ?? '',
     timestamp: row.created_at ?? '',
@@ -410,7 +419,7 @@ async function fetchRecentTrades(
     'id', 'status', 'direction', 'underlying_index_symbol',
     'strike', 'expiry', 'option_type',
     'entry_contract_snapshot', 'current_contract',
-    'original_entry_price', 'created_at',
+    'contract_high_since', 'original_entry_price', 'created_at',
   ].join(', ');
 
   const buildQ = (excludeTest: boolean) => {
