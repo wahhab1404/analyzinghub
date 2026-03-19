@@ -10,94 +10,284 @@ import {
   BarChart2,
   ArrowUpRight,
   ArrowDownRight,
+  Minus,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react'
+import { usePanelData } from '@/hooks/use-panel-data'
+import type { RecentTradeItem, PulseItem } from '@/app/api/indices/panel-data/route'
 
 interface RightPanelProps {
   language: string
+  symbol?: string
 }
 
-export function RightPanel({ language }: RightPanelProps) {
+// ─── Formatters ───────────────────────────────────────────────────────────────
+
+/** Format a price for display. ≥1000 → no decimals, else 2 decimals */
+function fmtPrice(v: number | null | undefined): string {
+  if (v == null || !isFinite(v)) return '—'
+  return v >= 1000 ? v.toFixed(0) : v.toFixed(2)
+}
+
+/** Format volume compactly: 1_234_567 → "1.2M" */
+function fmtVol(v: number | null | undefined): string {
+  if (v == null) return '—'
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`
+  return v.toString()
+}
+
+/** Format P/C ratio */
+function fmtRatio(v: number | null | undefined): string {
+  if (v == null) return '—'
+  return v.toFixed(2)
+}
+
+/** Format a profit percentage with sign */
+function fmtPct(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const sign = v >= 0 ? '+' : ''
+  return `${sign}${v.toFixed(1)}%`
+}
+
+/** Format a relative timestamp, e.g. "2m ago" */
+function fmtAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(diff / 60_000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+/** Format a time string for the "last updated" footer */
+function fmtTime(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZone: 'America/New_York',
+  }) + ' ET'
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
   const isAr = language === 'ar'
+  const { data, loading, error, lastUpdated, refresh } = usePanelData(symbol)
+
+  // Derived sentiment values
+  const bullScore = data?.sentiment.bullScore ?? 50
+  const trendBias = data?.sentiment.trendBias ?? null
+  const fearGreedValue = data?.sentiment.fearGreedValue
+  const fearGreedLabel = data?.sentiment.fearGreedLabel
+  const volatility = data?.sentiment.volatility
+
+  // Trend bias display
+  const biasLabel = isAr
+    ? (trendBias === 'BULLISH' ? 'صاعد' : trendBias === 'BEARISH' ? 'هابط' : 'محايد')
+    : (trendBias ?? '—')
+  const biasColor =
+    trendBias === 'BULLISH' ? 'text-emerald-400' :
+    trendBias === 'BEARISH' ? 'text-red-400' :
+    'text-slate-400'
+  const BiasIcon =
+    trendBias === 'BULLISH' ? ArrowUpRight :
+    trendBias === 'BEARISH' ? ArrowDownRight :
+    Minus
+
+  // Fear/Greed color
+  const fgColor =
+    (fearGreedValue ?? 50) >= 56 ? 'text-emerald-400' :
+    (fearGreedValue ?? 50) <= 43 ? 'text-red-400' :
+    'text-slate-400'
+
+  const opts = data?.optionsFlow
+  const kl = data?.keyLevels
+  const pulse: PulseItem[] = data?.pulse ?? []
+  const recent: RecentTradeItem[] = data?.recentTrades ?? []
 
   return (
     <div className="hidden xl:flex w-[256px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
+
       {/* Panel Header */}
-      <div className="flex items-center gap-2 px-4 h-10 border-b border-[#1a2840] flex-shrink-0">
-        <BarChart2 className="w-3.5 h-3.5 text-slate-600" />
-        <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">
-          {isAr ? 'استخبارات السوق' : 'Market Intel'}
-        </span>
+      <div className="flex items-center justify-between px-4 h-10 border-b border-[#1a2840] flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="w-3.5 h-3.5 text-slate-600" />
+          <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">
+            {isAr ? 'استخبارات السوق' : 'Market Intel'}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] font-mono text-slate-700 bg-[#141d2e] px-1.5 py-0.5 rounded border border-[#1a2840]">
+            {symbol}
+          </span>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            title="Refresh"
+            className="text-slate-700 hover:text-slate-400 transition-colors disabled:opacity-40"
+          >
+            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
-      {/* Market Sentiment */}
-      <PanelSection title="Market Sentiment" titleAr="مزاج السوق" icon={Activity} iconColor="text-blue-500">
+      {/* Error banner — only shown on total failure */}
+      {error && !data && (
+        <div className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 border-b border-red-500/20">
+          <AlertCircle className="w-3 h-3 text-red-400 flex-shrink-0" />
+          <span className="text-[9px] text-red-400 leading-tight">
+            {isAr ? 'فشل تحميل البيانات' : 'Failed to load data'}
+          </span>
+        </div>
+      )}
+
+      {/* ── MARKET SENTIMENT ─────────────────────────────────────────────── */}
+      <PanelSection
+        title={isAr ? 'مزاج السوق' : 'Market Sentiment'}
+        icon={Activity}
+        iconColor="text-blue-500"
+        loading={loading && !data}
+      >
         <div className="space-y-2.5">
+          {/* Trend Bias */}
           <div className="flex items-center justify-between">
-            <span className="text-[10px] text-slate-500">{isAr ? 'التحيز العام' : 'Trend Bias'}</span>
-            <span className="text-[10px] font-bold text-emerald-400 flex items-center gap-1">
-              <ArrowUpRight className="w-3 h-3" />
-              {isAr ? 'صاعد' : 'BULLISH'}
+            <span className="text-[10px] text-slate-500">
+              {isAr ? 'التحيز العام' : 'Trend Bias'}
+            </span>
+            <span className={`text-[10px] font-bold flex items-center gap-1 ${biasColor}`}>
+              <BiasIcon className="w-3 h-3" />
+              {biasLabel}
             </span>
           </div>
-          {/* Sentiment bar */}
+
+          {/* Bull/Bear bar */}
           <div className="relative w-full bg-[#1a2840] rounded-full h-1.5 overflow-hidden">
             <div
-              className="absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all duration-500"
-              style={{ width: '62%' }}
+              className={`absolute left-0 top-0 h-full rounded-full transition-all duration-500 ${
+                bullScore >= 50
+                  ? 'bg-gradient-to-r from-emerald-600 to-emerald-400'
+                  : 'bg-gradient-to-r from-red-700 to-red-500'
+              }`}
+              style={{ width: `${bullScore}%` }}
             />
           </div>
           <div className="flex justify-between text-[9px] text-slate-700 font-medium">
             <span>{isAr ? 'هابط' : 'BEAR'}</span>
-            <span className="text-slate-500">62%</span>
+            <span className="text-slate-500 tabular-nums">{bullScore}%</span>
             <span>{isAr ? 'صاعد' : 'BULL'}</span>
           </div>
 
+          {/* Fear/Greed + Volatility */}
           <div className="grid grid-cols-2 gap-1.5 pt-1">
-            <MiniStat label={isAr ? 'خوف/طمع' : 'Fear/Greed'} value="—" />
-            <MiniStat label={isAr ? 'التقلب' : 'Volatility' } value="—" />
+            <MiniStat
+              label={isAr ? 'خوف/طمع' : 'Fear/Greed'}
+              value={
+                fearGreedValue != null
+                  ? `${fearGreedValue}`
+                  : '—'
+              }
+              subLabel={fearGreedLabel ?? undefined}
+              valueColor={fgColor}
+            />
+            <MiniStat
+              label={isAr ? 'التقلب' : 'Volatility'}
+              value={volatility ?? '—'}
+              subLabel={volatility ? 'VIX' : undefined}
+              valueColor={
+                data?.sentiment.vix != null
+                  ? data.sentiment.vix > 25 ? 'text-red-400'
+                    : data.sentiment.vix > 18 ? 'text-amber-400'
+                    : 'text-emerald-400'
+                  : 'text-slate-400'
+              }
+            />
           </div>
         </div>
       </PanelSection>
 
-      {/* Options Flow */}
-      <PanelSection title="Options Flow" titleAr="تدفق الخيارات" icon={Zap} iconColor="text-amber-500">
+      {/* ── OPTIONS FLOW ─────────────────────────────────────────────────── */}
+      <PanelSection
+        title={isAr ? 'تدفق الخيارات' : 'Options Flow'}
+        icon={Zap}
+        iconColor="text-amber-500"
+        loading={loading && !data}
+      >
         <div className="space-y-1.5">
-          <FlowRow label={isAr ? 'حجم الشراء' : 'Call Vol'} value="—" color="text-emerald-400" Icon={TrendingUp} />
-          <FlowRow label={isAr ? 'حجم البيع' : 'Put Vol'} value="—" color="text-red-400" Icon={TrendingDown} />
+          <FlowRow
+            label={isAr ? 'حجم الشراء' : 'Call Vol'}
+            value={fmtVol(opts?.callVol)}
+            color="text-emerald-400"
+            Icon={TrendingUp}
+          />
+          <FlowRow
+            label={isAr ? 'حجم البيع' : 'Put Vol'}
+            value={fmtVol(opts?.putVol)}
+            color="text-red-400"
+            Icon={TrendingDown}
+          />
           <div className="h-px bg-[#1a2840] my-1" />
-          <FlowRow label={isAr ? 'نسبة Put/Call' : 'P/C Ratio'} value="—" color="text-slate-300" />
-          <FlowRow label={isAr ? 'OI غير عادي' : 'Unusual OI'} value="—" color="text-amber-400" />
-          <FlowRow label={isAr ? 'جدار غاما' : 'Gamma Wall'} value="—" color="text-violet-400" />
+          <FlowRow
+            label={isAr ? 'نسبة Put/Call' : 'P/C Ratio'}
+            value={fmtRatio(opts?.pcRatio)}
+            color={
+              opts?.pcRatio != null
+                ? opts.pcRatio > 1.2 ? 'text-red-400'
+                  : opts.pcRatio < 0.8 ? 'text-emerald-400'
+                  : 'text-slate-300'
+                : 'text-slate-500'
+            }
+          />
+          <FlowRow
+            label={isAr ? 'OI غير عادي' : 'Unusual OI'}
+            value={opts?.unusualOI ?? '—'}
+            color="text-amber-400"
+          />
+          <FlowRow
+            label={isAr ? 'جدار غاما' : 'Gamma Wall'}
+            value={opts?.gammaWall != null ? fmtPrice(opts.gammaWall) : '—'}
+            color="text-violet-400"
+          />
         </div>
       </PanelSection>
 
-      {/* Key Liquidity Levels */}
-      <PanelSection title="Key Levels" titleAr="مستويات رئيسية" icon={Target} iconColor="text-violet-500">
+      {/* ── KEY LEVELS ───────────────────────────────────────────────────── */}
+      <PanelSection
+        title={isAr ? 'مستويات رئيسية' : 'Key Levels'}
+        icon={Target}
+        iconColor="text-violet-500"
+        loading={loading && !data}
+      >
         <div className="space-y-2 font-mono">
           <LevelRow
             label={isAr ? 'مقاومة' : 'Resistance'}
-            value="—"
+            value={kl?.resistance != null ? fmtPrice(kl.resistance) : '—'}
             color="text-red-400"
             bg="bg-red-500/5"
             border="border-red-500/20"
           />
           <LevelRow
             label={isAr ? 'القيمة العادلة' : 'Fair Value'}
-            value="—"
+            value={kl?.fairValue != null ? fmtPrice(kl.fairValue) : '—'}
             color="text-blue-400"
             bg="bg-blue-500/5"
             border="border-blue-500/20"
           />
           <LevelRow
             label={isAr ? 'دعم' : 'Support'}
-            value="—"
+            value={kl?.support != null ? fmtPrice(kl.support) : '—'}
             color="text-emerald-400"
             bg="bg-emerald-500/5"
             border="border-emerald-500/20"
           />
           <LevelRow
             label={isAr ? 'منطقة سيولة' : 'Liquidity'}
-            value="—"
+            value={kl?.liquidity != null ? fmtPrice(kl.liquidity) : '—'}
             color="text-amber-400"
             bg="bg-amber-500/5"
             border="border-amber-500/20"
@@ -105,57 +295,84 @@ export function RightPanel({ language }: RightPanelProps) {
         </div>
       </PanelSection>
 
-      {/* Market Pulse / News */}
-      <PanelSection title="Market Pulse" titleAr="نبض السوق" icon={Newspaper} iconColor="text-slate-500">
-        <div className="space-y-2 text-[10px]">
-          <div className="p-2.5 rounded bg-[#141d2e] border border-[#1a2840]">
-            <p className="text-slate-400 leading-relaxed">
-              {isAr
-                ? 'بيانات السوق تظهر عند وجود تداولات نشطة. انتقل إلى التحليلات أو التداولات لرؤية النشاط الحي.'
-                : 'Market data appears when trades are active. Navigate to Analyses or Trades to see live activity.'}
-            </p>
-          </div>
-          <div className="flex items-center justify-between text-slate-600 text-[9px]">
+      {/* ── MARKET PULSE ─────────────────────────────────────────────────── */}
+      <PanelSection
+        title={isAr ? 'نبض السوق' : 'Market Pulse'}
+        icon={Newspaper}
+        iconColor="text-slate-500"
+        loading={loading && !data}
+      >
+        <div className="space-y-1.5 text-[10px]">
+          {pulse.length > 0 ? (
+            pulse.map(item => (
+              <PulseRow key={item.id} item={item} isAr={isAr} />
+            ))
+          ) : (
+            <div className="p-2.5 rounded bg-[#141d2e] border border-[#1a2840]">
+              <p className="text-slate-500 leading-relaxed">
+                {isAr
+                  ? 'لا توجد صفقات نشطة حالياً.'
+                  : 'No active trades at the moment.'}
+              </p>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between text-slate-700 text-[9px] pt-0.5">
             <span>{isAr ? 'آخر تحديث' : 'Last updated'}</span>
-            <span className="font-mono">—</span>
+            <span className="font-mono">{fmtTime(lastUpdated)}</span>
           </div>
         </div>
       </PanelSection>
 
-      {/* Recent Trades summary placeholder */}
-      <PanelSection title="Recent Trades" titleAr="آخر الصفقات" icon={Activity} iconColor="text-emerald-500">
-        <div className="text-[10px] text-slate-600 text-center py-3">
-          <TrendingUp className="w-6 h-6 mx-auto mb-2 opacity-20" />
-          <p>{isAr ? 'لا توجد صفقات حديثة' : 'No recent trades'}</p>
-          <p className="text-[9px] mt-1 text-slate-700">
-            {isAr ? 'ابدأ تحليلاً جديداً' : 'Start a new analysis'}
-          </p>
-        </div>
+      {/* ── RECENT TRADES ────────────────────────────────────────────────── */}
+      <PanelSection
+        title={isAr ? 'آخر الصفقات' : 'Recent Trades'}
+        icon={Activity}
+        iconColor="text-emerald-500"
+        loading={loading && !data}
+      >
+        {recent.length > 0 ? (
+          <div className="space-y-1.5">
+            {recent.map(trade => (
+              <TradeRow key={trade.id} trade={trade} isAr={isAr} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-[10px] text-slate-600 text-center py-3">
+            <TrendingUp className="w-6 h-6 mx-auto mb-2 opacity-20" />
+            <p>{isAr ? 'لا توجد صفقات حديثة' : 'No recent trades'}</p>
+          </div>
+        )}
       </PanelSection>
     </div>
   )
 }
 
-/* ── Sub-components ─────────────────────────────────── */
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function PanelSection({
   title,
-  titleAr,
   icon: Icon,
   iconColor,
   children,
+  loading,
 }: {
   title: string
-  titleAr: string
   icon: React.ElementType
   iconColor: string
   children: React.ReactNode
+  loading?: boolean
 }) {
   return (
     <div className="border-b border-[#1a2840] flex-shrink-0">
       <div className="flex items-center gap-1.5 px-4 pt-3 pb-2">
         <Icon className={`w-3 h-3 ${iconColor}`} />
-        <span className="text-[9px] font-bold tracking-[0.18em] text-slate-600 uppercase">{title}</span>
+        <span className="text-[9px] font-bold tracking-[0.18em] text-slate-600 uppercase">
+          {title}
+        </span>
+        {loading && (
+          <RefreshCw className="w-2.5 h-2.5 text-slate-700 animate-spin ml-auto" />
+        )}
       </div>
       <div className="px-4 pb-3">{children}</div>
     </div>
@@ -205,11 +422,101 @@ function LevelRow({
   )
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({
+  label,
+  value,
+  subLabel,
+  valueColor = 'text-slate-400',
+}: {
+  label: string
+  value: string
+  subLabel?: string
+  valueColor?: string
+}) {
   return (
     <div className="bg-[#141d2e] border border-[#1a2840] rounded p-1.5 text-center">
       <p className="text-[9px] text-slate-600 mb-0.5">{label}</p>
-      <p className="text-[10px] font-mono font-semibold text-slate-400">{value}</p>
+      <p className={`text-[10px] font-mono font-semibold tabular-nums ${valueColor}`}>{value}</p>
+      {subLabel && (
+        <p className="text-[8px] text-slate-700 mt-0.5 truncate">{subLabel}</p>
+      )}
+    </div>
+  )
+}
+
+function PulseRow({ item, isAr }: { item: PulseItem; isAr: boolean }) {
+  const isCall = item.optionType === 'call' || item.direction === 'call'
+  const isPut = item.optionType === 'put' || item.direction === 'put'
+  const dirColor = isCall ? 'text-emerald-400' : isPut ? 'text-red-400' : 'text-slate-400'
+  const dirLabel = isCall ? (isAr ? 'شراء' : 'CALL') : isPut ? (isAr ? 'بيع' : 'PUT') : item.direction.toUpperCase()
+
+  const pnlColor = item.profitPct != null
+    ? item.profitPct >= 0 ? 'text-emerald-400' : 'text-red-400'
+    : 'text-slate-500'
+
+  return (
+    <div className="p-2 rounded bg-[#141d2e] border border-[#1a2840] space-y-1">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className={`text-[9px] font-bold ${dirColor}`}>{dirLabel}</span>
+          <span className="text-[9px] text-slate-600">{item.symbol}</span>
+          {item.strike && (
+            <span className="text-[9px] text-slate-500 font-mono">@{item.strike}</span>
+          )}
+        </div>
+        {item.profitPct != null && (
+          <span className={`text-[9px] font-mono font-bold tabular-nums ${pnlColor}`}>
+            {fmtPct(item.profitPct)}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center justify-between text-[8px] text-slate-700">
+        <span>
+          {isAr ? 'دخول' : 'Entry'}: {item.entryPrice != null ? item.entryPrice.toFixed(2) : '—'}
+        </span>
+        <span>{fmtAgo(item.timestamp)}</span>
+      </div>
+    </div>
+  )
+}
+
+function TradeRow({ trade, isAr }: { trade: RecentTradeItem; isAr: boolean }) {
+  const isCall = trade.optionType === 'call' || trade.direction === 'call'
+  const isPut = trade.optionType === 'put' || trade.direction === 'put'
+  const dirColor = isCall ? 'text-emerald-400' : isPut ? 'text-red-400' : 'text-slate-400'
+  const dirLabel = isCall ? (isAr ? 'شراء' : 'C') : isPut ? (isAr ? 'بيع' : 'P') : trade.direction.charAt(0).toUpperCase()
+
+  const statusDot =
+    trade.status === 'active' ? 'bg-emerald-500' :
+    trade.status === 'tp_hit' ? 'bg-blue-500' :
+    trade.status === 'sl_hit' ? 'bg-red-500' :
+    'bg-slate-600'
+
+  const pnlColor = trade.profitPct != null
+    ? trade.profitPct >= 0 ? 'text-emerald-400' : 'text-red-400'
+    : 'text-slate-600'
+
+  return (
+    <div className="flex items-center justify-between text-[10px] py-1 border-b border-[#1a2840] last:border-0">
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${statusDot}`} />
+        <span className={`font-bold ${dirColor}`}>{dirLabel}</span>
+        <span className="text-slate-600 font-mono truncate">
+          {trade.strike ? `${trade.strike}` : trade.symbol}
+          {trade.expiry ? ` ${trade.expiry.slice(5)}` : ''}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {trade.profitPct != null ? (
+          <span className={`font-mono text-[9px] tabular-nums ${pnlColor}`}>
+            {fmtPct(trade.profitPct)}
+          </span>
+        ) : (
+          <span className="font-mono text-[9px] text-slate-600">
+            {trade.entryPrice != null ? `$${trade.entryPrice.toFixed(2)}` : '—'}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

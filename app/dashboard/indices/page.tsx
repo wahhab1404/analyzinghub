@@ -1285,7 +1285,7 @@ export default function IndicesHubPage() {
         </main>{/* end main workspace */}
 
         {/* RIGHT PANEL — visible on xl+ only */}
-        <RightPanel language={language} />
+        <RightPanel language={language} symbol={selectedIndexSymbol} />
 
       </div>{/* end 3-column body */}
 
