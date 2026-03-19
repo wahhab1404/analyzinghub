@@ -350,7 +350,6 @@ export function searchResultKeyboard(
 export function errorKeyboard(): InlineKeyboard {
   return [
     [
-      { text: CTA.try_again,    callback_data: CB.MENU_MAIN },
       { text: CTA.back_to_menu, callback_data: CB.MENU_MAIN },
     ],
   ];
