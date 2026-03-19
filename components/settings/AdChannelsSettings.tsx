@@ -18,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { apiGet, apiPost, apiPatch, apiDelete, ApiError } from '@/lib/api-client';
 
 interface AdChannel {
   id: string;
@@ -43,18 +44,13 @@ export function AdChannelsSettings() {
 
   const fetchChannels = async () => {
     try {
-      const response = await fetch('/api/telegram/ad-channels');
-
-      if (response.status === 401) {
+      const data = await apiGet<{ channels: AdChannel[] }>('/api/telegram/ad-channels');
+      setChannels(data.channels || []);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
         console.log('Not authenticated');
         return;
       }
-
-      if (!response.ok) throw new Error('Failed to fetch channels');
-
-      const data = await response.json();
-      setChannels(data.channels || []);
-    } catch (error) {
       console.error('Failed to fetch ad channels:', error);
       toast({
         title: 'Error',
@@ -78,28 +74,10 @@ export function AdChannelsSettings() {
 
     setSubmitting(true);
     try {
-      const response = await fetch('/api/telegram/ad-channels', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelId: newChannelId.trim(),
-          channelName: newChannelName.trim(),
-        }),
+      await apiPost('/api/telegram/ad-channels', {
+        channelId: newChannelId.trim(),
+        channelName: newChannelName.trim(),
       });
-
-      if (response.status === 401) {
-        toast({
-          title: 'Authentication Required',
-          description: 'You must be logged in to add channels',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to add channel');
-      }
 
       toast({
         title: 'Success',
@@ -111,7 +89,7 @@ export function AdChannelsSettings() {
       fetchChannels();
     } catch (error) {
       toast({
-        title: 'Error',
+        title: error instanceof ApiError && error.status === 401 ? 'Authentication Required' : 'Error',
         description: error instanceof Error ? error.message : 'Failed to add channel',
         variant: 'destructive',
       });
@@ -122,28 +100,10 @@ export function AdChannelsSettings() {
 
   const handleToggleActive = async (channel: AdChannel) => {
     try {
-      const response = await fetch('/api/telegram/ad-channels', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: channel.id,
-          isActive: !channel.is_active,
-        }),
+      await apiPatch('/api/telegram/ad-channels', {
+        id: channel.id,
+        isActive: !channel.is_active,
       });
-
-      if (response.status === 401) {
-        toast({
-          title: 'Authentication Required',
-          description: 'You must be logged in',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to update channel');
-      }
 
       toast({
         title: 'Success',
@@ -164,23 +124,7 @@ export function AdChannelsSettings() {
     if (!channelToDelete) return;
 
     try {
-      const response = await fetch(`/api/telegram/ad-channels?id=${channelToDelete.id}`, {
-        method: 'DELETE',
-      });
-
-      if (response.status === 401) {
-        toast({
-          title: 'Authentication Required',
-          description: 'You must be logged in',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to delete channel');
-      }
+      await apiDelete(`/api/telegram/ad-channels?id=${channelToDelete.id}`);
 
       toast({
         title: 'Success',

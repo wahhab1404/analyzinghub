@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 
 export async function GET() {
   try {
-    const supabase = createServerClient();
+    const supabase = createClient(cookies());
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -30,7 +31,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = createServerClient();
+    const supabase = createClient(cookies());
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const supabase = createServerClient();
+    const supabase = createClient(cookies());
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -110,7 +111,7 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const supabase = createServerClient();
+    const supabase = createClient(cookies());
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {

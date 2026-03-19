@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, Send } from 'lucide-react';
+import { apiGet, apiPost } from '@/lib/api-client';
 
 interface AdChannel {
   id: string;
@@ -36,12 +37,10 @@ export function SendTradeAdDialog({ tradeId, open, onOpenChange }: SendTradeAdDi
   const fetchChannels = async () => {
     setFetching(true);
     try {
-      const response = await fetch('/api/telegram/ad-channels');
-      if (!response.ok) throw new Error('Failed to fetch channels');
-
-      const data = await response.json();
-      setChannels(data.filter((ch: AdChannel) => ch.is_active));
-      setSelectedChannels(data.filter((ch: AdChannel) => ch.is_active).map((ch: AdChannel) => ch.channel_id));
+      const data = await apiGet<{ channels: AdChannel[] }>('/api/telegram/ad-channels');
+      const active = (data.channels || []).filter((ch) => ch.is_active);
+      setChannels(active);
+      setSelectedChannels(active.map((ch) => ch.channel_id));
     } catch (error) {
       toast({
         title: 'Error',
@@ -73,18 +72,10 @@ export function SendTradeAdDialog({ tradeId, open, onOpenChange }: SendTradeAdDi
 
     setLoading(true);
     try {
-      const response = await fetch('/api/telegram/send-trade-ad', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tradeId,
-          channelIds: selectedChannels,
-        }),
+      const result = await apiPost('/api/telegram/send-trade-ad', {
+        tradeId,
+        channelIds: selectedChannels,
       });
-
-      if (!response.ok) throw new Error('Failed to send advertisement');
-
-      const result = await response.json();
 
       toast({
         title: 'Advertisement Sent',
