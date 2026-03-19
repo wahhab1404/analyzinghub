@@ -120,45 +120,49 @@ export async function PATCH(
 
     let telegramNotificationSent = false;
     let snapshotGenerated = false;
-    const shouldNotifyTelegram = marketStatus.isOpen && highWatermark > (trade.last_telegram_high_sent || 0);
+    // Always notify on manual edit when genuinely new high — no market-hours gate
+    const shouldNotifyTelegram = highWatermark > (trade.last_telegram_high_sent || 0);
 
     if (shouldNotifyTelegram) {
       try {
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
         const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-        console.log(`📸 [Edit High] Generating snapshot (market open)...`);
+        // Snapshot requires live chart data — only attempt when market is open
+        let snapshotUrl: string | null = trade.contract_url || null;
+        if (marketStatus.isOpen) {
+          console.log(`📸 [Edit High] Generating snapshot (market open)...`);
 
-        const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${serviceRoleKey}`,
-          },
-          body: JSON.stringify({
-            tradeId: id,
-            isNewHigh: true,
-            newHighPrice: highWatermark,
-            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
-          }),
-        });
+          const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({
+              tradeId: id,
+              isNewHigh: true,
+              newHighPrice: highWatermark,
+              appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
+            }),
+          });
 
-        let snapshotUrl = null;
-        if (snapshotResponse.ok) {
-          const snapshotResult = await snapshotResponse.json();
-          snapshotUrl = snapshotResult.imageUrl;
-          console.log(`✅ [Edit High] Snapshot generated: ${snapshotUrl}`);
-          snapshotGenerated = true;
+          if (snapshotResponse.ok) {
+            const snapshotResult = await snapshotResponse.json();
+            snapshotUrl = snapshotResult.imageUrl;
+            console.log(`✅ [Edit High] Snapshot generated: ${snapshotUrl}`);
+            snapshotGenerated = true;
 
-          await supabase
-            .from('index_trades')
-            .update({ contract_url: snapshotUrl })
-            .eq('id', id);
+            await supabase
+              .from('index_trades')
+              .update({ contract_url: snapshotUrl })
+              .eq('id', id);
 
-          updatedTrade.contract_url = snapshotUrl;
-        } else {
-          const errorText = await snapshotResponse.text();
-          console.error(`❌ [Edit High] Failed to generate snapshot (${snapshotResponse.status}):`, errorText);
+            updatedTrade.contract_url = snapshotUrl;
+          } else {
+            const errorText = await snapshotResponse.text();
+            console.error(`❌ [Edit High] Failed to generate snapshot (${snapshotResponse.status}):`, errorText);
+          }
         }
 
         const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
@@ -202,7 +206,7 @@ export async function PATCH(
         console.error('Error sending Telegram notification:', notifError);
       }
     } else {
-      console.log(`ℹ️ [Edit High] Telegram notification skipped (market ${marketStatus.status}, last_sent=${trade.last_telegram_high_sent})`);
+      console.log(`ℹ️ [Edit High] Telegram notification skipped (not a new high, last_sent=${trade.last_telegram_high_sent})`);
     }
 
     return NextResponse.json({
@@ -213,7 +217,7 @@ export async function PATCH(
       snapshotGenerated,
       message: telegramNotificationSent
         ? 'High watermark updated and Telegram notification sent'
-        : 'High watermark updated (no Telegram notification - market closed)',
+        : `High watermark updated (no Telegram notification - ${shouldNotifyTelegram ? 'no channel configured' : 'not a new high'})`,
     });
   } catch (error: any) {
     console.error('Error in PATCH /api/indices/trades/[id]/edit-high:', error);

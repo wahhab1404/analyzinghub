@@ -457,15 +457,15 @@ export default function ReportsPage() {
     switch (status) {
       case 'completed':
       case 'generated':
-        return <Badge variant="outline" className="bg-green-50"><CheckCircle2 className="w-3 h-3 mr-1" />Generated</Badge>
+        return <Badge variant="outline" className="border-emerald-700 text-emerald-400 bg-emerald-950/30"><CheckCircle2 className="w-3 h-3 mr-1" />Generated</Badge>
       case 'sent':
-        return <Badge variant="outline" className="bg-blue-50"><Send className="w-3 h-3 mr-1" />Sent</Badge>
+        return <Badge variant="outline" className="border-sky-700 text-sky-400 bg-sky-950/30"><Send className="w-3 h-3 mr-1" />Sent</Badge>
       case 'failed':
-        return <Badge variant="outline" className="bg-red-50"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
+        return <Badge variant="outline" className="border-red-700 text-red-400 bg-red-950/30"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
       case 'generating':
-        return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />Generating</Badge>
+        return <Badge variant="outline" className="border-amber-700 text-amber-400 bg-amber-950/30"><Clock className="w-3 h-3 mr-1" />Generating</Badge>
       default:
-        return <Badge variant="outline">{status}</Badge>
+        return <Badge variant="outline" className="border-slate-600 text-slate-400">{status}</Badge>
     }
   }
 
@@ -579,10 +579,10 @@ export default function ReportsPage() {
         </TabsList>
 
         <TabsContent value="generate" className="space-y-6">
-          <Alert className="bg-blue-50 border-blue-200">
-            <AlertDescription className="text-blue-900">
+          <Alert className="bg-sky-950/20 border-sky-900/40">
+            <AlertDescription className="text-sky-300/90">
               <div className="flex items-start gap-3">
-                <FileText className="w-5 h-5 mt-0.5 text-blue-600 flex-shrink-0" />
+                <FileText className="w-5 h-5 mt-0.5 text-sky-500 flex-shrink-0" />
                 <div>
                   <p className="font-semibold mb-1">
                     {language === 'ar' ? 'كيفية إنشاء تقرير:' : 'How to Generate a Report:'}
@@ -950,8 +950,8 @@ export default function ReportsPage() {
               ) : !reports || reports.length === 0 ? (
                 <div className="text-center py-12">
                   <div className="flex flex-col items-center gap-4 max-w-md mx-auto">
-                    <div className="w-20 h-20 rounded-full bg-blue-100 flex items-center justify-center">
-                      <FileText className="w-10 h-10 text-blue-600" />
+                    <div className="w-16 h-16 rounded-full bg-sky-950/40 border border-sky-900/40 flex items-center justify-center">
+                      <FileText className="w-8 h-8 text-sky-500/70" />
                     </div>
                     <div className="space-y-2">
                       <h3 className="text-lg font-semibold">
@@ -964,7 +964,7 @@ export default function ReportsPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <Button onClick={() => setActiveTab('generate')} className="bg-blue-600 hover:bg-blue-700">
+                      <Button onClick={() => setActiveTab('generate')} className="bg-sky-700 hover:bg-sky-600">
                         <FileText className="w-4 h-4 mr-2" />
                         {language === 'ar' ? 'إنشاء تقرير' : 'Generate Report'}
                       </Button>
@@ -995,7 +995,7 @@ export default function ReportsPage() {
                             {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
                           </Badge>
                           {report.image_url && (
-                            <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                            <Badge variant="outline" className="text-xs border-violet-700 text-violet-400 bg-violet-950/30">
                               <Image className="w-3 h-3 mr-1" />
                               Image
                             </Badge>
@@ -1009,52 +1009,50 @@ export default function ReportsPage() {
                         )}
 
                         {report.summary && (
-                          <div className="space-y-4 mb-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                              <div className="bg-gradient-to-br from-green-50 to-emerald-100 dark:from-green-900/20 dark:to-emerald-900/20 p-4 rounded-lg border-l-4 border-green-500">
-                                <p className="text-xs text-muted-foreground mb-1">
-                                  {language === 'ar' ? 'صافي الربح' : 'Net Profit'}
-                                </p>
-                                <p className="text-3xl font-bold text-green-700 dark:text-green-400 mb-1">
-                                  {report.summary.net_profit >= 0 ? '+' : ''}${Number(report.summary.net_profit || 0).toFixed(0)}
-                                </p>
-                                <p className="text-xs text-green-600 dark:text-green-500">
-                                  {report.summary.avg_profit_percent ? `${Number(report.summary.avg_profit_percent).toFixed(1)}%` : '0.0%'} {language === 'ar' ? 'متوسط' : 'avg'}
-                                </p>
-                              </div>
-                              <div className="bg-gradient-to-br from-blue-50 to-sky-100 dark:from-blue-900/20 dark:to-sky-900/20 p-4 rounded-lg border-l-4 border-blue-500">
-                                <p className="text-xs text-muted-foreground mb-1">
-                                  {language === 'ar' ? 'إجمالي الربح' : 'Total Profit'}
-                                </p>
-                                <p className="text-3xl font-bold text-blue-700 dark:text-blue-400 mb-1">
-                                  +${Number(report.summary.total_profit || 0).toFixed(0)}
-                                </p>
-                                <p className="text-xs text-blue-600 dark:text-blue-500">
-                                  {language === 'ar' ? 'من الصفقات الرابحة' : 'from wins'}
-                                </p>
-                              </div>
-                              <div className="bg-gradient-to-br from-amber-50 to-orange-100 dark:from-amber-900/20 dark:to-orange-900/20 p-4 rounded-lg border-l-4 border-amber-500">
-                                <p className="text-xs text-muted-foreground mb-1">
-                                  {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
-                                </p>
-                                <p className="text-3xl font-bold text-amber-700 dark:text-amber-400 mb-1">
-                                  {Number(report.summary.win_rate || 0).toFixed(1)}%
-                                </p>
-                                <p className="text-xs text-amber-600 dark:text-amber-500">
-                                  {report.summary.winning_trades || 0}W / {report.summary.losing_trades || 0}L
-                                </p>
-                              </div>
-                              <div className="bg-gradient-to-br from-purple-50 to-pink-100 dark:from-purple-900/20 dark:to-pink-900/20 p-4 rounded-lg border-l-4 border-purple-500">
-                                <p className="text-xs text-muted-foreground mb-1">
-                                  {language === 'ar' ? 'أعلى ربح' : 'Best Trade'}
-                                </p>
-                                <p className="text-3xl font-bold text-purple-700 dark:text-purple-400 mb-1">
-                                  +${Number((report.summary.best_trade || report.summary.max_profit_percent || 0)).toFixed(0)}
-                                </p>
-                                <p className="text-xs text-purple-600 dark:text-purple-500">
-                                  {Number(report.summary.max_profit_percent || 0).toFixed(1)}% {language === 'ar' ? 'نسبة' : 'gain'}
-                                </p>
-                              </div>
+                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                            <div className="bg-emerald-950/25 border border-l-4 border-emerald-900/40 border-l-emerald-500 p-3 rounded-lg">
+                              <p className="text-xs text-slate-400 mb-1">
+                                {language === 'ar' ? 'صافي الربح' : 'Net Profit'}
+                              </p>
+                              <p className="text-2xl font-bold text-emerald-400 mb-0.5">
+                                {report.summary.net_profit >= 0 ? '+' : ''}${Number(report.summary.net_profit || 0).toFixed(0)}
+                              </p>
+                              <p className="text-xs text-emerald-600">
+                                {report.summary.avg_profit_percent ? `${Number(report.summary.avg_profit_percent).toFixed(1)}%` : '0.0%'} {language === 'ar' ? 'متوسط' : 'avg'}
+                              </p>
+                            </div>
+                            <div className="bg-sky-950/25 border border-l-4 border-sky-900/40 border-l-sky-500 p-3 rounded-lg">
+                              <p className="text-xs text-slate-400 mb-1">
+                                {language === 'ar' ? 'إجمالي الربح' : 'Total Profit'}
+                              </p>
+                              <p className="text-2xl font-bold text-sky-400 mb-0.5">
+                                +${Number(report.summary.total_profit || 0).toFixed(0)}
+                              </p>
+                              <p className="text-xs text-sky-600">
+                                {language === 'ar' ? 'من الصفقات الرابحة' : 'from wins'}
+                              </p>
+                            </div>
+                            <div className="bg-amber-950/25 border border-l-4 border-amber-900/40 border-l-amber-500 p-3 rounded-lg">
+                              <p className="text-xs text-slate-400 mb-1">
+                                {language === 'ar' ? 'معدل النجاح' : 'Win Rate'}
+                              </p>
+                              <p className="text-2xl font-bold text-amber-400 mb-0.5">
+                                {Number(report.summary.win_rate || 0).toFixed(1)}%
+                              </p>
+                              <p className="text-xs text-amber-600">
+                                {report.summary.winning_trades || 0}W / {report.summary.losing_trades || 0}L
+                              </p>
+                            </div>
+                            <div className="bg-violet-950/25 border border-l-4 border-violet-900/40 border-l-violet-500 p-3 rounded-lg">
+                              <p className="text-xs text-slate-400 mb-1">
+                                {language === 'ar' ? 'أعلى ربح' : 'Best Trade'}
+                              </p>
+                              <p className="text-2xl font-bold text-violet-400 mb-0.5">
+                                +${Number((report.summary.best_trade || report.summary.max_profit_percent || 0)).toFixed(0)}
+                              </p>
+                              <p className="text-xs text-violet-600">
+                                {Number(report.summary.max_profit_percent || 0).toFixed(1)}% {language === 'ar' ? 'نسبة' : 'gain'}
+                              </p>
                             </div>
                           </div>
                         )}
@@ -1074,94 +1072,76 @@ export default function ReportsPage() {
                           </div>
                         )}
 
-                        <div className="bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/30 dark:to-cyan-950/30 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="bg-blue-600 text-white px-3 py-1 rounded-md font-bold text-sm">
-                              {language === 'ar' ? '⚡ الإجراءات' : '⚡ ACTIONS'}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {language === 'ar' ? 'اختر إجراء لهذا التقرير' : 'Choose an action for this report'}
-                            </div>
-                          </div>
+                        <div className="flex flex-wrap gap-2 pt-3 mt-1 border-t border-[#1a2840]">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              console.log('Preview clicked for report:', report.id)
+                              handlePreview(report)
+                            }}
+                            className="h-8 text-slate-300 hover:text-white hover:bg-white/5"
+                            disabled={!report.html_content}
+                          >
+                            <Eye className="w-3.5 h-3.5 mr-1.5" />
+                            {language === 'ar' ? 'معاينة' : 'Preview'}
+                          </Button>
 
-                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                console.log('Preview clicked for report:', report.id)
-                                handlePreview(report)
-                              }}
-                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
-                              disabled={!report.html_content}
-                            >
-                              <Eye className="w-5 h-5" />
-                              <span className="text-xs font-medium">
-                                {language === 'ar' ? 'معاينة' : 'Preview'}
-                              </span>
-                            </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              console.log('Image preview clicked for report:', report.id)
+                              handleImagePreview(report.image_url!)
+                            }}
+                            className="h-8 text-slate-300 hover:text-white hover:bg-white/5"
+                            disabled={!report.image_url}
+                          >
+                            <Image className="w-3.5 h-3.5 mr-1.5" />
+                            {language === 'ar' ? 'صورة' : 'Image'}
+                          </Button>
 
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                console.log('Image preview clicked for report:', report.id)
-                                handleImagePreview(report.image_url!)
-                              }}
-                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
-                              disabled={!report.image_url}
-                            >
-                              <Image className="w-5 h-5" />
-                              <span className="text-xs font-medium">
-                                {language === 'ar' ? 'صورة' : 'Image'}
-                              </span>
-                            </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            asChild
+                            className="h-8 text-slate-300 hover:text-white hover:bg-white/5"
+                            disabled={!report.file_url}
+                          >
+                            <a href={report.file_url || '#'} target="_blank" rel="noopener noreferrer">
+                              <Download className="w-3.5 h-3.5 mr-1.5" />
+                              HTML
+                            </a>
+                          </Button>
 
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              asChild
-                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
-                              disabled={!report.file_url}
-                            >
-                              <a href={report.file_url || '#'} target="_blank" rel="noopener noreferrer">
-                                <Download className="w-5 h-5" />
-                                <span className="text-xs font-medium">HTML</span>
-                              </a>
-                            </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => downloadPDF(report)}
+                            disabled={downloadingPdf === report.id || !report.file_url}
+                            className="h-8 text-slate-300 hover:text-white hover:bg-white/5"
+                          >
+                            {downloadingPdf === report.id ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <FileType className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            PDF
+                          </Button>
 
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => downloadPDF(report)}
-                              disabled={downloadingPdf === report.id || !report.file_url}
-                              className="w-full h-auto py-3 flex flex-col items-center gap-1"
-                            >
-                              {downloadingPdf === report.id ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                              ) : (
-                                <FileType className="w-5 h-5" />
-                              )}
-                              <span className="text-xs font-medium">PDF</span>
-                            </Button>
-
-                            <Button
-                              variant="default"
-                              size="sm"
-                              onClick={() => openChannelDialog(report.id)}
-                              disabled={sendingToTelegram === report.id}
-                              className="w-full h-auto py-3 flex flex-col items-center gap-1 bg-blue-600 hover:bg-blue-700 col-span-2 md:col-span-1"
-                            >
-                              {sendingToTelegram === report.id ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                              ) : (
-                                <Send className="w-5 h-5" />
-                              )}
-                              <span className="text-xs font-bold">
-                                {language === 'ar' ? 'إرسال' : 'Send'}
-                              </span>
-                            </Button>
-                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => openChannelDialog(report.id)}
+                            disabled={sendingToTelegram === report.id}
+                            className="h-8 bg-sky-700 hover:bg-sky-600 text-white ml-auto"
+                          >
+                            {sendingToTelegram === report.id ? (
+                              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5 mr-1.5" />
+                            )}
+                            {language === 'ar' ? 'إرسال' : 'Send'}
+                          </Button>
                         </div>
                       </div>
                     </div>
@@ -1200,7 +1180,7 @@ export default function ReportsPage() {
             </DialogTitle>
           </DialogHeader>
           {selectedImageUrl && (
-            <div className="flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 rounded-lg p-4">
+            <div className="flex items-center justify-center bg-[#0b1220] rounded-lg p-4">
               <img
                 src={selectedImageUrl}
                 alt="Report Preview"
