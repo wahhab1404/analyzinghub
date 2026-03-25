@@ -129,12 +129,17 @@ export async function POST(
           updates.manual_contract_high = manualHigh;
           updates.contract_high_since = highUpdateResult.new_high;
           updates.max_contract_price = highUpdateResult.new_high;
+          // Mark this high as manually sourced so audit trail and the tracker
+          // can distinguish it from auto-tracked values.
+          updates.high_source = 'manual';
+          updates.manual_high_updated_at = new Date().toISOString();
+          updates.manually_edited_high = true;
           changes.manual_contract_high = { old: existing.contract_high_since, new: highUpdateResult.new_high };
           isNewHigh = true;
           newlyWon = highUpdateResult.newly_won || false;
           sendNewHighNotification = true;
         } else {
-          console.log(`⚠️ Ignoring manual high ${manualHigh} - current high is already higher`);
+          console.log(`⚠️ Ignoring manual high ${manualHigh} - current high is already higher (${existing.contract_high_since ?? existing.max_contract_price})`);
         }
       }
     }
@@ -238,7 +243,10 @@ export async function POST(
         }
 
         const channelId = existing.telegram_channel_id || existing.analysis?.telegram_channel_id;
-        // Dedup: only notify if this high exceeds what was last sent to Telegram
+        // Dedup: only notify if this high exceeds what was last sent to Telegram.
+        // Update last_telegram_high_sent BEFORE inserting to the outbox so that
+        // a concurrent request sees the updated value and skips the insert,
+        // preventing duplicate notifications for the same manual high value.
         if (channelId && existing.telegram_send_enabled !== false && newHigh > (existing.last_telegram_high_sent || 0)) {
           const { data: channel } = await supabase
             .from('telegram_channels')
@@ -248,28 +256,30 @@ export async function POST(
 
           const actualChannelId = channel?.channel_id || channelId;
 
+          // Stamp dedup marker first to block concurrent duplicates.
+          await supabase
+            .from('index_trades')
+            .update({ last_telegram_high_sent: newHigh })
+            .eq('id', id);
+
           await supabase.from('telegram_outbox').insert({
             message_type: newlyWon ? 'milestone' : 'new_high',
             payload: {
               tradeId: id,
               highPrice: newHigh,
+              previousHigh: existing.contract_high_since ?? existing.max_contract_price,
               gainPercent,
               snapshotUrl,
               isWinningTrade: newlyWon,
               milestoneType: newlyWon ? '$100_profit' : undefined,
               trade: { ...existing, ...updates, contract_url: snapshotUrl },
+              manualEdit: true,
             },
             channel_id: actualChannelId,
             status: 'pending',
             priority: newlyWon ? 10 : 5,
             next_retry_at: new Date().toISOString(),
           });
-
-          // Track the last high we notified about to prevent duplicate alerts
-          await supabase
-            .from('index_trades')
-            .update({ last_telegram_high_sent: newHigh })
-            .eq('id', id);
 
           console.log(`📤 Queued new high notification to channel ${actualChannelId}`);
         } else if (channelId && !(newHigh > (existing.last_telegram_high_sent || 0))) {

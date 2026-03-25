@@ -148,6 +148,15 @@ Deno.serve(async (req) => {
 
         console.log(`✅ High watermark update result:`, updateResult);
 
+        // If the live price just surpassed a manually-set high, log the
+        // transition so it is visible in audit logs.
+        if (updateResult.is_new_high && updateResult.previous_was_manual_high) {
+          console.log(
+            `[tracker] ℹ️  Trade ${trade.id}: live price $${newContract.toFixed(4)} ` +
+            `surpassed the manually-set high — high_source reset to 'auto'.`
+          );
+        }
+
         // Update current price and quote snapshot
         await supabase
           .from("index_trades")
@@ -241,6 +250,21 @@ Deno.serve(async (req) => {
         //   2. Dedup gate — new high must be ≥ 20 % higher than the last
         //                   alerted peak AND at least 5 minutes elapsed
         // This prevents flooding the channel on every price tick.
+        //
+        // NOTE: if is_new_high is false it means the RPC determined that the
+        // live price did NOT exceed the stored high (which may have been set
+        // manually). In that case we intentionally do nothing — the manually
+        // set high is preserved as the authoritative value.
+        if (!updateResult.is_new_high) {
+          const storedHigh = trade.contract_high_since ?? trade.max_contract_price ?? 0;
+          if (trade.manually_edited_high) {
+            console.log(
+              `[tracker] ⏭️  Trade ${trade.id}: live price $${newContract.toFixed(4)} ` +
+              `is below manually-set high $${storedHigh} — skipping high update.`
+            );
+          }
+        }
+
         if (updateResult.is_new_high && !updateResult.newly_won) {
           const newHigh = updateResult.new_high as number;
           const entryPrice: number = parseFloat(

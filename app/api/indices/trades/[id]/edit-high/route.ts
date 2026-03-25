@@ -59,7 +59,10 @@ export async function PATCH(
       );
     }
 
-    const currentHigh = trade.contract_high_since || trade.max_contract_price || 0;
+    const currentHigh = Math.max(
+      trade.contract_high_since || 0,
+      trade.max_contract_price || 0,
+    );
 
     if (highWatermark === currentHigh) {
       return NextResponse.json(
@@ -72,19 +75,35 @@ export async function PATCH(
       );
     }
 
+    // Guard: the high watermark must only move upward.  A manual edit to a
+    // value lower than the current stored high would corrupt last_telegram_high_sent
+    // and silently block future legitimate notifications.
+    if (highWatermark < currentHigh) {
+      return NextResponse.json(
+        {
+          error: `High watermark cannot be reduced. Current high is ${currentHigh}. To correct data, please contact an admin.`,
+          currentHigh,
+        },
+        { status: 400 }
+      );
+    }
+
     const marketStatus = getMarketStatus();
     const entrySnapshot = trade.entry_contract_snapshot || {};
     const entryPrice = entrySnapshot.mid || entrySnapshot.price || entrySnapshot.last || 0;
 
+    const now = new Date().toISOString();
     const updates: any = {
       contract_high_since: highWatermark,
       max_contract_price: highWatermark,
       previous_high_watermark: currentHigh,
       edited_by: user.id,
-      edited_at: new Date().toISOString(),
+      edited_at: now,
       edit_reason: reason || 'Manual high watermark edit',
       manually_edited_high: true,
-      updated_at: new Date().toISOString(),
+      high_source: 'manual',
+      manual_high_updated_at: now,
+      updated_at: now,
     };
 
     if (entryPrice > 0) {
@@ -120,7 +139,13 @@ export async function PATCH(
 
     let telegramNotificationSent = false;
     let snapshotGenerated = false;
-    // Always notify on manual edit when genuinely new high — no market-hours gate
+
+    // A manual high edit ALWAYS warrants a notification as long as:
+    //   (a) it is higher than the last value we already sent a Telegram for, AND
+    //   (b) it exceeds the current stored high (enforced by the guard above).
+    // Condition (b) is already guaranteed here — we only reach this point when
+    // highWatermark > currentHigh — so (a) is the sole dedup gate.
+    // No market-hours restriction for manual edits.
     const shouldNotifyTelegram = highWatermark > (trade.last_telegram_high_sent || 0);
 
     if (shouldNotifyTelegram) {
@@ -176,11 +201,20 @@ export async function PATCH(
           const actualChannelId = channel?.channel_id || channelId;
           const gainPercent = entryPrice > 0 ? ((highWatermark - entryPrice) / entryPrice) * 100 : 0;
 
+          // Update last_telegram_high_sent BEFORE inserting to the outbox so
+          // that a concurrent request seeing the updated value skips the insert,
+          // preventing duplicate notifications for the same manual high.
+          await supabase
+            .from('index_trades')
+            .update({ last_telegram_high_sent: highWatermark })
+            .eq('id', id);
+
           await supabase.from('telegram_outbox').insert({
             message_type: isNowWinner ? 'milestone' : 'new_high',
             payload: {
               tradeId: id,
               highPrice: highWatermark,
+              previousHigh: currentHigh,
               gainPercent,
               snapshotUrl,
               isWinningTrade: isNowWinner,
@@ -193,11 +227,6 @@ export async function PATCH(
             priority: isNowWinner ? 10 : 5,
             next_retry_at: new Date().toISOString(),
           });
-
-          await supabase
-            .from('index_trades')
-            .update({ last_telegram_high_sent: highWatermark })
-            .eq('id', id);
 
           telegramNotificationSent = true;
           console.log(`📤 [Edit High] Queued Telegram notification to channel ${actualChannelId}`);
