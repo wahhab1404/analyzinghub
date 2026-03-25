@@ -130,8 +130,9 @@ export async function POST(
           updates.contract_high_since = highUpdateResult.new_high;
           updates.max_contract_price = highUpdateResult.new_high;
           updates.manually_edited_high = true;
-          updates.high_source = 'manual';
-          updates.manual_high_updated_at = new Date().toISOString();
+          // high_source and manual_high_updated_at are written in a separate
+          // best-effort call after the main update so a stale schema cache
+          // never prevents the price update from going through.
           changes.manual_contract_high = { old: existing.contract_high_since, new: highUpdateResult.new_high };
           isNewHigh = true;
           newlyWon = highUpdateResult.newly_won || false;
@@ -181,6 +182,19 @@ export async function POST(
     if (updateError) {
       console.error('Error updating manual prices:', updateError);
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    // Best-effort: write new audit columns if a manual high was accepted.
+    // Isolated so a stale PostgREST schema cache never blocks the price update.
+    if (isNewHigh) {
+      supabase
+        .from('index_trades')
+        .update({ high_source: 'manual', manual_high_updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .then(({ error }) => {
+          if (error) console.warn('[Manual Price] Could not write high_source/manual_high_updated_at (schema cache may be stale):', error.message);
+        })
+        .catch(() => {});
     }
 
     if (Object.keys(changes).length > 0) {
