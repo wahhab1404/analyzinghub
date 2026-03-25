@@ -93,6 +93,10 @@ export async function PATCH(
     const entryPrice = entrySnapshot.mid || entrySnapshot.price || entrySnapshot.last || 0;
 
     const now = new Date().toISOString();
+    // Core update — only fields that have always existed in the schema.
+    // New tracking columns (high_source, manual_high_updated_at) are written
+    // in a separate best-effort call below so a stale PostgREST schema cache
+    // never blocks the main price update.
     const updates: any = {
       contract_high_since: highWatermark,
       max_contract_price: highWatermark,
@@ -101,8 +105,6 @@ export async function PATCH(
       edited_at: now,
       edit_reason: reason || 'Manual high watermark edit',
       manually_edited_high: true,
-      high_source: 'manual',
-      manual_high_updated_at: now,
       updated_at: now,
     };
 
@@ -136,6 +138,18 @@ export async function PATCH(
 
     console.log(`✅ [Edit High] Trade ${id} high watermark updated: $${currentHigh} → $${highWatermark}`);
     console.log(`📊 [Edit High] Market status: ${marketStatus.status}, Profit: $${profitDollars.toFixed(2)}`);
+
+    // Best-effort: write new audit columns. Wrapped in its own try-catch so a
+    // stale PostgREST schema cache (column not yet visible) never breaks the
+    // main update that already succeeded above.
+    supabase
+      .from('index_trades')
+      .update({ high_source: 'manual', manual_high_updated_at: now })
+      .eq('id', id)
+      .then(({ error }) => {
+        if (error) console.warn('[Edit High] Could not write high_source/manual_high_updated_at (schema cache may be stale):', error.message);
+      })
+      .catch(() => {});
 
     let telegramNotificationSent = false;
     let snapshotGenerated = false;
