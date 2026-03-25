@@ -85,6 +85,7 @@ const STATUS_CONFIG: Record<Trade['status'], StatusConfig> = {
 
 function StatusBadge({ status }: { status: Trade['status'] }) {
   const cfg = STATUS_CONFIG[status]
+  if (!cfg) return null
   return <span className={cfg.className}>{cfg.label}</span>
 }
 
