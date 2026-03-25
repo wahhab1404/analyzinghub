@@ -282,7 +282,7 @@ export function PublicAnalysisView({ analysis }: PublicAnalysisViewProps) {
     Neutral: t.neutral,
   }
 
-  const status = analysis.status || 'IN_PROGRESS'
+  const status = (analysis.status && analysis.status in statusConfig ? analysis.status : 'IN_PROGRESS') as keyof typeof statusConfig
   const sortedTargets = analysis.analysis_targets ? [...analysis.analysis_targets].sort((a, b) => a.price - b.price) : []
 
   const validationEvent = analysis.validation_events?.[0]
