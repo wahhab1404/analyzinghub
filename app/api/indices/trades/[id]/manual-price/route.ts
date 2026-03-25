@@ -129,11 +129,9 @@ export async function POST(
           updates.manual_contract_high = manualHigh;
           updates.contract_high_since = highUpdateResult.new_high;
           updates.max_contract_price = highUpdateResult.new_high;
-          // Mark this high as manually sourced so audit trail and the tracker
-          // can distinguish it from auto-tracked values.
+          updates.manually_edited_high = true;
           updates.high_source = 'manual';
           updates.manual_high_updated_at = new Date().toISOString();
-          updates.manually_edited_high = true;
           changes.manual_contract_high = { old: existing.contract_high_since, new: highUpdateResult.new_high };
           isNewHigh = true;
           newlyWon = highUpdateResult.newly_won || false;
