@@ -9,6 +9,7 @@ import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 import { formatNumber, formatCurrency, formatCurrencySimple } from '@/lib/format-utils'
 import { EditHighWatermarkDialog } from './EditHighWatermarkDialog'
+import { StreamStatusBadge, type FreshnessStatus } from './StreamStatusBadge'
 
 interface Trade {
   id: string
@@ -41,6 +42,14 @@ interface Trade {
   notes: string | null
   published_at: string
   last_quote_at: string
+  // ── Phase 1: Streaming tracking fields ───────────────────────────────────
+  highest_premium_at: string | null
+  lowest_premium_at: string | null
+  mfe: number | null
+  mae: number | null
+  premium_source: string | null
+  data_freshness_status: FreshnessStatus | null
+  last_stream_event_at: string | null
 }
 
 interface TradeMonitorProps {
@@ -311,10 +320,11 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                       : new Date(trade.last_quote_at).toLocaleTimeString()
                     }
                   </span>
-                  {secondsAgo > 120 && (
-                    <Badge variant="outline" className="text-xs border-yellow-500 text-yellow-600">
-                      Stale
-                    </Badge>
+                  {trade.data_freshness_status && trade.data_freshness_status !== 'fresh' && (
+                    <StreamStatusBadge
+                      status={trade.data_freshness_status}
+                      compact
+                    />
                   )}
                   {!marketStatus.isOpen && (
                     <Badge variant="outline" className="text-xs border-gray-400 text-gray-600">
@@ -353,6 +363,11 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                   <div className="text-lg font-semibold text-green-600">
                     {formatNumber(trade.contract_high_since, 2)}
                   </div>
+                  {trade.highest_premium_at && (
+                    <div className="text-xs text-muted-foreground">
+                      @ {new Date(trade.highest_premium_at).toLocaleTimeString()}
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm text-muted-foreground flex items-center gap-1">
@@ -362,7 +377,50 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
                   <div className="text-lg font-semibold text-red-600">
                     {formatNumber(trade.contract_low_since, 2)}
                   </div>
+                  {trade.lowest_premium_at && (
+                    <div className="text-xs text-muted-foreground">
+                      @ {new Date(trade.lowest_premium_at).toLocaleTimeString()}
+                    </div>
+                  )}
                 </div>
+              </div>
+
+              {/* MFE / MAE row */}
+              {(trade.mfe != null || trade.mae != null) && (
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Max Favorable (MFE)</div>
+                    <div className="text-sm font-semibold text-green-600">
+                      {trade.mfe != null ? `+${formatCurrency(trade.mfe, 2)}` : '—'}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-xs text-muted-foreground">Max Adverse (MAE)</div>
+                    <div className="text-sm font-semibold text-red-600">
+                      {trade.mae != null ? `-${formatCurrency(trade.mae, 2)}` : '—'}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Stream status row */}
+              <div className="flex items-center justify-between pt-2 border-t">
+                <div className="flex items-center gap-2">
+                  <StreamStatusBadge
+                    status={trade.data_freshness_status ?? 'unknown'}
+                    lastEventAt={trade.last_stream_event_at}
+                  />
+                  {trade.premium_source && trade.premium_source !== 'unknown' && (
+                    <span className="text-xs text-muted-foreground">
+                      via {trade.premium_source}
+                    </span>
+                  )}
+                </div>
+                {trade.last_stream_event_at && (
+                  <span className="text-xs text-muted-foreground">
+                    Last event: {new Date(trade.last_stream_event_at).toLocaleTimeString()}
+                  </span>
+                )}
               </div>
             </div>
           </CardContent>

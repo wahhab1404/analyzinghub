@@ -1,3 +1,36 @@
+/**
+ * supabase/functions/indices-trade-tracker/index.ts
+ *
+ * ROLE IN THE NEW ARCHITECTURE:
+ *
+ * Previously: sole price tracker — polled Polygon REST once/minute, updated
+ * contract_high_since if new price > stored high. Missed all intra-minute peaks.
+ *
+ * Now: ALERT DISPATCHER + FALLBACK PRICE TRACKER
+ *
+ * The realtime-pricing-service (Node.js, always-on) is the PRIMARY price
+ * tracker. It subscribes to Polygon WebSocket streams and calls the
+ * process_streaming_price_update() RPC on every tick.
+ *
+ * This edge function is still invoked every minute by the cron job and does:
+ *
+ *   A) ALWAYS:
+ *      - Check for expired trades and finalize them
+ *      - Check DB state for pending win/new-high Telegram alerts
+ *        (streaming may have detected a new high without alerting yet)
+ *
+ *   B) ONLY WHEN STREAMING IS STALE (last_stream_event_at older than 90 s):
+ *      - Fall back to REST snapshot fetch
+ *      - Call process_streaming_price_update() to keep DB accurate
+ *      - Ensures no active trade goes dark if streaming is down
+ *
+ * HOW THIS FIXES INTRA-MINUTE PEAKS:
+ *   The streaming service updates contract_high_since tick-by-tick as Polygon
+ *   WebSocket events arrive. A price spike that appears and fades within a
+ *   single minute is now captured the moment the WS event fires — not once
+ *   per minute. This function only reads what streaming already wrote.
+ */
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -7,20 +40,27 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
+// ── MARKET HOURS ──────────────────────────────────────────────────────────────
+
 function isMarketOpen(): boolean {
   const now = new Date();
-  const utcHours = now.getUTCHours();
-  const utcMinutes = now.getUTCMinutes();
   const utcDay = now.getUTCDay();
-
   if (utcDay === 0 || utcDay === 6) return false;
-
-  const marketOpenMinutes = 14 * 60 + 30;
-  const marketCloseMinutes = 21 * 60;
-  const currentMinutes = utcHours * 60 + utcMinutes;
-
-  return currentMinutes >= marketOpenMinutes && currentMinutes < marketCloseMinutes;
+  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return totalMinutes >= 870 && totalMinutes < 1260; // 14:30–21:00 UTC
 }
+
+// ── FRESHNESS CHECK ───────────────────────────────────────────────────────────
+
+const STREAM_FRESH_WINDOW_SECONDS = 90;
+
+function isStreamingFresh(lastStreamEventAt: string | null): boolean {
+  if (!lastStreamEventAt) return false;
+  const ageSeconds = (Date.now() - new Date(lastStreamEventAt).getTime()) / 1000;
+  return ageSeconds < STREAM_FRESH_WINDOW_SECONDS;
+}
+
+// ── MAIN HANDLER ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -32,7 +72,7 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log("🔄 [indices-trade-tracker] Starting trade tracking cycle...");
+    console.log("🔄 [indices-trade-tracker] Starting cycle...");
 
     const { data: activeTrades, error: fetchError } = await supabase
       .from("index_trades")
@@ -49,6 +89,12 @@ Deno.serve(async (req) => {
       throw fetchError;
     }
 
+    // Always update freshness status across all active trades
+    await supabase.rpc("update_streaming_freshness", {
+      p_degraded_after_seconds: 60,
+      p_stale_after_seconds: 300,
+    });
+
     if (!activeTrades || activeTrades.length === 0) {
       console.log("✅ No active trades to track");
       return new Response(
@@ -57,340 +103,61 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`📊 Tracking ${activeTrades.length} active trades`);
-
+    console.log(`📊 Processing ${activeTrades.length} active trade(s)`);
     const marketIsOpen = isMarketOpen();
-    console.log(`📊 Market status: ${marketIsOpen ? 'OPEN' : 'CLOSED'}`);
+    console.log(`📊 Market: ${marketIsOpen ? "OPEN" : "CLOSED"}`);
 
     const results = {
-      tracked: activeTrades.length,
-      updated: 0,
-      errors: 0,
-      newWins: 0,
-      expired: 0,
+      tracked:     activeTrades.length,
+      restUpdated: 0,
+      alertsSent:  0,
+      errors:      0,
+      expired:     0,
     };
 
     for (const trade of activeTrades) {
       try {
-        console.log(`\n🔍 Processing trade ${trade.id} (${trade.polygon_option_ticker})`);
+        console.log(`\n🔍 Trade ${trade.id} (${trade.polygon_option_ticker})`);
 
-        if (!trade.polygon_option_ticker) {
-          console.log(`⚠️  Skipping trade ${trade.id}: No option ticker`);
-          continue;
-        }
-
-        if (trade.is_using_manual_price) {
-          console.log(`⚠️  Trade ${trade.id} is using manual price override - skipping automatic price updates`);
-          results.updated++;
-          continue;
-        }
-
-        const now = new Date();
+        // ── EXPIRY ────────────────────────────────────────────────────
         if (trade.expiry) {
           const expiryDate = new Date(trade.expiry + "T21:00:00Z");
-          if (now > expiryDate) {
-            console.log(`⏰ Trade ${trade.id} expired, finalizing with canonical logic`);
+          if (new Date() > expiryDate) {
+            console.log(`⏰ Trade ${trade.id} expired`);
             await handleTradeExpiration(supabase, trade, supabaseUrl, supabaseKey);
             results.expired++;
             continue;
           }
         }
 
-        // Skip price checks after market close
         if (!marketIsOpen) {
-          console.log(`⏭️  Market closed - skipping price updates for trade ${trade.id}`);
+          console.log(`⏭️  Market closed — skip ${trade.id}`);
           continue;
         }
 
-        const lastQuoteAt = trade.last_quote_at ? new Date(trade.last_quote_at) : null;
-        const timeSinceLastQuote = lastQuoteAt ? now.getTime() - lastQuoteAt.getTime() : Infinity;
-        const shouldCheckPrice = !lastQuoteAt || timeSinceLastQuote > 5000;
-
-        if (!shouldCheckPrice) {
-          console.log(`⏭️  Skipping price check (last quote ${Math.floor(timeSinceLastQuote / 1000)}s ago)`);
+        if (trade.is_using_manual_price) {
+          console.log(`⏭️  Manual override — skip ${trade.id}`);
           continue;
         }
 
-        const quote = await fetchPolygonQuote(trade.polygon_option_ticker, Deno.env.get("POLYGON_API_KEY")!);
+        // ── STREAMING vs REST FALLBACK ────────────────────────────────
+        const streamingFresh = isStreamingFresh(trade.last_stream_event_at);
 
-        if (!quote) {
-          console.log(`⚠️  No quote data for ${trade.polygon_option_ticker}`);
-          continue;
-        }
-
-        console.log(`💰 Quote for ${trade.polygon_option_ticker}:`, {
-          last: quote.last,
-          bid: quote.bid,
-          ask: quote.ask,
-          mid: quote.mid,
-        });
-
-        const newContract = quote.mid || quote.last || 0;
-        if (newContract === 0) {
-          console.log(`⚠️  Invalid contract price for trade ${trade.id}`);
-          continue;
-        }
-
-        // Update using canonical high watermark function
-        const { data: updateResult, error: updateError } = await supabase.rpc(
-          'update_trade_high_watermark',
-          {
-            p_trade_id: trade.id,
-            p_current_price: newContract
-          }
-        );
-
-        if (updateError) {
-          console.error(`❌ Failed to update high watermark for trade ${trade.id}:`, updateError);
-          results.errors++;
-          continue;
-        }
-
-        console.log(`✅ High watermark update result:`, updateResult);
-
-        // If the live price just surpassed a manually-set high, log the
-        // transition so it is visible in audit logs.
-        if (updateResult.is_new_high && updateResult.previous_was_manual_high) {
+        if (streamingFresh) {
           console.log(
-            `[tracker] ℹ️  Trade ${trade.id}: live price $${newContract.toFixed(4)} ` +
-            `surpassed the manually-set high — high_source reset to 'auto'.`
+            `✅ Trade ${trade.id}: streaming fresh ` +
+            `(status=${trade.data_freshness_status}) — alert-check only`
           );
+          await dispatchPendingAlerts(supabase, trade, supabaseUrl, supabaseKey, results);
+        } else {
+          console.log(
+            `⚠️  Trade ${trade.id}: streaming stale ` +
+            `(last=${trade.last_stream_event_at ?? "never"}) — REST fallback`
+          );
+          await runRestFallback(supabase, trade, supabaseUrl, supabaseKey, results);
         }
-
-        // Update current price and quote snapshot
-        await supabase
-          .from("index_trades")
-          .update({
-            current_contract: newContract,
-            current_contract_snapshot: quote,
-            last_quote_at: new Date().toISOString(),
-          })
-          .eq("id", trade.id);
-
-        // Resolve app base URL for snapshot generation (pass explicitly so the edge
-        // function does not fall back to localhost:3000).
-        const appBaseUrl = Deno.env.get("APP_BASE_URL") ||
-          Deno.env.get("NEXT_PUBLIC_SITE_URL") ||
-          Deno.env.get("NEXT_PUBLIC_APP_URL") ||
-          'https://analyzhub.com';
-
-        // ── WINNING TRADE ──────────────────────────────────────────────────
-        if (updateResult.newly_won) {
-          console.log(`🎉 [tracker] Trade ${trade.id} reached WIN status! max_profit=$${updateResult.max_profit_dollars?.toFixed(2)}`);
-          results.newWins++;
-
-          await supabase.from("index_trade_updates").insert({
-            trade_id: trade.id,
-            update_type: "milestone",
-            title: "$100 Profit Milestone",
-            body: `🎉 Winning Trade! Max profit reached $${(updateResult.max_profit_dollars ?? 0).toFixed(2)} - صفقة رابحة`,
-            changes: {
-              type: "winning_trade",
-              max_profit: updateResult.max_profit_dollars,
-              high_watermark: updateResult.new_high
-            },
-          });
-
-          // Generate snapshot for the winning alert.
-          // Note: the outbox processor will also attempt image generation via generate-image
-          // bytes API — this pre-generation just caches the URL on the trade record.
-          let winningSnapshotUrl = null;
-          if (appBaseUrl) {
-            try {
-              console.log(`[tracker] Generating winning snapshot for trade ${trade.id}...`);
-              const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${supabaseKey}`,
-                },
-                body: JSON.stringify({
-                  tradeId: trade.id,
-                  isNewHigh: false,
-                  appBaseUrl,
-                }),
-              });
-
-              if (snapshotResponse.ok) {
-                const snapshotResult = await snapshotResponse.json();
-                winningSnapshotUrl = snapshotResult.imageUrl;
-                console.log(`[tracker] ✅ Winning snapshot generated: ${winningSnapshotUrl}`);
-                await supabase
-                  .from("index_trades")
-                  .update({ contract_url: winningSnapshotUrl })
-                  .eq("id", trade.id);
-              } else {
-                const errBody = await snapshotResponse.text().catch(() => '');
-                console.warn(`[tracker] Winning snapshot generation failed (${snapshotResponse.status}): ${errBody.substring(0, 200)}`);
-              }
-            } catch (snapshotError: any) {
-              console.error('[tracker] Exception generating winning snapshot:', snapshotError?.message);
-            }
-          } else {
-            console.warn('[tracker] APP_BASE_URL not set — skipping pre-generation snapshot; outbox will handle image');
-          }
-
-          const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-          console.log(`[tracker] Winning trade channel resolved: ${channelId ?? 'NONE'}, send_enabled: ${trade.telegram_send_enabled}`);
-          if (channelId && trade.telegram_send_enabled !== false) {
-            await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
-              tradeId: trade.id,
-              max_profit: updateResult.max_profit_dollars,
-              high_watermark: updateResult.new_high,
-              snapshotUrl: winningSnapshotUrl,
-            });
-          } else {
-            console.warn(`[tracker] Skipping winning_trade Telegram queue — channelId: ${channelId}, send_enabled: ${trade.telegram_send_enabled}`);
-          }
-        }
-
-        // ── PEAK / NEW HIGH ────────────────────────────────────────────────
-        // Only queue a Telegram alert when BOTH of these pass:
-        //   1. Gain gate  — new high must be ≥ 10 % above the entry price
-        //   2. Dedup gate — new high must be ≥ 20 % higher than the last
-        //                   alerted peak AND at least 5 minutes elapsed
-        // This prevents flooding the channel on every price tick.
-        //
-        // NOTE: if is_new_high is false it means the RPC determined that the
-        // live price did NOT exceed the stored high (which may have been set
-        // manually). In that case we intentionally do nothing — the manually
-        // set high is preserved as the authoritative value.
-        if (!updateResult.is_new_high) {
-          const storedHigh = trade.contract_high_since ?? trade.max_contract_price ?? 0;
-          if (trade.manually_edited_high) {
-            console.log(
-              `[tracker] ⏭️  Trade ${trade.id}: live price $${newContract.toFixed(4)} ` +
-              `is below manually-set high $${storedHigh} — skipping high update.`
-            );
-          }
-        }
-
-        if (updateResult.is_new_high && !updateResult.newly_won) {
-          const newHigh = updateResult.new_high as number;
-          const entryPrice: number = parseFloat(
-            trade.entry_contract_snapshot?.mid ??
-            trade.entry_contract_snapshot?.last ??
-            trade.entry_contract_snapshot?.price ??
-            0
-          ) || 0;
-
-          // Gate 1: minimum gain from entry (avoid trivial noise)
-          const gainPct = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
-          const MIN_GAIN_PCT = 0.10; // 10 % gain from entry before any peak alert fires
-
-          // Gate 2: deduplication relative to last alerted peak
-          const lastAlertedPrice: number = parseFloat(trade.last_peak_alert_price ?? 0) || 0;
-          const lastAlertedAt: Date | null = trade.last_peak_alert_at
-            ? new Date(trade.last_peak_alert_at)
-            : null;
-          const minutesSinceLastAlert = lastAlertedAt
-            ? (now.getTime() - lastAlertedAt.getTime()) / 60_000
-            : Infinity;
-          const IMPROVEMENT_PCT = 0.20; // new high must be 20 % above the last alerted price
-          const MIN_COOLDOWN_MIN = 5;   // at least 5 minutes between peak alerts
-
-          const meetsGainGate = gainPct >= MIN_GAIN_PCT;
-          const meetsImprovementGate =
-            lastAlertedPrice === 0 ||
-            newHigh >= lastAlertedPrice * (1 + IMPROVEMENT_PCT);
-          const meetsCooldownGate = minutesSinceLastAlert >= MIN_COOLDOWN_MIN;
-
-          console.log(`[tracker] Peak check trade ${trade.id}:`, {
-            newHigh,
-            entryPrice,
-            gainPct: `${(gainPct * 100).toFixed(1)}%`,
-            lastAlertedPrice,
-            minutesSinceLastAlert: minutesSinceLastAlert === Infinity ? 'never' : minutesSinceLastAlert.toFixed(1),
-            meetsGainGate,
-            meetsImprovementGate,
-            meetsCooldownGate,
-          });
-
-          if (!meetsGainGate) {
-            console.log(`[tracker] ⏭️  Peak alert SKIPPED — gain ${(gainPct*100).toFixed(1)}% < ${MIN_GAIN_PCT*100}% minimum for trade ${trade.id}`);
-          } else if (!meetsImprovementGate) {
-            console.log(`[tracker] ⏭️  Peak alert SKIPPED — improvement ${((newHigh/lastAlertedPrice-1)*100).toFixed(1)}% < ${IMPROVEMENT_PCT*100}% threshold for trade ${trade.id}`);
-          } else if (!meetsCooldownGate) {
-            console.log(`[tracker] ⏭️  Peak alert SKIPPED — only ${minutesSinceLastAlert.toFixed(1)} min since last alert (min ${MIN_COOLDOWN_MIN} min) for trade ${trade.id}`);
-          } else {
-            // All gates passed — record this high and send the alert
-            console.log(`🚀 [tracker] NEW HIGH ALERT qualifying for trade ${trade.id}: $${newHigh.toFixed(4)} (+${(gainPct*100).toFixed(1)}% from entry)`);
-
-            await supabase.from("index_trade_updates").insert({
-              trade_id: trade.id,
-              update_type: "new_high",
-              title: `New High: $${newHigh.toFixed(4)}`,
-              body: `New high! Contract price reached $${newHigh.toFixed(4)} (+${(gainPct*100).toFixed(1)}% from entry)`,
-              changes: { type: "new_high", price: newHigh, gain_pct: gainPct },
-            });
-
-            // Persist alert state BEFORE queuing so a crash doesn't cause duplicate
-            await supabase
-              .from("index_trades")
-              .update({
-                last_peak_alert_price: newHigh,
-                last_peak_alert_at: now.toISOString(),
-              })
-              .eq("id", trade.id);
-
-            // Attempt to pre-generate snapshot (best-effort)
-            let snapshotUrl: string | null = null;
-            if (appBaseUrl) {
-              try {
-                console.log(`[tracker] Generating peak snapshot for trade ${trade.id}...`);
-                const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${supabaseKey}`,
-                  },
-                  body: JSON.stringify({
-                    tradeId: trade.id,
-                    isNewHigh: true,
-                    newHighPrice: newHigh,
-                    appBaseUrl,
-                  }),
-                });
-
-                if (snapshotResponse.ok) {
-                  const snapshotResult = await snapshotResponse.json();
-                  snapshotUrl = snapshotResult.imageUrl;
-                  console.log(`[tracker] ✅ Peak snapshot generated: ${snapshotUrl}`);
-                  await supabase
-                    .from("index_trades")
-                    .update({ contract_url: snapshotUrl })
-                    .eq("id", trade.id);
-                } else {
-                  const errBody = await snapshotResponse.text().catch(() => '');
-                  console.warn(`[tracker] Peak snapshot generation failed (${snapshotResponse.status}): ${errBody.substring(0, 200)}`);
-                  console.warn('[tracker] Outbox processor will retry image generation via generate-image API');
-                }
-              } catch (snapshotError: any) {
-                console.error('[tracker] Exception generating peak snapshot:', snapshotError?.message);
-                console.warn('[tracker] Outbox processor will generate image at send time');
-              }
-            } else {
-              console.warn('[tracker] APP_BASE_URL not set — outbox processor will generate peak image at send time');
-            }
-
-            const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
-            console.log(`[tracker] Peak alert channel resolved: ${channelId ?? 'NONE'}, send_enabled: ${trade.telegram_send_enabled}`);
-            if (channelId && trade.telegram_send_enabled !== false) {
-              await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
-                tradeId: trade.id,
-                highPrice: newHigh,
-                snapshotUrl,
-              });
-              console.log(`[tracker] ✅ Peak alert queued for channel ${channelId}`);
-            } else {
-              console.warn(`[tracker] Skipping new_high Telegram queue — channelId: ${channelId}, send_enabled: ${trade.telegram_send_enabled}`);
-            }
-          }
-        }
-
-        results.updated++;
-      } catch (tradeError) {
-        console.error(`❌ Error processing trade ${trade.id}:`, tradeError);
+      } catch (tradeError: any) {
+        console.error(`❌ Error processing trade ${trade.id}:`, tradeError.message);
         results.errors++;
       }
     }
@@ -402,7 +169,7 @@ Deno.serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
-    console.error("❌ [indices-trade-tracker] Error:", error);
+    console.error("❌ [indices-trade-tracker] Fatal error:", error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -410,60 +177,329 @@ Deno.serve(async (req) => {
   }
 });
 
-async function handleTradeExpiration(supabase: any, trade: any, supabaseUrl: string, supabaseKey: string) {
-  // Use canonical finalization
-  const { data: finalizationResult, error: finalizationError } = await supabase.rpc(
-    'finalize_trade_canonical',
+// ── REST FALLBACK ─────────────────────────────────────────────────────────────
+
+async function runRestFallback(
+  supabase: any,
+  trade: any,
+  supabaseUrl: string,
+  supabaseKey: string,
+  results: any
+): Promise<void> {
+  const apiKey = Deno.env.get("POLYGON_API_KEY");
+  if (!apiKey) return;
+
+  const quote = await fetchPolygonSnapshot(trade.polygon_option_ticker, apiKey);
+  if (!quote) {
+    console.log(`⚠️  No snapshot for ${trade.polygon_option_ticker}`);
+    return;
+  }
+
+  const price = quote.mid ?? quote.last ?? 0;
+  if (price <= 0) {
+    console.log(`⚠️  Invalid price for trade ${trade.id}`);
+    return;
+  }
+
+  console.log(
+    `📡 [REST] ${trade.polygon_option_ticker}: ` +
+    `bid=${quote.bid}, ask=${quote.ask}, mid=${quote.mid?.toFixed(4)}`
+  );
+
+  const { data: rpcResult, error: rpcError } = await supabase.rpc(
+    "process_streaming_price_update",
     {
-      p_trade_id: trade.id
+      p_trade_id:       trade.id,
+      p_current_price:  price,
+      p_premium_source: "snapshot",
+      p_bid:            quote.bid || null,
+      p_ask:            quote.ask || null,
+      p_last_trade:     quote.last || null,
+      p_event_ts:       new Date().toISOString(),
     }
   );
 
-  if (finalizationError) {
-    console.error(`Failed to finalize expired trade ${trade.id}:`, finalizationError);
+  if (rpcError) {
+    console.error(`❌ RPC error for trade ${trade.id}:`, rpcError);
+    results.errors++;
     return;
   }
 
-  console.log(`✅ Finalized expired trade ${trade.id}:`, finalizationResult);
+  console.log(`✅ REST fallback RPC result:`, rpcResult);
+  results.restUpdated++;
 
-  // Mark as expired
-  const { error: updateError } = await supabase
+  const { data: refreshed } = await supabase
+    .from("index_trades")
+    .select("*")
+    .eq("id", trade.id)
+    .single();
+
+  if (refreshed) {
+    await dispatchPendingAlerts(
+      supabase,
+      { ...trade, ...refreshed, _rpcResult: rpcResult },
+      supabaseUrl,
+      supabaseKey,
+      results
+    );
+  }
+}
+
+// ── ALERT DISPATCH ────────────────────────────────────────────────────────────
+
+async function dispatchPendingAlerts(
+  supabase: any,
+  trade: any,
+  supabaseUrl: string,
+  supabaseKey: string,
+  results: any
+): Promise<void> {
+  const rpcResult = trade._rpcResult;
+  const appBaseUrl =
+    Deno.env.get("APP_BASE_URL") ??
+    Deno.env.get("NEXT_PUBLIC_SITE_URL") ??
+    "https://analyzhub.com";
+
+  // ── WIN ALERT ────────────────────────────────────────────────────────
+  const justWon = rpcResult?.newly_won === true || (
+    trade.is_winning_trade === true &&
+    trade.win_at &&
+    (Date.now() - new Date(trade.win_at).getTime()) < 120_000
+  );
+
+  if (justWon) {
+    const { count } = await supabase
+      .from("index_trade_updates")
+      .select("id", { count: "exact", head: true })
+      .eq("trade_id", trade.id)
+      .eq("update_type", "milestone")
+      .gte("created_at", new Date(Date.now() - 5 * 60_000).toISOString());
+
+    if ((count ?? 0) === 0) {
+      console.log(`🎉 [alerts] WIN — trade ${trade.id}`);
+      results.alertsSent++;
+
+      await supabase.from("index_trade_updates").insert({
+        trade_id:    trade.id,
+        update_type: "milestone",
+        title:       "$100 Profit Milestone",
+        body:        `🎉 Winning Trade! Max profit reached $${(trade.max_profit ?? 0).toFixed(2)} — صفقة رابحة`,
+        changes: {
+          type:           "winning_trade",
+          max_profit:     trade.max_profit,
+          high_watermark: trade.contract_high_since,
+          mfe:            trade.mfe,
+        },
+      });
+
+      const snapshotUrl = await tryGenerateSnapshot(
+        supabase, supabaseUrl, supabaseKey, trade.id, false, appBaseUrl
+      );
+      const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
+      if (channelId && trade.telegram_send_enabled !== false) {
+        await queueTelegramMessage(supabase, "winning_trade", trade.id, channelId, {
+          tradeId:        trade.id,
+          max_profit:     trade.max_profit,
+          high_watermark: trade.contract_high_since,
+          mfe:            trade.mfe,
+          snapshotUrl,
+        });
+      }
+    }
+  }
+
+  // ── PEAK ALERT ───────────────────────────────────────────────────────
+  if (!justWon) {
+    const newHigh    = parseFloat(trade.contract_high_since ?? trade.max_contract_price ?? "0") || 0;
+    const entryPrice = parseFloat(
+      trade.entry_contract_snapshot?.mid ??
+      trade.entry_contract_snapshot?.price ??
+      trade.entry_contract_snapshot?.last ??
+      "0"
+    ) || 0;
+
+    const gainPct       = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
+    const lastAlertedAt = trade.last_peak_alert_at ? new Date(trade.last_peak_alert_at) : null;
+    const lastPrice     = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
+    const minsSinceLast = lastAlertedAt ? (Date.now() - lastAlertedAt.getTime()) / 60_000 : Infinity;
+
+    const meetsGain        = gainPct >= 0.10;
+    const meetsImprovement = lastPrice === 0 || newHigh >= lastPrice * 1.20;
+    const meetsCooldown    = minsSinceLast >= 5;
+
+    if (meetsGain && meetsImprovement && meetsCooldown && newHigh > 0) {
+      console.log(
+        `🚀 [alerts] PEAK — trade ${trade.id}: $${newHigh.toFixed(4)} ` +
+        `(+${(gainPct * 100).toFixed(1)}%)`
+      );
+      results.alertsSent++;
+
+      await supabase.from("index_trade_updates").insert({
+        trade_id:    trade.id,
+        update_type: "new_high",
+        title:       `New High: $${newHigh.toFixed(4)}`,
+        body:        `New high! $${newHigh.toFixed(4)} (+${(gainPct * 100).toFixed(1)}% from entry)`,
+        changes:     { type: "new_high", price: newHigh, gain_pct: gainPct },
+      });
+
+      // Record BEFORE queuing — prevents duplicate alerts on crash/retry
+      await supabase
+        .from("index_trades")
+        .update({
+          last_peak_alert_price: newHigh,
+          last_peak_alert_at:    new Date().toISOString(),
+        })
+        .eq("id", trade.id);
+
+      const snapshotUrl = await tryGenerateSnapshot(
+        supabase, supabaseUrl, supabaseKey, trade.id, true, appBaseUrl
+      );
+      const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
+      if (channelId && trade.telegram_send_enabled !== false) {
+        await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
+          tradeId:    trade.id,
+          highPrice:  newHigh,
+          snapshotUrl,
+        });
+      }
+    }
+  }
+}
+
+// ── EXPIRY ────────────────────────────────────────────────────────────────────
+
+async function handleTradeExpiration(
+  supabase: any,
+  trade: any,
+  supabaseUrl: string,
+  supabaseKey: string
+): Promise<void> {
+  const { data: finalizationResult, error } = await supabase.rpc(
+    "finalize_trade_canonical",
+    { p_trade_id: trade.id }
+  );
+
+  if (error) {
+    console.error(`Failed to finalize expired trade ${trade.id}:`, error);
+    return;
+  }
+
+  await supabase
     .from("index_trades")
     .update({
-      status: "expired",
-      closed_at: new Date().toISOString(),
-      closure_reason: "EXPIRED",
+      status:                "expired",
+      closed_at:             new Date().toISOString(),
+      closure_reason:        "EXPIRED",
+      data_freshness_status: "stale",
     })
     .eq("id", trade.id);
 
-  if (updateError) {
-    console.error(`Failed to mark trade ${trade.id} as expired:`, updateError);
-    return;
-  }
-
   await supabase.from("index_trade_updates").insert({
-    trade_id: trade.id,
+    trade_id:    trade.id,
     update_type: "expired",
-    title: "Trade Expired",
-    body: `Trade expired with final P/L: $${finalizationResult.final_pnl.toFixed(2)} (${finalizationResult.outcome.toUpperCase()})`,
+    title:       "Trade Expired",
+    body:        `Trade expired. Final P/L: $${finalizationResult.final_pnl.toFixed(2)} (${finalizationResult.outcome.toUpperCase()})`,
     changes: {
-      type: "expired",
+      type:      "expired",
       final_pnl: finalizationResult.final_pnl,
-      outcome: finalizationResult.outcome
+      outcome:   finalizationResult.outcome,
     },
   });
 
-  const channelId = trade.telegram_channel_id || trade.analysis?.telegram_channel_id;
+  const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
   if (channelId && trade.telegram_send_enabled !== false) {
     await queueTelegramMessage(supabase, "trade_result", trade.id, channelId, {
-      tradeId: trade.id,
-      outcome: finalizationResult.outcome,
-      pnl: finalizationResult.final_pnl,
+      tradeId:   trade.id,
+      outcome:   finalizationResult.outcome,
+      pnl:       finalizationResult.final_pnl,
       condition: "Expired",
     });
   }
 
-  console.log(`⏰ Trade ${trade.id} marked as expired with P/L: $${finalizationResult.final_pnl.toFixed(2)}`);
+  console.log(`⏰ Trade ${trade.id} expired. P/L: $${finalizationResult.final_pnl.toFixed(2)}`);
+}
+
+// ── POLYGON REST ──────────────────────────────────────────────────────────────
+
+async function fetchPolygonSnapshot(
+  ticker: string,
+  apiKey: string
+): Promise<{ bid: number; ask: number; mid: number | null; last: number } | null> {
+  try {
+    const cleanTicker = ticker.startsWith("O:") ? ticker : `O:${ticker}`;
+
+    const snapshotUrl =
+      `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}` +
+      `?apiKey=${apiKey}`;
+    const res = await fetch(snapshotUrl);
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === "OK" && data.results) {
+        const lq   = data.results.last_quote ?? {};
+        const bid  = Number(lq.bid ?? 0);
+        const ask  = Number(lq.ask ?? 0);
+        const last = Number(lq.last_price ?? 0);
+        if (bid > 0 || ask > 0 || last > 0) {
+          const mid = bid > 0 && ask > 0 ? parseFloat(((bid + ask) / 2).toFixed(4)) : null;
+          return { bid, ask, mid, last };
+        }
+      }
+    }
+
+    // v3 quotes fallback
+    const quotesUrl =
+      `https://api.polygon.io/v3/quotes/${encodeURIComponent(cleanTicker)}` +
+      `?limit=1&order=desc&sort=timestamp&apiKey=${apiKey}`;
+    const qRes = await fetch(quotesUrl);
+    if (qRes.ok) {
+      const qData = await qRes.json();
+      if (qData.status === "OK" && qData.results?.length > 0) {
+        const q   = qData.results[0];
+        const bid = Number(q.bid_price ?? 0);
+        const ask = Number(q.ask_price ?? 0);
+        const mid = bid > 0 && ask > 0 ? parseFloat(((bid + ask) / 2).toFixed(4)) : null;
+        return { bid, ask, mid, last: 0 };
+      }
+    }
+  } catch (err: any) {
+    console.error(`Error fetching Polygon snapshot for ${ticker}:`, err.message);
+  }
+  return null;
+}
+
+async function tryGenerateSnapshot(
+  supabase: any,
+  supabaseUrl: string,
+  supabaseKey: string,
+  tradeId: string,
+  isNewHigh: boolean,
+  appBaseUrl: string
+): Promise<string | null> {
+  if (!appBaseUrl) return null;
+  try {
+    const res = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({ tradeId, isNewHigh, appBaseUrl }),
+    });
+    if (res.ok) {
+      const r = await res.json();
+      if (r.imageUrl) {
+        await supabase
+          .from("index_trades")
+          .update({ contract_url: r.imageUrl })
+          .eq("id", tradeId);
+        return r.imageUrl;
+      }
+    }
+  } catch (err: any) {
+    console.warn(`Snapshot generation failed for trade ${tradeId}:`, err.message);
+  }
+  return null;
 }
 
 async function queueTelegramMessage(
@@ -472,7 +508,7 @@ async function queueTelegramMessage(
   tradeId: string,
   channelId: string,
   payload: any
-) {
+): Promise<void> {
   try {
     const { data: fullTrade } = await supabase
       .from("index_trades")
@@ -485,109 +521,30 @@ async function queueTelegramMessage(
       .eq("id", tradeId)
       .single();
 
-    if (!fullTrade) {
-      console.error(`Trade ${tradeId} not found for telegram queue`);
-      return;
-    }
-
-    if (payload.snapshotUrl) {
-      fullTrade.contract_url = payload.snapshotUrl;
-    }
+    if (!fullTrade) return;
+    if (payload.snapshotUrl) fullTrade.contract_url = payload.snapshotUrl;
 
     let actualChannelId = channelId;
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
-      const { data: channel } = await supabase
+    if (/^[0-9a-f-]{36}$/i.test(channelId)) {
+      const { data: ch } = await supabase
         .from("telegram_channels")
         .select("channel_id")
         .eq("id", channelId)
         .single();
-
-      if (channel?.channel_id) {
-        actualChannelId = channel.channel_id;
-      }
+      if (ch?.channel_id) actualChannelId = ch.channel_id;
     }
 
     await supabase.from("telegram_outbox").insert({
-      message_type: messageType,
-      payload: { ...payload, trade: fullTrade },
-      channel_id: actualChannelId,
-      status: "pending",
-      priority: 5,
+      message_type:  messageType,
+      payload:       { ...payload, trade: fullTrade },
+      channel_id:    actualChannelId,
+      status:        "pending",
+      priority:      5,
       next_retry_at: new Date().toISOString(),
     });
 
-    console.log(`📤 Queued ${messageType} message for channel ${actualChannelId}`);
-  } catch (error) {
-    console.error("Error queuing telegram message:", error);
-  }
-}
-
-async function fetchPolygonQuote(ticker: string, apiKey: string) {
-  try {
-    const isOption = ticker.startsWith('O:');
-    const cleanTicker = isOption ? ticker : `O:${ticker}`;
-
-    const snapshotUrl = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}?apiKey=${apiKey}`;
-    console.log(`📡 Trying snapshot endpoint: ${snapshotUrl}`);
-
-    const snapshotResponse = await fetch(snapshotUrl);
-
-    if (snapshotResponse.ok) {
-      const snapshotData = await snapshotResponse.json();
-
-      if (snapshotData.status === 'OK' && snapshotData.results && !Array.isArray(snapshotData.results)) {
-        const result = snapshotData.results;
-        const lastQuote = result.last_quote || {};
-
-        if (lastQuote.bid || lastQuote.ask || lastQuote.last_price) {
-          console.log(`✅ Got snapshot data: bid=${lastQuote.bid}, ask=${lastQuote.ask}`);
-          return {
-            last: lastQuote.last_price || 0,
-            bid: lastQuote.bid || 0,
-            ask: lastQuote.ask || 0,
-            mid: lastQuote.bid && lastQuote.ask ? (lastQuote.bid + lastQuote.ask) / 2 : lastQuote.last_price || 0,
-            volume: result.day?.volume || 0,
-            timestamp: lastQuote.timeframe,
-          };
-        }
-      }
-    }
-
-    console.log(`⚠️ Snapshot empty, trying quotes endpoint...`);
-
-    const quotesUrl = `https://api.polygon.io/v3/quotes/${encodeURIComponent(cleanTicker)}?limit=1&order=desc&sort=timestamp&apiKey=${apiKey}`;
-    console.log(`📡 Fetching from quotes endpoint: ${quotesUrl}`);
-
-    const quotesResponse = await fetch(quotesUrl);
-
-    if (!quotesResponse.ok) {
-      const errorText = await quotesResponse.text();
-      console.error(`Polygon quotes API error (${quotesResponse.status}):`, errorText);
-      return null;
-    }
-
-    const quotesData = await quotesResponse.json();
-
-    if (quotesData.status === 'OK' && quotesData.results && quotesData.results.length > 0) {
-      const quote = quotesData.results[0];
-      const mid = quote.bid_price && quote.ask_price ? (quote.bid_price + quote.ask_price) / 2 : 0;
-
-      console.log(`✅ Got quotes data: bid=${quote.bid_price}, ask=${quote.ask_price}, mid=${mid.toFixed(4)}`);
-
-      return {
-        last: 0,
-        bid: quote.bid_price || 0,
-        ask: quote.ask_price || 0,
-        mid: mid,
-        volume: 0,
-        timestamp: quote.sip_timestamp,
-      };
-    }
-
-    console.log('❌ No quote data available from either endpoint');
-    return null;
-  } catch (error) {
-    console.error('Error fetching Polygon quote:', error);
-    return null;
+    console.log(`📤 Queued ${messageType} for channel ${actualChannelId}`);
+  } catch (err: any) {
+    console.error("Error queuing Telegram message:", err.message);
   }
 }

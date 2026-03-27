@@ -1,285 +1,278 @@
-import Redis from 'ioredis';
-import WebSocket from 'ws';
-import { SubscriptionManager } from './subscription-manager';
-
-export interface Quote {
-  symbol: string;
-  price: number;
-  timestamp: string;
-}
-
 /**
- * Fetches real-time quotes from Polygon.io
- * Uses WebSocket for indices, REST for options
+ * realtime-pricing-service/src/polygon-fetcher.ts
+ *
+ * Orchestrates all Polygon data sources for the realtime service:
+ *   - PolygonOptionsWebSocket: streams Q/T events for active option contracts
+ *     → updates contract_high_since, mfe, mae, etc. via process_streaming_price_update RPC
+ *   - Indices WebSocket: streams V events for SPX/NDX/DJI index values
+ *     → stores in Redis for SSE broadcast
+ *
+ * The old REST polling loop for options has been REMOVED. Options price
+ * tracking is now entirely driven by the WebSocket stream.
+ *
+ * REST snapshot fallback is triggered by the persistence service when
+ * data_freshness_status transitions to 'stale'.
  */
+
+import WebSocket from 'ws';
+import Redis from 'ioredis';
+import { SupabaseClient } from '@supabase/supabase-js';
+import { SubscriptionManager } from './subscription-manager';
+import { PolygonOptionsWebSocket } from './polygon-options-ws';
+import { streamHealth } from './stream-health';
+
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+
+const INDICES_WS_URL          = 'wss://socket.polygon.io/indices';
+const INDICES_RECONNECT_MS    = 5_000;
+const INDICES_AUTH_TIMEOUT_MS = 15_000;
+
+const ACTIVE_TRADE_SYNC_INTERVAL_MS = 30_000; // Re-sync active trades every 30 s
+
+// ── MAIN CLASS ────────────────────────────────────────────────────────────────
+
 export class PolygonQuoteFetcher {
   private redis: Redis;
   private apiKey: string;
+  private supabase: SupabaseClient;
   private subscriptionManager: SubscriptionManager;
 
-  private ws: WebSocket | null = null;
-  private wsConnected = false;
-  private wsReconnectTimeout: NodeJS.Timeout | null = null;
+  // Indices WebSocket (unchanged architecture)
+  private indicesWs: WebSocket | null = null;
+  private indicesWsConnected = false;
+  private indicesReconnectTimer: NodeJS.Timeout | null = null;
 
-  private restPollingInterval: NodeJS.Timeout | null = null;
-  private readonly REST_POLL_INTERVAL_MS = 5000; // 5s for options
+  // Options WebSocket (new)
+  private optionsWs: PolygonOptionsWebSocket;
 
-  private circuitBreakerOpen = false;
-  private circuitBreakerResetTimeout: NodeJS.Timeout | null = null;
-  private readonly CIRCUIT_BREAKER_TIMEOUT_MS = 60000; // 60s
+  // Periodic job to re-sync active trades with the options WS
+  private tradeSyncTimer: NodeJS.Timeout | null = null;
 
   constructor(
     redis: Redis,
     apiKey: string,
-    subscriptionManager: SubscriptionManager
+    subscriptionManager: SubscriptionManager,
+    supabase: SupabaseClient
   ) {
-    this.redis = redis;
-    this.apiKey = apiKey;
-    this.subscriptionManager = subscriptionManager;
+    this.redis                = redis;
+    this.apiKey               = apiKey;
+    this.supabase             = supabase;
+    this.subscriptionManager  = subscriptionManager;
+    this.optionsWs            = new PolygonOptionsWebSocket(apiKey, supabase);
   }
 
-  /**
-   * Start fetching quotes
-   */
+  // ── PUBLIC API ─────────────────────────────────────────────────────────────
+
   start(): void {
-    this.connectWebSocket();
-    this.startRestPolling();
+    streamHealth.start();
+    this.connectIndicesWebSocket();
+    this.optionsWs.connect();
+    this.startTradeSyncLoop();
   }
 
-  /**
-   * Stop fetching quotes
-   */
   stop(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
+    streamHealth.stop();
+    this.stopTradeSyncLoop();
+    this.optionsWs.destroy();
 
-    if (this.wsReconnectTimeout) {
-      clearTimeout(this.wsReconnectTimeout);
-      this.wsReconnectTimeout = null;
+    if (this.indicesWs) {
+      this.indicesWs.close();
+      this.indicesWs = null;
     }
-
-    if (this.restPollingInterval) {
-      clearInterval(this.restPollingInterval);
-      this.restPollingInterval = null;
-    }
-
-    if (this.circuitBreakerResetTimeout) {
-      clearTimeout(this.circuitBreakerResetTimeout);
-      this.circuitBreakerResetTimeout = null;
+    if (this.indicesReconnectTimer) {
+      clearTimeout(this.indicesReconnectTimer);
     }
   }
 
-  /**
-   * Check if Polygon connection is healthy
-   */
   isConnected(): boolean {
-    return this.wsConnected && !this.circuitBreakerOpen;
+    return this.indicesWsConnected || this.optionsWs.isConnected();
   }
 
-  /**
-   * Connect to Polygon WebSocket for indices
-   */
-  private connectWebSocket(): void {
-    if (this.ws) {
-      return; // Already connected or connecting
+  isOptionsConnected(): boolean {
+    return this.optionsWs.isConnected();
+  }
+
+  // ── INDICES WEBSOCKET ──────────────────────────────────────────────────────
+
+  private connectIndicesWebSocket(): void {
+    if (this.indicesWs) return;
+
+    console.log('[IndicesWS] Connecting to', INDICES_WS_URL);
+    streamHealth.setConnected('indices', false);
+
+    try {
+      this.indicesWs = new WebSocket(INDICES_WS_URL);
+    } catch (err: any) {
+      console.error('[IndicesWS] Failed to create WebSocket:', err.message);
+      this.scheduleIndicesReconnect();
+      return;
     }
 
-    const wsUrl = `wss://socket.polygon.io/indices`;
+    const authTimeout = setTimeout(() => {
+      if (!this.indicesWsConnected) {
+        console.error('[IndicesWS] Auth timeout');
+        this.indicesWs?.close();
+      }
+    }, INDICES_AUTH_TIMEOUT_MS);
 
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.on('open', () => {
-      console.log('Polygon WebSocket connected');
-      this.wsConnected = true;
-
-      // Authenticate
-      this.ws!.send(JSON.stringify({
-        action: 'auth',
-        params: this.apiKey,
-      }));
-
-      // Subscribe to all active index symbols
-      this.subscribeToActiveIndices();
+    this.indicesWs.on('open', () => {
+      console.log('[IndicesWS] Connected. Authenticating...');
+      streamHealth.setConnected('indices', true);
+      this.indicesWs!.send(JSON.stringify({ action: 'auth', params: this.apiKey }));
     });
 
-    this.ws.on('message', async (data: WebSocket.Data) => {
+    this.indicesWs.on('message', async (data: WebSocket.Data) => {
+      clearTimeout(authTimeout);
       try {
         const messages = JSON.parse(data.toString());
-
         for (const msg of Array.isArray(messages) ? messages : [messages]) {
-          if (msg.ev === 'status') {
-            console.log('Polygon status:', msg.status, msg.message);
-            continue;
-          }
-
-          // Index value update
-          // Example: {ev: "V", T: "I:SPX", val: 4567.89, t: 1704304800000}
-          if (msg.ev === 'V' && msg.T && msg.val) {
-            const quote: Quote = {
-              symbol: msg.T,
-              price: msg.val,
-              timestamp: new Date(msg.t).toISOString(),
-            };
-
-            await this.processQuote(quote);
-          }
+          await this.handleIndicesMessage(msg);
         }
-      } catch (error) {
-        console.error('Error processing Polygon WebSocket message:', error);
+      } catch (err: any) {
+        console.error('[IndicesWS] Parse error:', err.message);
       }
     });
 
-    this.ws.on('error', (error) => {
-      console.error('Polygon WebSocket error:', error);
+    this.indicesWs.on('error', (err) => {
+      console.error('[IndicesWS] Error:', err.message);
     });
 
-    this.ws.on('close', () => {
-      console.log('Polygon WebSocket disconnected');
-      this.wsConnected = false;
-      this.ws = null;
-
-      // Reconnect after 5s
-      this.wsReconnectTimeout = setTimeout(() => {
-        console.log('Reconnecting to Polygon WebSocket...');
-        this.connectWebSocket();
-      }, 5000);
+    this.indicesWs.on('close', () => {
+      clearTimeout(authTimeout);
+      console.warn('[IndicesWS] Disconnected');
+      this.indicesWs = null;
+      this.indicesWsConnected = false;
+      streamHealth.setConnected('indices', false);
+      streamHealth.setAuthenticated('indices', false);
+      this.scheduleIndicesReconnect();
     });
   }
 
-  /**
-   * Subscribe to active index symbols on WebSocket
-   */
-  private subscribeToActiveIndices(): void {
-    if (!this.ws || !this.wsConnected) return;
+  private async handleIndicesMessage(msg: any): Promise<void> {
+    if (msg.ev === 'status') {
+      console.log(`[IndicesWS] Status: ${msg.status} — ${msg.message}`);
 
-    const activeSymbols = this.subscriptionManager.getActiveSymbols();
-    const indexSymbols = activeSymbols.filter((s) => s.startsWith('I:'));
+      if (msg.status === 'auth_success') {
+        this.indicesWsConnected = true;
+        streamHealth.setAuthenticated('indices', true);
 
-    if (indexSymbols.length > 0) {
-      this.ws.send(JSON.stringify({
-        action: 'subscribe',
-        params: indexSymbols.join(','),
-      }));
+        // Subscribe to active index symbols
+        const activeSymbols = this.subscriptionManager.getActiveSymbols();
+        const indexSymbols = activeSymbols.filter((s: string) => s.startsWith('I:'));
 
-      console.log(`Subscribed to ${indexSymbols.length} index symbols:`, indexSymbols);
+        if (indexSymbols.length > 0) {
+          const params = indexSymbols.join(',');
+          this.indicesWs!.send(JSON.stringify({ action: 'subscribe', params }));
+          console.log(`[IndicesWS] Subscribed to ${indexSymbols.length} index symbol(s):`, indexSymbols);
+          streamHealth.setSubscribedCount('indices', indexSymbols.length);
+        }
+      }
+      return;
+    }
+
+    // Index value event: {ev:"V", T:"I:SPX", val:5432.1, t:1704000000000}
+    if (msg.ev === 'V' && msg.T && msg.val) {
+      streamHealth.recordEvent('indices');
+
+      const quote = {
+        symbol:    msg.T as string,
+        price:     msg.val as number,
+        timestamp: new Date(msg.t as number).toISOString(),
+      };
+
+      // Store in Redis for SSE broadcasts
+      await this.redis.setex(
+        `quote:${quote.symbol}`,
+        300,  // 5 min TTL
+        JSON.stringify({ price: quote.price, timestamp: quote.timestamp })
+      );
+
+      // Update trade underlying tracking via Redis
+      const tradeIds = this.subscriptionManager.getTradesForSymbol(quote.symbol);
+      for (const tradeId of tradeIds) {
+        await this.updateUnderlyingInRedis(tradeId, quote.price, quote.timestamp);
+      }
     }
   }
 
-  /**
-   * Start REST polling for options quotes
-   */
-  private startRestPolling(): void {
-    if (this.restPollingInterval) return;
+  private async updateUnderlyingInRedis(
+    tradeId: string,
+    price: number,
+    timestamp: string
+  ): Promise<void> {
+    const [currentHigh, currentLow] = await Promise.all([
+      this.redis.get(`trade:${tradeId}:underlying:high`),
+      this.redis.get(`trade:${tradeId}:underlying:low`),
+    ]);
 
-    this.restPollingInterval = setInterval(async () => {
-      if (this.circuitBreakerOpen) return;
+    const updates: Array<Promise<any>> = [
+      this.redis.setex(`trade:${tradeId}:underlying:current`, 300, price.toString()),
+      this.redis.setex(`trade:${tradeId}:last_quote`, 300, timestamp),
+    ];
 
-      const activeSymbols = this.subscriptionManager.getActiveSymbols();
-      const optionSymbols = activeSymbols.filter((s) => s.startsWith('O:'));
+    if (!currentHigh || price > parseFloat(currentHigh)) {
+      updates.push(this.redis.set(`trade:${tradeId}:underlying:high`, price.toString()));
+    }
+    if (!currentLow || price < parseFloat(currentLow)) {
+      updates.push(this.redis.set(`trade:${tradeId}:underlying:low`, price.toString()));
+    }
 
-      for (const symbol of optionSymbols) {
-        try {
-          // Extract underlying from option ticker (O:SPX251219C05900000 -> SPX)
-          const match = symbol.match(/O:([A-Z]+)/);
-          const underlying = match ? match[1] : 'SPX';
-
-          const url = `https://api.polygon.io/v3/snapshot/options/${underlying}/${symbol}?apiKey=${this.apiKey}`;
-          const response = await fetch(url);
-
-          if (response.status === 429) {
-            console.warn('Polygon rate limited, opening circuit breaker');
-            this.openCircuitBreaker();
-            break;
-          }
-
-          if (!response.ok) {
-            console.error(`Polygon API error for ${symbol}:`, response.status);
-            continue;
-          }
-
-          const data = await response.json() as any;
-
-          if (data.results && data.results.last_quote) {
-            const lastQuote = data.results.last_quote;
-            const mid = (lastQuote.bid + lastQuote.ask) / 2;
-
-            const quote: Quote = {
-              symbol,
-              price: mid || data.results.last?.price || 0,
-              timestamp: new Date().toISOString(),
-            };
-
-            await this.processQuote(quote);
-          }
-        } catch (error) {
-          console.error(`Error fetching quote for ${symbol}:`, error);
-        }
-
-        // Rate limiting: 200ms between calls (5 calls/sec)
-        await new Promise((resolve) => setTimeout(resolve, 200));
-      }
-    }, this.REST_POLL_INTERVAL_MS);
+    await Promise.all(updates);
   }
 
+  private scheduleIndicesReconnect(): void {
+    this.indicesReconnectTimer = setTimeout(() => {
+      console.log('[IndicesWS] Reconnecting...');
+      this.connectIndicesWebSocket();
+    }, INDICES_RECONNECT_MS);
+  }
+
+  // ── TRADE SYNC LOOP ────────────────────────────────────────────────────────
+
   /**
-   * Process a quote and update Redis + high/low tracking
+   * Periodically fetches all active trades from Supabase and updates the
+   * options WebSocket subscription list. This handles:
+   *   - new trades published while the service is running
+   *   - trades that were closed (removes subscription)
    */
-  private async processQuote(quote: Quote): Promise<void> {
-    // Store latest quote in Redis
-    await this.redis.setex(
-      `quote:${quote.symbol}`,
-      300, // 5min TTL
-      JSON.stringify({
-        price: quote.price,
-        timestamp: quote.timestamp,
-      })
+  private startTradeSyncLoop(): void {
+    // Run immediately on start
+    this.syncActiveTrades().catch(err =>
+      console.error('[FetcherSync] Initial sync failed:', err.message)
     );
 
-    // Get all trades subscribed to this symbol
-    const tradeIds = this.subscriptionManager.getTradesForSymbol(quote.symbol);
+    this.tradeSyncTimer = setInterval(async () => {
+      await this.syncActiveTrades().catch(err =>
+        console.error('[FetcherSync] Sync failed:', err.message)
+      );
+    }, ACTIVE_TRADE_SYNC_INTERVAL_MS);
+  }
 
-    for (const tradeId of tradeIds) {
-      const trade = this.subscriptionManager.getTrade(tradeId);
-      if (!trade) continue;
-
-      // Determine if this is underlying or contract quote
-      const isUnderlying = quote.symbol === trade.underlyingSymbol;
-      const prefix = isUnderlying ? 'underlying' : 'contract';
-
-      // Update high
-      const highKey = `trade:${tradeId}:${prefix}:high`;
-      const currentHigh = await this.redis.get(highKey);
-      if (!currentHigh || quote.price > parseFloat(currentHigh)) {
-        await this.redis.set(highKey, quote.price.toString());
-      }
-
-      // Update low
-      const lowKey = `trade:${tradeId}:${prefix}:low`;
-      const currentLow = await this.redis.get(lowKey);
-      if (!currentLow || quote.price < parseFloat(currentLow)) {
-        await this.redis.set(lowKey, quote.price.toString());
-      }
-
-      // Update current
-      const currentKey = `trade:${tradeId}:${prefix}:current`;
-      await this.redis.setex(currentKey, 300, quote.price.toString());
-
-      // Update last quote timestamp
-      await this.redis.setex(`trade:${tradeId}:last_quote`, 300, quote.timestamp);
+  private stopTradeSyncLoop(): void {
+    if (this.tradeSyncTimer) {
+      clearInterval(this.tradeSyncTimer);
+      this.tradeSyncTimer = null;
     }
   }
 
-  /**
-   * Open circuit breaker (stop making requests)
-   */
-  private openCircuitBreaker(): void {
-    this.circuitBreakerOpen = true;
+  private async syncActiveTrades(): Promise<void> {
+    const { data: trades, error } = await this.supabase
+      .from('index_trades')
+      .select('id, polygon_option_ticker, polygon_underlying_index_ticker, instrument_type')
+      .eq('status', 'active')
+      .not('polygon_option_ticker', 'is', null);
 
-    this.circuitBreakerResetTimeout = setTimeout(() => {
-      console.log('Closing circuit breaker');
-      this.circuitBreakerOpen = false;
-    }, this.CIRCUIT_BREAKER_TIMEOUT_MS);
+    if (error) {
+      console.error('[FetcherSync] Failed to fetch active trades:', error.message);
+      return;
+    }
+
+    const activeTrades = (trades ?? []).map(t => ({
+      tradeId:      t.id as string,
+      optionTicker: t.polygon_option_ticker as string,
+    }));
+
+    console.log(`[FetcherSync] Synced ${activeTrades.length} active trade(s) to options WS`);
+    this.optionsWs.setActiveTrades(activeTrades);
   }
 }
