@@ -1,3 +1,15 @@
+/**
+ * realtime-pricing-service/src/index.ts
+ *
+ * Entry point for the realtime pricing service.
+ *
+ * Services started:
+ *   - PolygonQuoteFetcher: manages both indices WS + options WS
+ *   - PersistenceService: periodic Redis→Supabase sync + REST fallback for stale trades
+ *   - SSEHandler: pushes live data to connected browser clients
+ *   - StreamHealthTracker: monitors WS health and logs status
+ */
+
 import express, { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import Redis from 'ioredis';
@@ -5,18 +17,20 @@ import { SubscriptionManager } from './subscription-manager';
 import { PolygonQuoteFetcher } from './polygon-fetcher';
 import { SSEHandler } from './sse-handler';
 import { PersistenceService } from './persistence-service';
+import { streamHealth } from './stream-health';
 
 // Load environment variables
 import dotenv from 'dotenv';
 dotenv.config();
 
-const PORT = process.env.PORT || 3001;
-const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
-const SUPABASE_URL = process.env.SUPABASE_URL;
+const PORT                  = process.env.PORT || 3001;
+const POLYGON_API_KEY       = process.env.POLYGON_API_KEY;
+const SUPABASE_URL          = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const REDIS_URL = process.env.REDIS_URL;
+const REDIS_URL             = process.env.REDIS_URL;
 
-// Validate required environment variables
+// ── VALIDATION ────────────────────────────────────────────────────────────────
+
 if (!POLYGON_API_KEY) {
   console.error('FATAL: POLYGON_API_KEY not set');
   process.exit(1);
@@ -32,30 +46,37 @@ if (!REDIS_URL) {
   process.exit(1);
 }
 
-// Initialize services
+// ── SERVICE INIT ──────────────────────────────────────────────────────────────
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
 const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
   retryStrategy(times: number) {
-    const delay = Math.min(times * 50, 2000);
-    return delay;
+    return Math.min(times * 50, 2000);
   },
 });
 
 redis.on('error', (err: Error) => {
-  console.error('Redis error:', err);
+  console.error('[Redis] Error:', err.message);
 });
 
 redis.on('connect', () => {
-  console.log('Redis connected');
+  console.log('[Redis] Connected');
 });
 
 const app = express();
 
-// Services
+// Wire services
+// NOTE: PolygonQuoteFetcher now requires supabase for the options WS RPC calls
 const subscriptionManager = new SubscriptionManager(redis, supabase);
-const polygonFetcher = new PolygonQuoteFetcher(redis, POLYGON_API_KEY, subscriptionManager);
+const polygonFetcher = new PolygonQuoteFetcher(
+  redis,
+  POLYGON_API_KEY,
+  subscriptionManager,
+  supabase  // ← new: needed for process_streaming_price_update RPC
+);
 const persistenceService = new PersistenceService(redis, supabase, subscriptionManager);
 const sseHandler = new SSEHandler(
   supabase,
@@ -68,10 +89,10 @@ const sseHandler = new SSEHandler(
 polygonFetcher.start();
 persistenceService.start();
 
-// Middleware
+// ── MIDDLEWARE ────────────────────────────────────────────────────────────────
+
 app.use(express.json());
 
-// CORS for development
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -82,101 +103,110 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+// ── ENDPOINTS ─────────────────────────────────────────────────────────────────
+
 /**
- * Health check endpoint
+ * GET /health
+ * Detailed health check for load balancer, monitoring, and the edge-function
+ * fallback decision logic.
  */
 app.get('/health', async (req: Request, res: Response) => {
   try {
-    // Check Redis
-    const redisPing = await redis.ping();
-    const redisOk = redisPing === 'PONG';
+    const [redisPing, supabaseCheck] = await Promise.allSettled([
+      redis.ping(),
+      supabase.from('indices_reference').select('index_symbol').limit(1),
+    ]);
 
-    // Check Supabase
-    const { error: supabaseError } = await supabase
-      .from('indices_reference')
-      .select('count')
-      .limit(1)
-      .single();
-    const supabaseOk = !supabaseError;
+    const redisOk    = redisPing.status === 'fulfilled' && redisPing.value === 'PONG';
+    const supabaseOk = supabaseCheck.status === 'fulfilled' && !supabaseCheck.value.error;
+    const healthSnap = streamHealth.getHealthSnapshot();
 
-    // Check Polygon (simple API call)
-    const polygonOk = polygonFetcher.isConnected();
+    const overallOk = redisOk && supabaseOk && healthSnap.overallStatus !== 'disconnected';
+    const httpStatus = overallOk ? 200 : 503;
 
-    const status = redisOk && supabaseOk && polygonOk ? 'ok' : 'degraded';
-
-    res.json({
-      status,
-      redis: redisOk ? 'connected' : 'disconnected',
-      supabase: supabaseOk ? 'connected' : 'disconnected',
-      polygon: polygonOk ? 'connected' : 'disconnected',
-      uptime: process.uptime(),
-      activeConnections: sseHandler.getConnectionCount(),
-      activeSubscriptions: subscriptionManager.getActiveSymbols().length,
+    res.status(httpStatus).json({
+      status:               overallOk ? 'ok' : 'degraded',
+      redis:                redisOk ? 'connected' : 'disconnected',
+      supabase:             supabaseOk ? 'connected' : 'disconnected',
+      streaming:            healthSnap,
+      uptime:               process.uptime(),
+      activeConnections:    sseHandler.getConnectionCount(),
+      activeSubscriptions:  subscriptionManager.getActiveSymbols().length,
     });
-  } catch (error) {
-    console.error('Health check error:', error);
-    res.status(503).json({
-      status: 'error',
-      error: 'Service unhealthy',
-    });
+  } catch (err: any) {
+    console.error('[Health] Error:', err.message);
+    res.status(503).json({ status: 'error', error: 'Service unhealthy' });
   }
 });
 
 /**
- * SSE stream endpoint
  * GET /stream?analysisId={uuid}
+ * Server-Sent Events endpoint for live dashboard updates.
  */
 app.get('/stream', (req: Request, res: Response) => {
   sseHandler.handleConnection(req, res);
 });
 
 /**
- * Manual trigger for persistence (for testing)
+ * POST /persist
+ * Manually trigger the Redis→Supabase persistence flush.
+ * Useful for testing and graceful shutdown scripts.
  */
 app.post('/persist', async (req: Request, res: Response) => {
   try {
     await persistenceService.persistAll();
-    res.json({ success: true, message: 'Persistence triggered' });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.json({ success: true, message: 'Persistence flush triggered' });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 
-// Error handling
-app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-  console.error('Unhandled error:', err);
+/**
+ * GET /streaming-health
+ * Returns the streaming engine health snapshot in JSON.
+ * Called by the Next.js /api/indices/stream-health route and by the
+ * edge function to decide whether to fall back to REST polling.
+ */
+app.get('/streaming-health', (_req: Request, res: Response) => {
+  res.json(streamHealth.getHealthSnapshot());
+});
+
+// ── ERROR HANDLER ─────────────────────────────────────────────────────────────
+
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  console.error('[Express] Unhandled error:', err.message);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down gracefully...');
+// ── GRACEFUL SHUTDOWN ─────────────────────────────────────────────────────────
 
-  // Stop accepting new connections
+async function shutdown(signal: string): Promise<void> {
+  console.log(`[Shutdown] ${signal} received — shutting down gracefully...`);
+
   polygonFetcher.stop();
   persistenceService.stop();
+  streamHealth.stop();
 
-  // Flush Redis data to Supabase
-  await persistenceService.persistAll();
+  // Final flush of Redis → Supabase
+  try {
+    await persistenceService.persistAll();
+    console.log('[Shutdown] Final persistence flush complete');
+  } catch (err: any) {
+    console.error('[Shutdown] Final flush error:', err.message);
+  }
 
-  // Close Redis connection
-  await redis.quit();
-
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received, shutting down gracefully...');
-  polygonFetcher.stop();
-  persistenceService.stop();
-  await persistenceService.persistAll();
   await redis.quit();
   process.exit(0);
-});
+}
 
-// Start server
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// ── START ─────────────────────────────────────────────────────────────────────
+
 app.listen(PORT, () => {
-  console.log(`Realtime Pricing Service listening on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`SSE endpoint: http://localhost:${PORT}/stream?analysisId=xxx`);
+  console.log(`✅ Realtime Pricing Service listening on port ${PORT}`);
+  console.log(`   Health:    http://localhost:${PORT}/health`);
+  console.log(`   SSE:       http://localhost:${PORT}/stream?analysisId=xxx`);
+  console.log(`   Stream:    http://localhost:${PORT}/streaming-health`);
 });
