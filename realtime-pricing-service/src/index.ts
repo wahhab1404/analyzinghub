@@ -13,6 +13,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import Redis from 'ioredis';
+import { MemoryRedis } from './memory-redis';
 import { SubscriptionManager } from './subscription-manager';
 import { PolygonQuoteFetcher } from './polygon-fetcher';
 import { SSEHandler } from './sse-handler';
@@ -23,11 +24,11 @@ import { streamHealth } from './stream-health';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const PORT                  = process.env.PORT || 3001;
-const POLYGON_API_KEY       = process.env.POLYGON_API_KEY;
-const SUPABASE_URL          = process.env.SUPABASE_URL;
+const PORT                      = process.env.PORT || 3001;
+const POLYGON_API_KEY           = process.env.POLYGON_API_KEY;
+const SUPABASE_URL              = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const REDIS_URL             = process.env.REDIS_URL;
+const REDIS_URL                 = process.env.REDIS_URL;
 
 // ── VALIDATION ────────────────────────────────────────────────────────────────
 
@@ -41,24 +42,39 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-if (!REDIS_URL) {
-  console.error('FATAL: REDIS_URL not set');
-  process.exit(1);
-}
-
 // ── SERVICE INIT ──────────────────────────────────────────────────────────────
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const redis = new Redis(REDIS_URL, {
-  maxRetriesPerRequest: 3,
-  enableReadyCheck: false,   // required for Upstash — it closes idle check connections
-  tls: REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-  retryStrategy(times: number) {
-    if (times > 10) return null; // stop retrying after 10 attempts
-    return Math.min(times * 200, 5000);
-  },
-});
+// Use in-memory store by default; use external Redis only if REDIS_URL is set.
+// MemoryRedis is sufficient for single-instance deployments and avoids the
+// ECONNRESET / EPIPE issues that Upstash free tier causes with ioredis TCP.
+let redis: Redis | MemoryRedis;
+
+if (REDIS_URL) {
+  console.log('[Redis] Connecting to external Redis...');
+  redis = new Redis(REDIS_URL, {
+    maxRetriesPerRequest: null,  // never throw MaxRetriesPerRequestError
+    enableReadyCheck: false,
+    lazyConnect: true,
+    tls: REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+    retryStrategy(times: number) {
+      if (times > 5) {
+        console.warn('[Redis] Too many failures — falling back to in-memory store');
+        redis = new MemoryRedis() as any;
+        return null;
+      }
+      return Math.min(times * 500, 5000);
+    },
+  });
+  (redis as Redis).connect().catch(() => {
+    console.warn('[Redis] Initial connect failed — using in-memory store');
+    redis = new MemoryRedis() as any;
+  });
+} else {
+  console.log('[Redis] No REDIS_URL set — using in-memory store');
+  redis = new MemoryRedis();
+}
 
 redis.on('error', (err: Error) => {
   console.error('[Redis] Error:', err.message);
@@ -123,12 +139,13 @@ app.get('/health', async (req: Request, res: Response) => {
     const supabaseOk = supabaseCheck.status === 'fulfilled' && !supabaseCheck.value.error;
     const healthSnap = streamHealth.getHealthSnapshot();
 
-    const overallOk = redisOk && supabaseOk && healthSnap.overallStatus !== 'disconnected';
+    const overallOk = supabaseOk && healthSnap.overallStatus !== 'disconnected';
     const httpStatus = overallOk ? 200 : 503;
+    const redisMode  = redis instanceof MemoryRedis ? 'in-memory' : (redisOk ? 'connected' : 'disconnected');
 
     res.status(httpStatus).json({
       status:               overallOk ? 'ok' : 'degraded',
-      redis:                redisOk ? 'connected' : 'disconnected',
+      redis:                redisMode,
       supabase:             supabaseOk ? 'connected' : 'disconnected',
       streaming:            healthSnap,
       uptime:               process.uptime(),
