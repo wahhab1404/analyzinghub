@@ -6,7 +6,7 @@
  * Phase 2 — SPX Options Intelligence Hub
  *
  * Main container for the SPX Intelligence page.
- * Renders 5 tabs: Overview | Live Engine | Chain Monitor | Contract Finder | Signal Feed
+ * Renders 6 tabs: Overview | Live Engine | Chain Monitor | Contract Finder | Signal Feed | Trades
  */
 
 import { useState } from 'react'
@@ -18,21 +18,24 @@ import {
   Radio,
   ChevronLeft,
   Brain,
+  TrendingUp,
 } from 'lucide-react'
 import Link from 'next/link'
 import { LiveEnginePanel } from './LiveEnginePanel'
 import { ChainMonitorPanel } from './ChainMonitorPanel'
 import { ContractFinderPanel } from './ContractFinderPanel'
 import { SignalFeedPanel } from './SignalFeedPanel'
+import { ActiveTradesPanel } from './ActiveTradesPanel'
 
-type HubTab = 'overview' | 'live' | 'chain' | 'finder' | 'feed'
+type HubTab = 'overview' | 'live' | 'chain' | 'finder' | 'feed' | 'trades'
 
 const TABS: { id: HubTab; label: string; icon: React.ElementType; accent: string }[] = [
-  { id: 'overview', label: 'Overview',       icon: LayoutDashboard, accent: 'slate' },
-  { id: 'live',     label: 'Live Engine',    icon: Activity,        accent: 'blue' },
-  { id: 'chain',    label: 'Chain Monitor',  icon: BarChart2,       accent: 'violet' },
-  { id: 'finder',   label: 'Contract Finder',icon: Search,          accent: 'emerald' },
-  { id: 'feed',     label: 'Signal Feed',    icon: Radio,           accent: 'amber' },
+  { id: 'overview', label: 'Overview',        icon: LayoutDashboard, accent: 'slate' },
+  { id: 'live',     label: 'Live Engine',     icon: Activity,        accent: 'blue' },
+  { id: 'chain',    label: 'Chain Monitor',   icon: BarChart2,       accent: 'violet' },
+  { id: 'finder',   label: 'Contract Finder', icon: Search,          accent: 'emerald' },
+  { id: 'feed',     label: 'Signal Feed',     icon: Radio,           accent: 'amber' },
+  { id: 'trades',   label: 'Trades',          icon: TrendingUp,      accent: 'green' },
 ]
 
 const ACCENT_ACTIVE: Record<string, string> = {
@@ -41,6 +44,7 @@ const ACCENT_ACTIVE: Record<string, string> = {
   violet:  'text-violet-400 bg-violet-500/10 border-violet-500/30',
   emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30',
   amber:   'text-amber-400 bg-amber-500/10 border-amber-500/30',
+  green:   'text-green-400 bg-green-500/10 border-green-500/30',
 }
 
 /** Overview tab: brief architecture and scoring explanation */
@@ -155,6 +159,7 @@ function OverviewContent() {
           <li><span className="text-slate-300 font-semibold">2. Chain Monitor</span> — Deep dive into options chain features, greeks, flow, GEX, and skew. Refreshes every 60s.</li>
           <li><span className="text-slate-300 font-semibold">3. Contract Finder</span> — Manual contract search with configurable filters. Returns best/backup/aggressive/conservative.</li>
           <li><span className="text-slate-300 font-semibold">4. Signal Feed</span> — Chronological history of all generated signals with confidence class, rationale, and resolution.</li>
+          <li><span className="text-slate-300 font-semibold">5. Trades</span> — Live active trade positions and recent closed trade outcomes.</li>
         </ol>
       </div>
     </div>
@@ -223,6 +228,7 @@ export function SPXIntelligenceHub({ className = '' }: SPXIntelligenceHubProps) 
         {activeTab === 'chain'    && <ChainMonitorPanel />}
         {activeTab === 'finder'   && <ContractFinderPanel />}
         {activeTab === 'feed'     && <SignalFeedPanel />}
+        {activeTab === 'trades'   && <ActiveTradesPanel />}
       </div>
     </div>
   )

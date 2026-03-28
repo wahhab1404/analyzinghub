@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Activity, Zap, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
+import { RefreshCw, Activity, Zap, TrendingUp, TrendingDown, Minus, AlertTriangle, PlusCircle } from 'lucide-react'
 import { ScoreGauge, SubScoreBar } from './ScoreGauge'
 import { WallDisplay } from './WallDisplay'
 import { SignalCard } from './SignalCard'
@@ -18,11 +18,20 @@ interface LiveEnginePanelProps {
   className?: string
 }
 
+const ACTIONABLE_SIGNAL_TYPES = new Set([
+  'BUY_CALL', 'BUY_PUT', 'WATCH_CALL', 'WATCH_PUT',
+])
+
 export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
   const [result, setResult] = useState<SPXIntelligenceResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+
+  // Trade Actions state
+  const [tradeLoading, setTradeLoading]   = useState(false)
+  const [tradeSuccess, setTradeSuccess]   = useState<string | null>(null)
+  const [tradeError, setTradeError]       = useState<string | null>(null)
 
   const refresh = useCallback(async (skipWalls = false) => {
     setLoading(true)
@@ -58,6 +67,27 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
     const interval = setInterval(() => refresh(true), 30_000)
     return () => clearInterval(interval)
   }, [refresh])
+
+  const createTradeFromSignal = useCallback(async () => {
+    if (!result?.signal?.id) return
+    setTradeLoading(true)
+    setTradeSuccess(null)
+    setTradeError(null)
+    try {
+      const res = await fetch('/api/spx/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_from_signal', signalId: result.signal.id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      setTradeSuccess(`Trade created: ${data.tradeId ?? data.id ?? 'OK'}`)
+    } catch (err: any) {
+      setTradeError(err.message)
+    } finally {
+      setTradeLoading(false)
+    }
+  }, [result])
 
   const features = result?.features
   const shock = result?.shock
@@ -287,6 +317,34 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Quick Trade Actions — only shown for actionable signal types */}
+          {signal && ACTIONABLE_SIGNAL_TYPES.has(signal.type ?? '') && (
+            <div className="rounded-xl border border-[#1a2840] bg-[#070e1a] p-4 space-y-3">
+              <div className="text-[9px] font-bold uppercase tracking-widest text-slate-600">
+                Trade Actions
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  onClick={createTradeFromSignal}
+                  disabled={tradeLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 text-blue-400 text-[10px] font-semibold hover:bg-blue-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <PlusCircle className={`w-3.5 h-3.5 ${tradeLoading ? 'animate-spin' : ''}`} />
+                  {tradeLoading ? 'Creating…' : 'Create Trade from Signal'}
+                </button>
+                {tradeSuccess && (
+                  <span className="text-[10px] text-green-400">{tradeSuccess}</span>
+                )}
+                {tradeError && (
+                  <span className="text-[10px] text-red-400 flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+                    {tradeError}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </>
