@@ -10,7 +10,9 @@ import {
   ChevronLeft,
   LineChart,
   Monitor,
+  Brain,
 } from 'lucide-react'
+import Link from 'next/link'
 
 export type TerminalTab = 'overview' | 'analyses' | 'trades' | 'reports' | 'archive'
 
@@ -144,6 +146,19 @@ export function TerminalSidebar({
             )
           })}
         </nav>
+
+        {/* SPX Intelligence Link */}
+        <div className="flex-shrink-0 px-2 pb-1">
+          <Link href="/dashboard/indices/spx-intelligence">
+            <button
+              title="SPX Intelligence"
+              className="group flex items-center gap-2 px-2.5 xl:px-3 py-2 rounded text-[11px] text-slate-500 hover:text-blue-400 hover:bg-blue-500/5 hover:border-blue-500/20 border border-transparent transition-all w-full justify-center xl:justify-start"
+            >
+              <Brain className="w-3.5 h-3.5 flex-shrink-0 group-hover:text-blue-400" />
+              <span className="hidden xl:block">SPX Intelligence</span>
+            </button>
+          </Link>
+        </div>
 
         {/* Quick Actions */}
         <div className="flex-shrink-0 border-t border-[#1a2840]">
