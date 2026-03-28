@@ -52,9 +52,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const redis = new Redis(REDIS_URL, {
   maxRetriesPerRequest: 3,
-  enableReadyCheck: true,
+  enableReadyCheck: false,   // required for Upstash — it closes idle check connections
+  tls: REDIS_URL.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
   retryStrategy(times: number) {
-    return Math.min(times * 50, 2000);
+    if (times > 10) return null; // stop retrying after 10 attempts
+    return Math.min(times * 200, 5000);
   },
 });
 
