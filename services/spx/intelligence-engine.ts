@@ -1,15 +1,17 @@
 /**
  * services/spx/intelligence-engine.ts
  *
- * Phase 2 — SPX Intelligence Engine Orchestrator
+ * Phase 2 / Phase 3 — SPX Intelligence Engine Orchestrator
  *
- * Orchestrates the full Phase 2 compute pipeline:
+ * Orchestrates the full compute pipeline:
  *   1. Feature Extraction  (feature-extractor)
  *   2. Wall Engine         (wall-engine)
  *   3. Shock Engine        (shock-engine)
  *   4. Signal Scoring      (signal-scorer)
  *   5. Contract Ranking    (contract-ranker)
  *   6. Engine State Upsert (spx_engine_state)
+ *   7. Alert Dispatch      (spx-telegram) — Phase 3, non-fatal
+ *   8. Active Trade Premium Refresh — Phase 3, non-fatal
  *
  * Usage from API routes:
  *   import { runIntelligenceEngine } from '@/services/spx/intelligence-engine';
@@ -25,6 +27,13 @@ import { computeWallEngine } from './wall-engine';
 import { computeShockEngine } from './shock-engine';
 import { computeSignal } from './signal-scorer';
 import { rankContracts } from './contract-ranker';
+import { computeEntryPlan } from './entry-engine';
+import {
+  sendNewSignalAlert,
+  sendShockWarning,
+  sendWallBreakAlert,
+  sendWallRejectionAlert,
+} from './spx-telegram';
 import type {
   SPXIntelligenceResult,
   SPXEngineState,
@@ -305,6 +314,49 @@ export async function runIntelligenceEngine(
     errorCount,
     lastError,
   });
+
+  // ── 7. PHASE 3: ALERT DISPATCH ────────────────────────────────────────────────────────────
+  // Non-fatal: alert failures never crash the engine
+
+  try {
+    // Only alert for actionable signals (not NO_TRADE, MARKET_UNCLEAR)
+    const actionableTypes = ['BUY_CALL', 'BUY_PUT', 'WATCH_CALL', 'WATCH_PUT', 'WALL_SHIFT_WARNING', 'FLOW_SURGE_WARNING', 'SHOCK_WARNING', 'REVERSAL_WATCH'];
+
+    if (signal && actionableTypes.includes(signal.signalType)) {
+      const entryPlan = contracts?.best
+        ? computeEntryPlan(signal, features, contracts.best, walls, shock)
+        : null;
+      await sendNewSignalAlert(signal, features, walls, contracts, entryPlan);
+    }
+
+    // Shock warning if moderate+
+    if (shock && ['moderate', 'severe', 'extreme'].includes(shock.severity)) {
+      await sendShockWarning(shock, features);
+    }
+
+    // Wall break/rejection alerts
+    if (walls) {
+      if (walls.callWall?.state === 'broken' || walls.putWall?.state === 'broken') {
+        await sendWallBreakAlert(walls, features);
+      }
+      if (walls.callWall?.state === 'rejected' || walls.putWall?.state === 'rejected') {
+        await sendWallRejectionAlert(walls, features);
+      }
+    }
+  } catch (alertErr: any) {
+    console.warn('[IntelligenceEngine] Alert dispatch failed:', alertErr.message);
+  }
+
+  // ── 8. PHASE 3: REFRESH ACTIVE TRADE PREMIUMS ─────────────────────────────
+  // For each active trade, fetch current premium from Polygon and update DB
+  // Non-fatal
+
+  try {
+    const { refreshActiveTradePremiums } = await import('./trade-engine');
+    await refreshActiveTradePremiums(features.underlying.price);
+  } catch (tradeErr: any) {
+    console.warn('[IntelligenceEngine] Trade premium refresh failed:', tradeErr.message);
+  }
 
   return {
     features,
