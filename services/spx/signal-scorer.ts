@@ -588,7 +588,7 @@ export async function computeSignal(
   };
 
   // 9. Persist to DB
-  await supabase
+  const { error: sigErr } = await supabase
     .from('spx_signal_events')
     .insert({
       id: signalId,
@@ -608,11 +608,11 @@ export async function computeSignal(
       key_factors: keyFactors,
       risks,
       expires_at: expiresAt,
-    })
-    .catch(err => console.error('[SignalScorer] DB insert failed:', err.message));
+    });
+  if (sigErr) console.error('[SignalScorer] DB insert failed:', sigErr.message);
 
   // 10. Persist score snapshot
-  await supabase
+  const { error: snapErr } = await supabase
     .from('spx_score_snapshots')
     .insert({
       underlying_price: features.underlying.price,
@@ -631,8 +631,8 @@ export async function computeSignal(
       shock_score: shock.shockScore,
       acceleration_score: shock.accelerationScore,
       metadata: { atmIV: features.greeks.atmIV },
-    })
-    .catch(err => console.error('[SignalScorer] Score snapshot insert failed:', err.message));
+    });
+  if (snapErr) console.error('[SignalScorer] Score snapshot insert failed:', snapErr.message);
 
   return signal;
 }

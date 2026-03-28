@@ -505,9 +505,8 @@ export async function computeWallEngine(underlyingPrice: number): Promise<WallEn
     warnings,
   };
 
-  await supabase.from('spx_wall_snapshots').insert(snapPayload).catch(err => {
-    console.error('[WallEngine] Failed to persist snapshot:', err.message);
-  });
+  const { error: snapErr } = await supabase.from('spx_wall_snapshots').insert(snapPayload);
+  if (snapErr) console.error('[WallEngine] Failed to persist snapshot:', snapErr.message);
 
   return output;
 }
