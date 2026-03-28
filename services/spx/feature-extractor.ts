@@ -761,12 +761,31 @@ export async function computeSPXFeatures(options?: {
   const warnings: string[] = [];
   const supabase = getServiceRoleClient();
 
-  // 1. Fetch live index snapshot
+  // 1. Fetch live index snapshot — fall back to last stored price if Polygon is unavailable
   let snapshot: Awaited<ReturnType<typeof fetchIndexSnapshot>>;
   try {
     snapshot = await fetchIndexSnapshot();
-  } catch (err: any) {
-    throw new Error(`[FeatureExtractor] Cannot fetch SPX snapshot: ${err.message}`);
+  } catch (polygonErr: any) {
+    warnings.push(`Polygon snapshot unavailable: ${polygonErr.message}`);
+    // Attempt fallback: use the most recent stored price from DB
+    const { data: lastPrice } = await supabase
+      .from('spx_price_history')
+      .select('price, session_open, session_high, session_low, prev_close, captured_at')
+      .order('captured_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (!lastPrice?.price) {
+      throw new Error(`[FeatureExtractor] Cannot fetch SPX snapshot and no historical price available: ${polygonErr.message}`);
+    }
+    warnings.push(`Using last stored SPX price: ${lastPrice.price} (from ${lastPrice.captured_at})`);
+    snapshot = {
+      price:         lastPrice.price,
+      sessionOpen:   lastPrice.session_open ?? null,
+      sessionHigh:   lastPrice.session_high ?? null,
+      sessionLow:    lastPrice.session_low  ?? null,
+      previousClose: lastPrice.prev_close   ?? null,
+      timestamp:     lastPrice.captured_at  ?? new Date().toISOString(),
+    };
   }
 
   // 2. Store price in history (unless readonly)
