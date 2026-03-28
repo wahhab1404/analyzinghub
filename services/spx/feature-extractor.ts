@@ -780,7 +780,7 @@ export async function computeSPXFeatures(options?: {
       snapshot.previousClose,
     );
     // Prune old rows
-    await supabase.rpc('purge_spx_price_history', { p_retain_hours: 4 }).catch(() => {});
+    await supabase.rpc('purge_spx_price_history', { p_retain_hours: 4 });
   }
 
   // 3. Load price history (last 60 min)
