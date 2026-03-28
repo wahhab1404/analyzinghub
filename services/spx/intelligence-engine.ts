@@ -49,7 +49,7 @@ async function upsertEngineState(
   state: Partial<Omit<SPXEngineState, 'updatedAt'>>,
 ): Promise<void> {
   const supabase = getServiceRoleClient();
-  await supabase
+  const { error } = await supabase
     .from('spx_engine_state')
     .upsert({
       id: 'singleton',
@@ -64,8 +64,8 @@ async function upsertEngineState(
       regime_flags: state.regimeFlags ?? null,
       error_count: state.errorCount ?? 0,
       last_error: state.lastError ?? null,
-    })
-    .catch(err => console.error('[IntelligenceEngine] State upsert failed:', err.message));
+    });
+  if (error) console.error('[IntelligenceEngine] State upsert failed:', error.message);
 }
 
 export async function getEngineState(): Promise<SPXEngineState> {

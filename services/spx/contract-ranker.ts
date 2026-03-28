@@ -472,9 +472,8 @@ export async function rankContracts(
     metadata: { underlyingPrice: config.underlyingPrice },
   }));
 
-  await supabase.from('spx_contract_candidates').insert(dbRows).catch(err =>
-    console.error('[ContractRanker] DB insert failed:', err.message),
-  );
+  const { error: dbErr } = await supabase.from('spx_contract_candidates').insert(dbRows);
+  if (dbErr) console.error('[ContractRanker] DB insert failed:', dbErr.message);
 
   return {
     generatedAt: now,
