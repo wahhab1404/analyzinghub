@@ -34,6 +34,18 @@ import {
   sendWallBreakAlert,
   sendWallRejectionAlert,
 } from './spx-telegram';
+// logEngineRun is imported dynamically to avoid circular deps with settings-engine
+// which may not exist on first deploy — graceful degradation
+let _logEngineRun: ((p: any) => Promise<void>) | null = null;
+async function tryLogRun(params: any) {
+  try {
+    if (!_logEngineRun) {
+      const mod = await import('./settings-engine');
+      _logEngineRun = mod.logEngineRun;
+    }
+    await _logEngineRun!(params);
+  } catch { /* non-fatal */ }
+}
 import type {
   SPXIntelligenceResult,
   SPXEngineState,
@@ -170,6 +182,7 @@ export async function runIntelligenceEngine(
   options: RunOptions = {},
 ): Promise<SPXIntelligenceResult> {
   const now = new Date().toISOString();
+  const startMs = Date.now();
   let errorCount = 0;
   let lastError: string | null = null;
 
@@ -203,6 +216,7 @@ export async function runIntelligenceEngine(
     errorCount++;
     console.error('[IntelligenceEngine]', lastError);
     await upsertEngineState({ isRunning: false, errorCount, lastError });
+    await tryLogRun({ durationMs: Date.now() - startMs, success: false, errorMsg: lastError });
     throw new Error(lastError);
   }
 
@@ -285,6 +299,7 @@ export async function runIntelligenceEngine(
     errorCount++;
     console.error('[IntelligenceEngine]', lastError);
     await upsertEngineState({ isRunning: false, errorCount, lastError });
+    await tryLogRun({ durationMs: Date.now() - startMs, success: false, errorMsg: lastError, spxPrice: features?.underlying?.price });
     throw new Error(lastError);
   }
 
@@ -357,6 +372,17 @@ export async function runIntelligenceEngine(
   } catch (tradeErr: any) {
     console.warn('[IntelligenceEngine] Trade premium refresh failed:', tradeErr.message);
   }
+
+  // ── 9. LOG ENGINE RUN ───────────────────────────────────────────────────────
+  await tryLogRun({
+    durationMs: Date.now() - startMs,
+    success: errorCount === 0,
+    signalType: signal?.signalType,
+    marketMode: features?.marketMode,
+    spxPrice: features?.underlying?.price,
+    errorMsg: lastError ?? undefined,
+    dataQuality: features?.dataQuality,
+  });
 
   return {
     features,
