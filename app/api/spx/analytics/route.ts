@@ -293,51 +293,50 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // ── 10. Recent closed trades ───────────────────────────────────────────
+    // ── 10. Recent closed trades (camelCase, joined with signal for mode/score) ──
+    const signalById = new Map(signals.map(s => [s.id, s]));
     const recentClosedTrades = closedTrades
       .sort((a, b) => new Date(b.exit_timestamp ?? b.created_at).getTime() - new Date(a.exit_timestamp ?? a.created_at).getTime())
       .slice(0, 10)
-      .map(t => ({
-        id: t.id,
-        state: t.state,
-        option_type: t.option_type,
-        dte_at_entry: t.dte,
-        entry_premium: t.entry_premium,
-        exit_premium: t.exit_premium,
-        realized_pnl_pct: t.realized_pnl_pct,
-        final_score_outcome: t.final_score_outcome,
-        closed_at: t.exit_timestamp,
-        created_at: t.created_at,
-      }));
+      .map(t => {
+        const sig = signalById.get(t.signal_event_id);
+        return {
+          id:            t.id,
+          date:          t.exit_timestamp ?? t.created_at,
+          type:          (t.option_type ?? '').toUpperCase(),
+          mode:          sig?.signal_mode ?? 'Unknown',
+          score:         sig?.composite_score ?? 0,
+          entryPremium:  t.entry_premium  ?? 0,
+          exitPremium:   t.exit_premium   ?? 0,
+          pnlPct:        t.realized_pnl_pct ?? 0,
+          outcome:       t.final_score_outcome ?? 'unknown',
+        };
+      });
 
-    // ── Response ───────────────────────────────────────────────────────────
+    // ── Response — rates as 0-100 percentages ─────────────────────────────
     return NextResponse.json({
       success: true,
-      period: {
-        from: fromIso,
-        to: toIso,
-        days,
-      },
+      period: { from: fromIso, to: toIso, days },
       summary: {
-        totalSignals: signals.length,
-        actionableSignals: actionableSignals.length,
-        totalTrades: trades.length,
-        closedTrades: closedTrades.length,
-        openTrades: openTrades.length,
-        winRate,
+        totalSignals:        signals.length,
+        actionableSignals:   actionableSignals.length,
+        totalTrades:         trades.length,
+        closedTrades:        closedTrades.length,
+        openTrades:          openTrades.length,
+        winRate:             winRate * 100,
         expectancy,
         avgMFE,
         avgMAE,
-        avgPremiumExpansion,
-        signalPrecision,
-        falsePosRate,
+        avgPremiumExpansion: avgPremiumExpansion * 100,
+        signalPrecision:     signalPrecision * 100,
+        falsePosRate:        falsePosRate * 100,
       },
-      byMode,
-      byConfidence,
-      byHour,
-      byContractType,
-      byDTERegime,
-      byScoreBucket,
+      byMode:         byMode.map(r => ({ ...r, winRate: r.winRate * 100 })),
+      byConfidence:   byConfidence.map(r => ({ ...r, winRate: r.winRate * 100 })),
+      byHour:         byHour.map(r => ({ ...r, winRate: (r.winRate ?? 0) * 100 })),
+      byContractType: byContractType.map(r => ({ ...r, winRate: r.winRate * 100 })),
+      byDTERegime:    byDTERegime.map(r => ({ ...r, winRate: r.winRate * 100 })),
+      byScoreBucket:  byScoreBucket.map(r => ({ ...r, winRate: r.winRate * 100 })),
       recentClosedTrades,
     });
   } catch (err: any) {
