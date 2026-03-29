@@ -935,8 +935,20 @@ export default function ReplayPanel() {
             <Play className="h-5 w-5 text-slate-600" />
           </div>
           <div>
-            <p className="text-[13px] text-slate-400 font-medium">No session loaded</p>
-            <p className="text-[11px] text-slate-600 mt-1">Select a date and click "Load Session" to begin replay</p>
+            {availableDates.length === 0 && !datesLoading ? (
+              <>
+                <p className="text-[13px] text-slate-400 font-medium">No replay sessions available yet</p>
+                <p className="text-[11px] text-slate-600 mt-1">
+                  Sessions are built from stored signals. Run the Live Engine to generate signals,<br />
+                  then return here to replay past trading days.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] text-slate-400 font-medium">No session loaded</p>
+                <p className="text-[11px] text-slate-600 mt-1">Select a date and click "Load Session" to begin replay</p>
+              </>
+            )}
           </div>
         </div>
       )}
