@@ -9,17 +9,14 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { createClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { getSettings, updateSettings } from '@/services/spx/settings-engine';
 
 // ── GET ───────────────────────────────────────────────────────────────────────
 
-export async function GET(req: NextRequest) {
+export async function GET(_req: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const supabase = createClient(cookieStore);
-
+    const supabase = createServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -28,7 +25,7 @@ export async function GET(req: NextRequest) {
     const settings = await getSettings();
     return NextResponse.json({ success: true, settings });
   } catch (err: any) {
-    console.error('[GET /api/spx/settings]', err);
+    console.error('[GET /api/spx/settings]', err.message);
     return NextResponse.json(
       { success: false, error: err?.message ?? 'Internal server error' },
       { status: 500 },
@@ -40,10 +37,8 @@ export async function GET(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const cookieStore = cookies();
-    const supabase = createClient(cookieStore);
+    const supabase = createServerClient();
 
-    // Auth check
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -64,7 +59,6 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    // Parse body
     let body: Record<string, any>;
     try {
       body = await req.json();
@@ -75,7 +69,7 @@ export async function PATCH(req: NextRequest) {
     const settings = await updateSettings(body, user.id);
     return NextResponse.json({ success: true, settings });
   } catch (err: any) {
-    console.error('[PATCH /api/spx/settings]', err);
+    console.error('[PATCH /api/spx/settings]', err.message);
     return NextResponse.json(
       { success: false, error: err?.message ?? 'Internal server error' },
       { status: 500 },

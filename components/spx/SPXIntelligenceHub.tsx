@@ -279,7 +279,7 @@ export function SPXIntelligenceHub({ className = '' }: SPXIntelligenceHubProps) 
       <div className="bg-[#0b1220] border-b border-[#1a2840] flex-shrink-0">
         {/* Core tabs row */}
         <div className="flex items-center gap-1 px-4 pt-2 pb-0 overflow-x-auto scrollbar-none">
-          <span className="text-[8px] text-slate-700 uppercase tracking-widest mr-1 whitespace-nowrap">
+          <span className="text-[9px] text-slate-600 uppercase tracking-widest mr-1 whitespace-nowrap">
             Core
           </span>
           {coreTabs.map(tab => (
@@ -291,7 +291,7 @@ export function SPXIntelligenceHub({ className = '' }: SPXIntelligenceHubProps) 
             />
           ))}
           <div className="h-4 w-px bg-[#1a2840] mx-1" />
-          <span className="text-[8px] text-slate-700 uppercase tracking-widest mr-1 whitespace-nowrap">
+          <span className="text-[9px] text-slate-600 uppercase tracking-widest mr-1 whitespace-nowrap">
             Ops
           </span>
           {opsTabs.map(tab => (
@@ -339,7 +339,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-1.5 mb-1 rounded text-[10px] font-semibold transition-all whitespace-nowrap ${
+      className={`flex items-center gap-1.5 px-3 py-1.5 mb-1 rounded text-[12px] font-semibold transition-all whitespace-nowrap ${
         isActive
           ? `border ${ACCENT_ACTIVE[tab.accent]}`
           : 'text-slate-600 hover:text-slate-300 border border-transparent'

@@ -363,7 +363,10 @@ export default function HealthPanel() {
     )
   }
 
-  const d = data!
+  // Guard: data not yet loaded (initial render before useEffect fires)
+  if (!data) return null
+
+  const d = data
 
   // Build synthetic buckets from recentRuns if hourlyBuckets not provided
   const buckets: { hour: string; successRate: number; runs: number }[] = d.hourlyBuckets ?? (() => {

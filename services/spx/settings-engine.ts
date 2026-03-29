@@ -244,40 +244,20 @@ export async function updateSettings(
   const supabase = getServiceRoleClient();
 
   const dbPatch = settingsToDbRow(patch);
+  // Always target the singleton row
+  dbPatch.id = 'singleton';
   dbPatch.updated_at = new Date().toISOString();
   if (updatedBy !== undefined) dbPatch.updated_by = updatedBy;
 
-  // The table is a singleton — upsert with a fixed id=1 (or whatever PK the table uses).
-  // We use onConflict on the first row by upserting; if the table has no PK we do update.
-  // Try update first; if no rows affected, insert.
-  const { data: existing } = await supabase
+  // Direct upsert — insert if row doesn't exist, update otherwise
+  const { data, error } = await supabase
     .from('spx_settings')
-    .select('id')
-    .limit(1)
+    .upsert(dbPatch, { onConflict: 'id' })
+    .select('*')
     .single();
 
-  let resultData: any;
-
-  if (existing?.id) {
-    const { data, error } = await supabase
-      .from('spx_settings')
-      .update(dbPatch)
-      .eq('id', existing.id)
-      .select('*')
-      .single();
-    if (error) throw new Error(`Failed to update spx_settings: ${error.message}`);
-    resultData = data;
-  } else {
-    const { data, error } = await supabase
-      .from('spx_settings')
-      .insert(dbPatch)
-      .select('*')
-      .single();
-    if (error) throw new Error(`Failed to insert spx_settings: ${error.message}`);
-    resultData = data;
-  }
-
-  return dbRowToSettings(resultData);
+  if (error) throw new Error(`Failed to save spx_settings: ${error.message}`);
+  return dbRowToSettings(data);
 }
 
 // ── ENGINE RUN LOGGING ────────────────────────────────────────────────────────
