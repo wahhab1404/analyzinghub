@@ -297,9 +297,10 @@ export default function SettingsPanel() {
     setLoading(true)
     fetch('/api/spx/settings')
       .then(r => r.json())
-      .then((data: SPXSettings) => {
-        setSettings(data)
-        setDraft(JSON.parse(JSON.stringify(data)))
+      .then((json: { success: boolean; settings: SPXSettings }) => {
+        const s = json.settings ?? json
+        setSettings(s)
+        setDraft(JSON.parse(JSON.stringify(s)))
       })
       .catch(() => setStatus({ type: 'error', message: 'Failed to load settings.' }))
       .finally(() => setLoading(false))
@@ -316,8 +317,9 @@ export default function SettingsPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(draft),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const updated: SPXSettings = await res.json()
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`)
+      const updated: SPXSettings = json.settings ?? json
       setSettings(updated)
       setDraft(JSON.parse(JSON.stringify(updated)))
       setStatus({ type: 'success', message: 'Settings saved successfully.' })
@@ -535,9 +537,9 @@ export default function SettingsPanel() {
               onChange={e => set('minShockSeverity', e.target.value)}
               className="bg-[#0d1726] border border-[#1a2840] text-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50 w-full"
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
+              <option value="mild">Mild</option>
+              <option value="moderate">Moderate</option>
+              <option value="severe">Severe</option>
               <option value="extreme">Extreme</option>
             </select>
           </FieldRow>
@@ -709,10 +711,11 @@ export default function SettingsPanel() {
               onChange={e => set('premiumSource', e.target.value)}
               className="bg-[#0d1726] border border-[#1a2840] text-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500/50 w-full"
             >
-              <option value="tradier">Tradier</option>
               <option value="polygon">Polygon</option>
-              <option value="alpaca">Alpaca</option>
               <option value="cboe">CBOE</option>
+              <option value="manual">Manual</option>
+              <option value="tradier">Tradier</option>
+              <option value="alpaca">Alpaca</option>
               <option value="simulated">Simulated</option>
             </select>
           </FieldRow>

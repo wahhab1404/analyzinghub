@@ -90,12 +90,13 @@ type Period = 7 | 14 | 30 | 90
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt1(n: number) { return n.toFixed(1) }
-function fmt2(n: number) { return n.toFixed(2) }
-function fmtPct(n: number) { return `${n.toFixed(1)}%` }
-function fmtPnl(n: number) {
-  const s = n >= 0 ? '+' : ''
-  return `${s}${n.toFixed(2)}`
+function fmt1(n: number | null | undefined) { return (n ?? 0).toFixed(1) }
+function fmt2(n: number | null | undefined) { return (n ?? 0).toFixed(2) }
+function fmtPct(n: number | null | undefined) { return `${(n ?? 0).toFixed(1)}%` }
+function fmtPnl(n: number | null | undefined) {
+  const v = n ?? 0
+  const s = v >= 0 ? '+' : ''
+  return `${s}${v.toFixed(2)}`
 }
 
 function winRateColor(wr: number): string {
