@@ -76,6 +76,7 @@ export const en = {
     subscriptions: 'Subscriptions',
     subscribers: 'My Subscribers',
     financial: 'Financial',
+    trades: 'Trades',
     activity: 'Activity',
     helpTutorials: 'Help & Tutorials',
     settings: 'Settings',

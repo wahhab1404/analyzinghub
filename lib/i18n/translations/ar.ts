@@ -78,6 +78,7 @@ export const ar: TranslationKeys = {
     subscriptions: 'الاشتراكات',
     subscribers: 'مشتركيني',
     financial: 'المالية',
+    trades: 'الصفقات',
     activity: 'النشاط',
     helpTutorials: 'المساعدة والدروس',
     settings: 'الإعدادات',

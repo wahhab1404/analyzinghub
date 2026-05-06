@@ -16,6 +16,7 @@ import { FollowButton } from '@/components/profile/FollowButton'
 import { StockPrice } from './StockPrice'
 import { CommentSection } from './CommentSection'
 import { ResendToChannelDialog } from './ResendToChannelDialog'
+import { RelatedTrades } from '@/components/trades/RelatedTrades'
 import { toast } from 'sonner'
 import { useAnalytics } from '@/hooks/use-analytics'
 import { downloadImageWithWatermark, generatePostSnapshot } from '@/lib/image-utils'
@@ -717,6 +718,12 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
           </div>
         </CardContent>
       </Card>
+
+      <RelatedTrades
+        analysisId={analysis.id}
+        isOwner={isOwnAnalysis}
+        symbol={symbol}
+      />
 
       <Card>
         <CardHeader>
