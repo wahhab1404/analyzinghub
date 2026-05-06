@@ -33,7 +33,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const zeptoApiKey = Deno.env.get("SMTP_PASSWORD");
-    const fromEmail = Deno.env.get("SMTP_FROM_EMAIL") || "noreply@analyzhub.com";
+    const fromEmail = Deno.env.get("SMTP_FROM_EMAIL") || "noreply@analyzinghub.com";
     const fromName = Deno.env.get("SMTP_FROM_NAME") || "AnalyzingHub";
 
     if (!zeptoApiKey) {

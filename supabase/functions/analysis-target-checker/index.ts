@@ -326,7 +326,7 @@ Deno.serve(async (req: Request) => {
                   .eq("key", "site_domain")
                   .single();
 
-                const domain = siteDomain?.value || "analyzhub.com";
+                const domain = siteDomain?.value || "analyzinghub.com";
 
                 for (const channel of channels) {
                   const message = `🎯 Target ${result.targetNumber} Hit!\n\n${symbol}\nTarget Price: $${result.targetPrice.toFixed(2)}\nHit Price: $${result.hitPrice.toFixed(2)}\nSession: ${result.hitSession}\n\n${direction === "LONG" ? "📈" : "📉"} View: https://${domain}/share/${analysis.id}`;

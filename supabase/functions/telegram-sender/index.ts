@@ -37,7 +37,7 @@ Deno.serve(async (req: Request) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
+    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzinghub.com";
 
     const supabase = createClient(supabaseUrl, supabaseKey);
 
