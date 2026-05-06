@@ -54,29 +54,81 @@ async function fetchStockPrices(
   }
 }
 
-// ── Telegram sender ─────────────────────────────────────────────────────────
+// ── Telegram sender (photo with text fallback) ──────────────────────────────
 
-async function sendTelegram(
-  supabaseUrl: string,
-  serviceKey: string,
+async function getBotToken(supabase: any): Promise<string> {
+  const { data } = await supabase
+    .from("admin_settings")
+    .select("setting_value")
+    .eq("setting_key", "telegram_bot_token")
+    .maybeSingle();
+  return data?.setting_value ?? Deno.env.get("TELEGRAM_BOT_TOKEN") ?? "";
+}
+
+async function sendTelegramPhoto(
+  botToken: string,
   chatId: string,
-  text: string
+  imageUrl: string,
+  caption: string
 ): Promise<string | null> {
+  // 1. Fetch PNG from generate-image route
+  let imageBytes: ArrayBuffer | null = null;
   try {
-    const res = await fetch(`${supabaseUrl}/functions/v1/telegram-sender`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${serviceKey}`,
-      },
-      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json?.result?.message_id?.toString() ?? null;
-  } catch {
-    return null;
+    const imgRes = await fetch(imageUrl);
+    if (imgRes.ok) imageBytes = await imgRes.arrayBuffer();
+    else console.warn("[tracker] image fetch failed:", imgRes.status);
+  } catch (e) {
+    console.warn("[tracker] image fetch error:", e);
   }
+
+  if (imageBytes && imageBytes.byteLength > 0) {
+    const form = new FormData();
+    form.append("chat_id", chatId);
+    form.append("caption", caption);
+    form.append("parse_mode", "HTML");
+    form.append("photo", new Blob([imageBytes], { type: "image/png" }), "trade-alert.png");
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: "POST",
+      body: form,
+    });
+    if (res.ok) {
+      const json = await res.json();
+      return json?.result?.message_id?.toString() ?? null;
+    }
+    console.warn("[tracker] sendPhoto failed:", await res.text());
+  }
+
+  // 2. Fallback: plain text
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text: caption, parse_mode: "HTML" }),
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json?.result?.message_id?.toString() ?? null;
+}
+
+// Legacy alias used by older code paths
+async function sendTelegram(
+  _supabaseUrl: string,
+  _serviceKey: string,
+  chatId: string,
+  text: string,
+  botToken?: string,
+  imageUrl?: string
+): Promise<string | null> {
+  if (!botToken) return null;
+  if (imageUrl) return sendTelegramPhoto(botToken, chatId, imageUrl, text);
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
+  });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json?.result?.message_id?.toString() ?? null;
 }
 
 // ── Target-hit message ──────────────────────────────────────────────────────
@@ -126,7 +178,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const polygonKey  = Deno.env.get("POLYGON_API_KEY") ?? "";
-  const appUrl      = Deno.env.get("NEXT_PUBLIC_APP_URL") ?? "https://analyzinghub.com";
+  const appUrl      = Deno.env.get("APP_BASE_URL") ?? Deno.env.get("NEXT_PUBLIC_APP_URL") ?? "https://analyzinghub.com";
 
   const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -200,7 +252,7 @@ Deno.serve(async (req) => {
     updated++;
     const r = result as any;
 
-    // Resolve Telegram channel for alerts
+    // Resolve Telegram channel + bot token for alerts
     let chatId: string | null = null;
     let channelDbId: string | null = null;
     if (trade.telegram_channel_id) {
@@ -211,6 +263,9 @@ Deno.serve(async (req) => {
         .maybeSingle();
       if (ch) { chatId = ch.telegram_channel_id; channelDbId = ch.id; }
     }
+
+    // Lazy-load bot token once per cycle
+    const botToken = chatId ? await getBotToken(supabase) : "";
 
     // 4. Alert: stop hit
     if (r?.stop_hit && trade.stop_loss) {
@@ -223,11 +278,10 @@ Deno.serve(async (req) => {
 
       if (!dupCheck) {
         let msgId: string | null = null;
-        if (chatId) {
-          msgId = await sendTelegram(
-            supabaseUrl, serviceKey, chatId,
-            buildStopMsg(trade.symbol, trade.stop_loss, price)
-          );
+        if (chatId && botToken) {
+          const imageUrl = `${appUrl}/api/trades/${trade.id}/generate-image?event=stop_hit&price=${price}`;
+          const caption  = buildStopMsg(trade.symbol, trade.stop_loss, price);
+          msgId = await sendTelegramPhoto(botToken, chatId, imageUrl, caption);
         }
         await supabase.from("trade_alerts").insert({
           trade_id:            trade.id,
@@ -242,7 +296,6 @@ Deno.serve(async (req) => {
 
     // 5. Alert: target hits
     if (r?.any_target_hit) {
-      // Re-fetch updated targets to find newly hit ones
       const { data: freshTrade } = await supabase
         .from("trades")
         .select("targets")
@@ -264,11 +317,10 @@ Deno.serve(async (req) => {
 
           if (!dupCheck) {
             let msgId: string | null = null;
-            if (chatId) {
-              msgId = await sendTelegram(
-                supabaseUrl, serviceKey, chatId,
-                buildTargetMsg(trade.symbol, t.label, t.price, price, trade.entry_price)
-              );
+            if (chatId && botToken) {
+              const imageUrl = `${appUrl}/api/trades/${trade.id}/generate-image?event=target_hit&price=${price}&target_index=${i}`;
+              const caption  = buildTargetMsg(trade.symbol, t.label, t.price, price, trade.entry_price);
+              msgId = await sendTelegramPhoto(botToken, chatId, imageUrl, caption);
             }
             await supabase.from("trade_alerts").insert({
               trade_id:            trade.id,
@@ -295,11 +347,10 @@ Deno.serve(async (req) => {
 
       if (!dupCheck) {
         let msgId: string | null = null;
-        if (chatId) {
-          msgId = await sendTelegram(
-            supabaseUrl, serviceKey, chatId,
-            buildOptionWinMsg(trade.symbol, r.max_profit, trade.option_details.entry_premium)
-          );
+        if (chatId && botToken) {
+          const imageUrl = `${appUrl}/api/trades/${trade.id}/generate-image?event=new_high&price=${price}`;
+          const caption  = buildOptionWinMsg(trade.symbol, r.max_profit, trade.option_details.entry_premium);
+          msgId = await sendTelegramPhoto(botToken, chatId, imageUrl, caption);
         }
         await supabase.from("trade_alerts").insert({
           trade_id:            trade.id,

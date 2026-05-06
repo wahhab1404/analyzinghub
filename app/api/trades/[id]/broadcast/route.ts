@@ -9,10 +9,75 @@ export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ id: string }> }
 
+// ─── Telegram helpers ─────────────────────────────────────────────────────────
+
+async function fetchBotToken(supabase: any): Promise<string> {
+  const { data } = await supabase
+    .from('admin_settings')
+    .select('setting_value')
+    .eq('setting_key', 'telegram_bot_token')
+    .maybeSingle()
+  return data?.setting_value ?? process.env.TELEGRAM_BOT_TOKEN ?? ''
+}
+
 /**
- * POST /api/trades/[id]/broadcast
- * Publish a trade to its Telegram channel and create a trade_alerts record.
+ * Send a photo + caption to a Telegram chat.
+ * Falls back to plain text if image generation fails.
  */
+async function sendTelegramPhoto(
+  botToken: string,
+  chatId: string,
+  imageUrl: string,
+  caption: string
+): Promise<{ ok: boolean; messageId: string | null }> {
+  // 1. Fetch the PNG from our generate-image route
+  let imageBytes: ArrayBuffer | null = null
+  try {
+    const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(12000) })
+    if (imgRes.ok) {
+      imageBytes = await imgRes.arrayBuffer()
+    } else {
+      console.warn('[broadcast] image fetch failed:', imgRes.status, await imgRes.text())
+    }
+  } catch (e) {
+    console.warn('[broadcast] image fetch error:', e)
+  }
+
+  if (imageBytes && imageBytes.byteLength > 0) {
+    // 2a. Send as photo via multipart
+    const form = new FormData()
+    form.append('chat_id', chatId)
+    form.append('caption', caption)
+    form.append('parse_mode', 'HTML')
+    form.append('photo', new Blob([imageBytes], { type: 'image/png' }), 'trade.png')
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+      method: 'POST',
+      body: form,
+    })
+    if (res.ok) {
+      const json = await res.json()
+      return { ok: true, messageId: json?.result?.message_id?.toString() ?? null }
+    }
+    console.warn('[broadcast] sendPhoto failed:', await res.text())
+  }
+
+  // 2b. Fallback: send plain text
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, text: caption, parse_mode: 'HTML' }),
+  })
+  if (res.ok) {
+    const json = await res.json()
+    return { ok: true, messageId: json?.result?.message_id?.toString() ?? null }
+  }
+  console.error('[broadcast] sendMessage fallback failed:', await res.text())
+  return { ok: false, messageId: null }
+}
+
+// ─── POST /api/trades/[id]/broadcast ─────────────────────────────────────────
+
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const cookieStore = cookies()
@@ -28,14 +93,13 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!['SuperAdmin', 'Analyzer'].includes(roleName ?? ''))
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    // Check for duplicate published alert
+    // Deduplication
     const { data: existingAlert } = await supabase
       .from('trade_alerts')
       .select('id')
       .eq('trade_id', id)
       .eq('alert_type', 'published')
       .maybeSingle()
-
     if (existingAlert) {
       return NextResponse.json({ error: 'Trade already broadcast', duplicate: true }, { status: 409 })
     }
@@ -53,74 +117,58 @@ export async function POST(req: NextRequest, { params }: Params) {
       .single()
 
     if (error || !trade) return NextResponse.json({ error: 'Trade not found' }, { status: 404 })
-
     if (trade.user_id !== user.id && roleName !== 'SuperAdmin')
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    // Build the Telegram message
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://analyzinghub.com'
-    const message = buildTradeMessage('new', trade as TradeFull, { baseUrl })
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_BASE_URL ?? 'https://analyzinghub.com'
 
-    // Resolve which channel to send to
+    // Build caption (bilingual text used as Telegram photo caption)
+    const caption = buildTradeMessage('new', trade as TradeFull, { baseUrl })
+
+    // Image URL pointing to our generate-image route
+    const imageUrl = `${baseUrl}/api/trades/${id}/generate-image?event=new`
+
+    // Resolve Telegram channel
     const channelId = trade.telegram_channel_id
-    let telegramChannelDbId: string | null = null
+    let channelDbId: string | null = null
     let chatId: string | null = null
 
     if (channelId) {
-      // Try analyzer_telegram_channels first
       const { data: ch } = await supabase
         .from('analyzer_telegram_channels')
         .select('id, telegram_channel_id')
         .eq('id', channelId)
         .maybeSingle()
-      if (ch) {
-        telegramChannelDbId = ch.id
-        chatId = ch.telegram_channel_id
-      }
+      if (ch) { channelDbId = ch.id; chatId = ch.telegram_channel_id }
     }
 
     let telegramMsgId: string | null = null
     let alertStatus: 'sent' | 'failed' = 'failed'
 
     if (chatId) {
-      // Invoke the telegram-sender edge function
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-      const res = await fetch(`${supabaseUrl}/functions/v1/telegram-sender`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML',
-          disable_web_page_preview: false,
-        }),
-      })
-
-      if (res.ok) {
-        const result = await res.json()
-        telegramMsgId = result?.result?.message_id?.toString() ?? null
-        alertStatus = 'sent'
+      const botToken = await fetchBotToken(supabase)
+      if (botToken) {
+        const result = await sendTelegramPhoto(botToken, chatId, imageUrl, caption)
+        if (result.ok) {
+          telegramMsgId = result.messageId
+          alertStatus = 'sent'
+        }
       } else {
-        console.error('[broadcast] telegram-sender failed', await res.text())
+        console.warn('[broadcast] No bot token found')
       }
     }
 
-    // Log the alert regardless (prevent double-send)
+    // Log alert (prevents double-send)
     await supabase.from('trade_alerts').insert({
       trade_id:            id,
       alert_type:          'published',
       price:               trade.entry_price,
-      sent_to_channel_id:  telegramChannelDbId,
+      sent_to_channel_id:  channelDbId,
       telegram_message_id: telegramMsgId,
       status:              alertStatus,
     })
 
-    // Update trade: mark as published + set published_at
+    // Publish trade if still draft
     if (trade.status === 'draft') {
       await supabase
         .from('trades')
@@ -129,9 +177,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     return NextResponse.json({
-      success: true,
+      success:       true,
       telegram_sent: alertStatus === 'sent',
-      message_preview: message.slice(0, 200),
+      image_url:     imageUrl,
     })
   } catch (err: any) {
     console.error('[POST /api/trades/[id]/broadcast]', err)
