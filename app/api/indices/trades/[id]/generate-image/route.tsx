@@ -66,7 +66,9 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   const t0 = Date.now();
-  console.log('[generate-image] GET request received');
+  console.log('[generate-image] ──────────────────────────────────────────');
+  console.log('[generate-image] IMAGE GENERATION STARTED');
+  console.log('[generate-image] Request URL:', request.url);
 
   try {
     const { id: tradeId } = await context.params;
@@ -185,8 +187,20 @@ export async function GET(
     const pricePct = entryPrice > 0 ? (priceDelta / entryPrice) * 100 : 0;
     const statusLabel = (trade.status ?? 'active').toUpperCase().replace('_', ' ');
 
-    console.log('[generate-image] Data resolved:', {
-      sym, entryPrice, currentPrice, strike, expiry, isCall, t1, t2, stop, analystName,
+    console.log('[generate-image] ✅ Data resolved:', {
+      sym,
+      entryPrice,
+      currentPrice,
+      strike,
+      expiry,
+      isCall,
+      t1,
+      t2,
+      stop,
+      analystName,
+      hasGreeks,
+      hasBidAsk,
+      elapsed_ms: Date.now() - t0,
     });
 
     // ── NEW HIGH card ────────────────────────────────────────────────────────
@@ -811,7 +825,8 @@ export async function GET(
       { width: 1000, height: 560 }
     );
   } catch (error: any) {
-    console.error('[generate-image] Fatal error:', error?.message);
+    console.error('[generate-image] ❌ IMAGE GENERATION FAILED');
+    console.error('[generate-image] Error:', error?.message);
     console.error('[generate-image] Stack:', error?.stack);
     return new Response(
       JSON.stringify({ error: error?.message ?? 'Image generation failed' }),
