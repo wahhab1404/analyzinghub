@@ -531,8 +531,8 @@ export async function POST(request: NextRequest) {
     let snapshotUrl: string | null = null;
     const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || '';
-    const isLocalDev = !appBaseUrl || appBaseUrl.includes('localhost');
+    const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzhub.com';
+    const isLocalDev = appBaseUrl.includes('localhost');
 
     if (isLocalDev) {
       console.log('[trade-create] ⚠️  APP_BASE_URL is not set or points to localhost — skipping pre-generation snapshot.');

@@ -215,7 +215,7 @@ async function processTradeMessage(
       }
     } else {
       console.warn(`[outbox:processTradeMessage] ⚠️  Image not available — falling back to text-only message`);
-      console.warn(`[outbox:processTradeMessage]    To fix: ensure APP_BASE_URL secret is set correctly in the Supabase edge function environment.`);
+      console.warn(`[outbox:processTradeMessage]    To fix: set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.`);
     }
   } else {
     console.warn(`[outbox:processTradeMessage] ⚠️  No trade.id in payload — sending text-only fallback`);
@@ -236,19 +236,9 @@ async function fetchImageBytes(
   newHighPrice?: number
 ): Promise<ArrayBuffer | null> {
   // ── Config check ─────────────────────────────────────────────────────────
-  if (!BASE_URL || BASE_URL.includes('localhost') || BASE_URL === 'https://analyzhub.com') {
-    // analyzhub.com is the default placeholder — treat as unset
-    const isPlaceholder = BASE_URL === 'https://analyzhub.com';
-    if (!BASE_URL || BASE_URL.includes('localhost')) {
-      console.error('[outbox:fetchImageBytes] ❌ APP_BASE_URL is not set or points to localhost.');
-    } else if (isPlaceholder) {
-      console.error('[outbox:fetchImageBytes] ❌ APP_BASE_URL is still the default placeholder (https://analyzhub.com).');
-    }
-    console.error('[outbox:fetchImageBytes] ❌ IMAGE GENERATION SKIPPED. To fix:');
-    console.error('[outbox:fetchImageBytes]    1. Go to Supabase Dashboard → Edge Functions → telegram-outbox-processor → Secrets');
-    console.error('[outbox:fetchImageBytes]    2. Add secret: APP_BASE_URL = https://your-actual-production-domain.com');
-    console.error('[outbox:fetchImageBytes]    3. Redeploy the edge function');
-    console.error('[outbox:fetchImageBytes]    Falling back to text-only Telegram message.');
+  if (!BASE_URL || BASE_URL.includes('localhost')) {
+    console.error('[outbox:fetchImageBytes] ❌ APP_BASE_URL points to localhost — image generation skipped.');
+    console.error('[outbox:fetchImageBytes]    Set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.');
     return null;
   }
 
