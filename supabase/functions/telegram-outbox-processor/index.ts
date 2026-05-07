@@ -180,16 +180,19 @@ async function processTradeMessage(
   const highPrice: number | undefined =
     isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;
 
-  console.log(`[outbox:processTradeMessage] msgType=${msgType} tradeId=${trade?.id} chatId=${chatId}`, {
-    isNewHigh,
-    isWinning,
-    isTesting,
-    highPrice,
-    tradeInstrumentType: trade?.instrument_type,
-    tradeDirection: trade?.direction,
-    tradeSymbol: trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol,
-    existingContractUrl: trade?.contract_url ?? null,
-  });
+  console.log(`[outbox:processTradeMessage] ──────────────────────────────────────────`);
+  console.log(`[outbox:processTradeMessage] TELEGRAM SENDING STARTED`);
+  console.log(`[outbox:processTradeMessage]   msgType:      ${msgType}`);
+  console.log(`[outbox:processTradeMessage]   tradeId:      ${trade?.id ?? 'MISSING'}`);
+  console.log(`[outbox:processTradeMessage]   chatId:       ${chatId}`);
+  console.log(`[outbox:processTradeMessage]   isNewHigh:    ${isNewHigh}`);
+  console.log(`[outbox:processTradeMessage]   isWinning:    ${isWinning}`);
+  console.log(`[outbox:processTradeMessage]   isTesting:    ${isTesting}`);
+  console.log(`[outbox:processTradeMessage]   highPrice:    ${highPrice ?? 'n/a'}`);
+  console.log(`[outbox:processTradeMessage]   symbol:       ${trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol ?? 'unknown'}`);
+  console.log(`[outbox:processTradeMessage]   direction:    ${trade?.direction ?? 'unknown'}`);
+  console.log(`[outbox:processTradeMessage]   contractUrl:  ${trade?.contract_url ?? 'none (will generate fresh)'}`);
+  console.log(`[outbox:processTradeMessage]   BASE_URL:     ${BASE_URL}`);
 
   const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
   console.log(`[outbox:processTradeMessage] Caption built (${caption.length} chars)`);
@@ -198,22 +201,30 @@ async function processTradeMessage(
   // This does NOT depend on Supabase Storage bucket accessibility — bytes are
   // uploaded directly to Telegram via multipart form.
   if (trade?.id) {
-    console.log(`[outbox:processTradeMessage] Attempting image generation for trade ${trade.id} (isNewHigh=${isNewHigh}, highPrice=${highPrice})`);
+    console.log(`[outbox:processTradeMessage] 🖼  Attempting image generation for trade ${trade.id}...`);
     const imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
     if (imgBytes && imgBytes.byteLength > 1024) {
-      console.log(`[outbox:processTradeMessage] ✅ Image generated (${imgBytes.byteLength} bytes) — sending sendPhoto`);
-      return await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
+      console.log(`[outbox:processTradeMessage] ✅ Image ready (${imgBytes.byteLength} bytes) — calling Telegram sendPhoto`);
+      try {
+        const photoResult = await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
+        console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (with image) — message_id: ${photoResult?.result?.message_id}`);
+        return photoResult;
+      } catch (photoErr: any) {
+        console.error(`[outbox:processTradeMessage] ❌ sendPhoto failed: ${photoErr.message}`);
+        console.error(`[outbox:processTradeMessage]    Falling back to text-only message.`);
+      }
+    } else {
+      console.warn(`[outbox:processTradeMessage] ⚠️  Image not available — falling back to text-only message`);
+      console.warn(`[outbox:processTradeMessage]    To fix: set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.`);
     }
-    console.warn(`[outbox:processTradeMessage] ⚠️  Image generation failed or empty for trade ${trade.id} — falling back to text-only alert`);
-    console.warn(`[outbox:processTradeMessage] Ensure APP_BASE_URL is configured and /api/indices/trades/${trade.id}/generate-image is reachable`);
   } else {
-    console.warn(`[outbox:processTradeMessage] No trade.id in payload — sending text fallback`);
+    console.warn(`[outbox:processTradeMessage] ⚠️  No trade.id in payload — sending text-only fallback`);
   }
 
-  // Text fallback — suppress link preview so website OG doesn't appear
-  console.log(`[outbox:processTradeMessage] Sending text-only fallback via sendMessage to ${chatId}`);
+  // Text fallback
+  console.log(`[outbox:processTradeMessage] 📝 Sending text-only Telegram message to ${chatId}`);
   const result = await sendTelegramMessage(botToken, chatId, caption, true);
-  console.log(`[outbox:processTradeMessage] ✅ Text message sent to ${chatId}`);
+  console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (text-only) — message_id: ${result?.result?.message_id}`);
   return result;
 }
 
@@ -224,42 +235,59 @@ async function fetchImageBytes(
   isNewHigh: boolean,
   newHighPrice?: number
 ): Promise<ArrayBuffer | null> {
+  // ── Config check ─────────────────────────────────────────────────────────
+  if (!BASE_URL || BASE_URL.includes('localhost')) {
+    console.error('[outbox:fetchImageBytes] ❌ APP_BASE_URL points to localhost — image generation skipped.');
+    console.error('[outbox:fetchImageBytes]    Set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.');
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  if (isNewHigh) params.set('isNewHigh', 'true');
+  if (newHighPrice != null) params.set('newHighPrice', String(newHighPrice));
+
+  const url = `${BASE_URL}/api/indices/trades/${tradeId}/generate-image${params.size ? '?' + params : ''}`;
+
+  console.log('[outbox:fetchImageBytes] 🖼  IMAGE GENERATION STARTED');
+  console.log('[outbox:fetchImageBytes]    URL:', url);
+  console.log('[outbox:fetchImageBytes]    tradeId:', tradeId, '| isNewHigh:', isNewHigh, '| newHighPrice:', newHighPrice ?? 'n/a');
+
   try {
-    const params = new URLSearchParams();
-    if (isNewHigh) params.set('isNewHigh', 'true');
-    if (newHighPrice != null) params.set('newHighPrice', String(newHighPrice));
-
-    const url = `${BASE_URL}/api/indices/trades/${tradeId}/generate-image${params.size ? '?' + params : ''}`;
-    console.log('[outbox:fetchImageBytes] GET', url);
-
-    if (!BASE_URL || BASE_URL.includes('localhost')) {
-      console.error('[outbox:fetchImageBytes] ❌ BASE_URL is not configured or points to localhost — image generation will fail. Set APP_BASE_URL in Supabase edge function secrets.');
-      return null;
-    }
-
     const res = await fetch(url, {
       signal: AbortSignal.timeout(28_000),
       headers: { 'Accept': 'image/png' },
     });
 
     if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error(`[outbox:fetchImageBytes] ❌ generate-image returned HTTP ${res.status}: ${body.substring(0, 300)}`);
+      const body = await res.text().catch(() => '(unreadable)');
+      console.error(`[outbox:fetchImageBytes] ❌ IMAGE GENERATION FAILED — HTTP ${res.status} ${res.statusText}`);
+      console.error(`[outbox:fetchImageBytes]    Response body: ${body.substring(0, 400)}`);
+      console.error(`[outbox:fetchImageBytes]    Check that the Next.js app at ${BASE_URL} is running and the route /api/indices/trades/${tradeId}/generate-image is accessible.`);
       return null;
     }
 
     const contentType = res.headers.get('content-type') ?? '';
     if (!contentType.startsWith('image/')) {
-      const body = await res.text().catch(() => '');
-      console.error(`[outbox:fetchImageBytes] ❌ Unexpected Content-Type "${contentType}": ${body.substring(0, 200)}`);
+      const body = await res.text().catch(() => '(unreadable)');
+      console.error(`[outbox:fetchImageBytes] ❌ IMAGE GENERATION FAILED — Unexpected Content-Type: "${contentType}"`);
+      console.error(`[outbox:fetchImageBytes]    Body preview: ${body.substring(0, 300)}`);
       return null;
     }
 
     const buf = await res.arrayBuffer();
-    console.log(`[outbox:fetchImageBytes] ✅ Image received: ${buf.byteLength} bytes, Content-Type: ${contentType}`);
+    if (buf.byteLength < 1024) {
+      console.error(`[outbox:fetchImageBytes] ❌ IMAGE GENERATION FAILED — Response too small (${buf.byteLength} bytes), likely an error page.`);
+      return null;
+    }
+
+    console.log(`[outbox:fetchImageBytes] ✅ IMAGE GENERATION COMPLETED — ${buf.byteLength} bytes, Content-Type: ${contentType}`);
     return buf;
   } catch (err: any) {
-    console.error('[outbox:fetchImageBytes] ❌ Exception:', err.message, err.stack?.substring(0, 300));
+    console.error('[outbox:fetchImageBytes] ❌ IMAGE GENERATION FAILED — Exception:', err.message);
+    if (err.name === 'TimeoutError') {
+      console.error('[outbox:fetchImageBytes]    The generate-image request timed out after 28 seconds. The Next.js app may be slow or unresponsive.');
+    }
+    console.error('[outbox:fetchImageBytes]    Stack:', err.stack?.substring(0, 400));
     return null;
   }
 }

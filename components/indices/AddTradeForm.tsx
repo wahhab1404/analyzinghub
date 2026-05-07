@@ -116,6 +116,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     auto_publish_telegram: false,
     is_testing: false,
     testing_channel_ids: [] as string[],
+    // Buy range alert
+    buy_range_min: '',
+    buy_range_max: '',
+    buy_range_expires_at: '',
+    buy_range_telegram_channel_id: '',
   })
   const [testingChannels, setTestingChannels] = useState<Array<{id: string, name: string, telegram_channel_id: string}>>([])
   const [loadingTestingChannels, setLoadingTestingChannels] = useState(false)
@@ -593,6 +598,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   const selectContract = (contract: OptionContract) => {
     setSelectedContract(contract)
+    // Auto-fill entry_override with the contract's current mid price so the
+    // analyst sees the live price and can edit it before publishing.
+    // The analyst's edits to entry_override are preserved until they select a
+    // different contract, at which point the new contract's price is filled in.
+    const midPrice = contract.mid ?? 0
+    const midStr = midPrice > 0 ? midPrice.toFixed(2) : ''
     setFormData({
       ...formData,
       polygon_option_ticker: contract.ticker,
@@ -600,6 +611,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       expiry: contract.expiry,
       option_type: contract.type,
       direction: contract.type,
+      entry_override: midStr,
     })
   }
 
@@ -704,9 +716,31 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         testing_channel_ids: formData.is_testing ? formData.testing_channel_ids : [],
       }
 
+      // Entry price override: send when analyst has manually set / confirmed the price
+      if (formData.entry_override && parseFloat(formData.entry_override) > 0) {
+        payload.entry_override = parseFloat(formData.entry_override)
+        payload.entry_override_reason = formData.entry_override_reason || 'Analyst-confirmed entry price'
+      }
+
       if (marketStatus && !marketStatus.isOpen) {
         payload.current_price = parseFloat(formData.current_price)
         payload.entry_price = formData.entry_price ? parseFloat(formData.entry_price) : parseFloat(formData.current_price)
+      }
+
+      // Buy range alert (optional)
+      if (formData.buy_range_min && formData.buy_range_max) {
+        const rangeMin = parseFloat(formData.buy_range_min)
+        const rangeMax = parseFloat(formData.buy_range_max)
+        if (rangeMin > 0 && rangeMax > rangeMin) {
+          payload.buy_range_min = rangeMin
+          payload.buy_range_max = rangeMax
+          if (formData.buy_range_expires_at) {
+            payload.buy_range_expires_at = new Date(formData.buy_range_expires_at).toISOString()
+          }
+          if (formData.buy_range_telegram_channel_id && formData.buy_range_telegram_channel_id !== 'none') {
+            payload.buy_range_telegram_channel_id = formData.buy_range_telegram_channel_id
+          }
+        }
       }
 
       const apiUrl = standalone || !analysisId
@@ -1298,7 +1332,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                     Selected Contract
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-2">
+                <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <div className="text-muted-foreground text-xs">Ticker</div>
@@ -1313,12 +1347,108 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       <div className="font-medium">{new Date(selectedContract.expiry).toLocaleDateString()}</div>
                     </div>
                     <div>
-                      <div className="text-muted-foreground text-xs">Mid Price</div>
-                      <div className="font-medium">${selectedContract.mid.toFixed(2)}</div>
+                      <div className="text-muted-foreground text-xs">Live Mid Price</div>
+                      <div className="font-semibold text-green-600 dark:text-green-400">${(selectedContract.mid ?? 0).toFixed(2)}</div>
                     </div>
+                    {selectedContract.bid !== undefined && selectedContract.ask !== undefined && (
+                      <div className="col-span-2">
+                        <div className="text-muted-foreground text-xs">Bid / Ask</div>
+                        <div className="font-medium">${(selectedContract.bid ?? 0).toFixed(2)} × ${(selectedContract.ask ?? 0).toFixed(2)}</div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Entry price — auto-filled from mid, analyst can edit */}
+                  <div className="space-y-1 border-t pt-3">
+                    <Label htmlFor="entry_override" className="flex items-center gap-1">
+                      Entry Price
+                      <span className="text-xs text-muted-foreground ml-1">(auto-filled from mid price — you can edit)</span>
+                    </Label>
+                    <Input
+                      id="entry_override"
+                      type="number"
+                      step="0.0001"
+                      value={formData.entry_override}
+                      onChange={(e) => setFormData({ ...formData, entry_override: e.target.value })}
+                      placeholder={`${(selectedContract.mid ?? 0).toFixed(2)}`}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      This will be stored as the official entry price for P/L calculations.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Buy Price Range Alert — only shown when a contract is selected */}
+            {selectedContract && (
+              <div className="space-y-3 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                <div>
+                  <h4 className="font-medium text-sm flex items-center gap-2">
+                    🔔 Buy Price Range Alert
+                    <Badge variant="outline" className="text-xs">Optional</Badge>
+                  </h4>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    If the contract price enters this range, the system will automatically send a <b>Price Hits</b> alert to Telegram.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="buy_range_min" className="text-xs">Min Price</Label>
+                    <Input
+                      id="buy_range_min"
+                      type="number"
+                      step="0.0001"
+                      value={formData.buy_range_min}
+                      onChange={(e) => setFormData({ ...formData, buy_range_min: e.target.value })}
+                      placeholder="e.g. 1.20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="buy_range_max" className="text-xs">Max Price</Label>
+                    <Input
+                      id="buy_range_max"
+                      type="number"
+                      step="0.0001"
+                      value={formData.buy_range_max}
+                      onChange={(e) => setFormData({ ...formData, buy_range_max: e.target.value })}
+                      placeholder="e.g. 1.30"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="buy_range_expires_at" className="text-xs">Alert Expiry (Optional)</Label>
+                  <Input
+                    id="buy_range_expires_at"
+                    type="datetime-local"
+                    value={formData.buy_range_expires_at}
+                    onChange={(e) => setFormData({ ...formData, buy_range_expires_at: e.target.value })}
+                  />
+                  <p className="text-xs text-muted-foreground">Leave blank for no expiry.</p>
+                </div>
+
+                {channels.length > 0 && (
+                  <div className="space-y-1">
+                    <Label htmlFor="buy_range_channel" className="text-xs">Alert Channel (Optional)</Label>
+                    <Select
+                      value={formData.buy_range_telegram_channel_id}
+                      onValueChange={(v) => setFormData({ ...formData, buy_range_telegram_channel_id: v })}
+                    >
+                      <SelectTrigger id="buy_range_channel">
+                        <SelectValue placeholder="Same as main channel" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Same as main channel</SelectItem>
+                        {channels.map((ch) => (
+                          <SelectItem key={ch.id} value={ch.id}>{ch.channel_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
             )}
           </>
         )}
