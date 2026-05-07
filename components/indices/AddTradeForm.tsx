@@ -883,12 +883,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 </div>
               ) : indexPrice !== null ? (
                 <div className="flex items-center gap-2 text-sm">
-                  <TrendingUp className="h-4 w-4 text-green-600" />
-                  <span className="font-semibold text-green-600">
+                  <TrendingUp className={`h-4 w-4 ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`} />
+                  <span className={`font-semibold ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`}>
                     ${indexPrice.toFixed(2)}
                   </span>
-                  <Badge variant="outline" className="text-xs">
-                    Live
+                  <Badge variant="outline" className={`text-xs ${marketStatus?.isOpen ? 'border-green-500 text-green-600' : 'border-yellow-500 text-yellow-500'}`}>
+                    {marketStatus?.isOpen ? 'Live' : marketStatus ? (marketStatus.status === 'pre-market' ? 'Pre-Market' : marketStatus.status === 'after-hours' ? 'After-Hours' : 'Closed') : 'Live'}
                   </Badge>
                 </div>
               ) : null}
@@ -903,16 +903,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   <span>Loading {formData.underlying_index_symbol} price...</span>
                 </div>
               ) : indexPrice !== null ? (
-                <div className="flex items-center gap-2 p-3 border rounded-lg bg-green-50 dark:bg-green-950/20">
-                  <TrendingUp className="h-5 w-5 text-green-600" />
+                <div className={`flex items-center gap-2 p-3 border rounded-lg ${marketStatus?.isOpen ? 'bg-green-50 dark:bg-green-950/20' : 'bg-yellow-50 dark:bg-yellow-950/20'}`}>
+                  <TrendingUp className={`h-5 w-5 ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`} />
                   <div>
-                    <div className="font-semibold text-lg text-green-600">
+                    <div className={`font-semibold text-lg ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`}>
                       {formData.underlying_index_symbol}: ${indexPrice.toFixed(2)}
                     </div>
-                    <div className="text-xs text-muted-foreground">Live Market Price</div>
+                    <div className="text-xs text-muted-foreground">
+                      {marketStatus?.isOpen ? 'Live Market Price' : marketStatus?.message || 'Last Known Price'}
+                    </div>
                   </div>
-                  <Badge variant="outline" className="ml-auto">
-                    Live
+                  <Badge variant="outline" className={`ml-auto ${marketStatus?.isOpen ? 'border-green-500 text-green-600' : 'border-yellow-500 text-yellow-500'}`}>
+                    {marketStatus?.isOpen ? 'Live' : marketStatus ? (marketStatus.status === 'pre-market' ? 'Pre-Market' : marketStatus.status === 'after-hours' ? 'After-Hours' : 'Closed') : 'Live'}
                   </Badge>
                 </div>
               ) : (
