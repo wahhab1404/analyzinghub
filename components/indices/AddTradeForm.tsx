@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { Loader as Loader2, Plus, Trash2, Search, Calendar, TrendingUp } from 'lucide-react'
+import { Loader as Loader2, Plus, Trash2, Search, Calendar, TrendingUp, CheckCircle2, XCircle, Clock, Moon } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
@@ -851,6 +851,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     }
   }
 
+  const marketStatusConfig = (() => {
+    if (!marketStatus) return { label: 'Live', icon: CheckCircle2, color: 'text-green-600', border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-950/20' }
+    if (marketStatus.isOpen)                         return { label: 'Open',        icon: CheckCircle2, color: 'text-green-600',  border: 'border-green-500',  bg: 'bg-green-50 dark:bg-green-950/20' }
+    if (marketStatus.status === 'pre-market')         return { label: 'Pre-Market',  icon: Clock,        color: 'text-blue-500',   border: 'border-blue-500',   bg: 'bg-blue-50 dark:bg-blue-950/20' }
+    if (marketStatus.status === 'after-hours')        return { label: 'After-Hours', icon: Moon,         color: 'text-purple-500', border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950/20' }
+    return { label: 'Closed', icon: XCircle, color: 'text-red-500', border: 'border-red-500', bg: 'bg-red-50 dark:bg-red-950/20' }
+  })()
+
   return (
     <>
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -883,12 +891,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 </div>
               ) : indexPrice !== null ? (
                 <div className="flex items-center gap-2 text-sm">
-                  <TrendingUp className={`h-4 w-4 ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`} />
-                  <span className={`font-semibold ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`}>
+                  <TrendingUp className={`h-4 w-4 ${marketStatusConfig.color}`} />
+                  <span className={`font-semibold ${marketStatusConfig.color}`}>
                     ${indexPrice.toFixed(2)}
                   </span>
-                  <Badge variant="outline" className={`text-xs ${marketStatus?.isOpen ? 'border-green-500 text-green-600' : 'border-yellow-500 text-yellow-500'}`}>
-                    {marketStatus?.isOpen ? 'Live' : marketStatus ? (marketStatus.status === 'pre-market' ? 'Pre-Market' : marketStatus.status === 'after-hours' ? 'After-Hours' : 'Closed') : 'Live'}
+                  <Badge variant="outline" className={`text-xs flex items-center gap-1 ${marketStatusConfig.border} ${marketStatusConfig.color}`}>
+                    <marketStatusConfig.icon className="h-3 w-3" />
+                    {marketStatusConfig.label}
                   </Badge>
                 </div>
               ) : null}
@@ -903,18 +912,19 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   <span>Loading {formData.underlying_index_symbol} price...</span>
                 </div>
               ) : indexPrice !== null ? (
-                <div className={`flex items-center gap-2 p-3 border rounded-lg ${marketStatus?.isOpen ? 'bg-green-50 dark:bg-green-950/20' : 'bg-yellow-50 dark:bg-yellow-950/20'}`}>
-                  <TrendingUp className={`h-5 w-5 ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`} />
+                <div className={`flex items-center gap-2 p-3 border rounded-lg ${marketStatusConfig.bg}`}>
+                  <TrendingUp className={`h-5 w-5 ${marketStatusConfig.color}`} />
                   <div>
-                    <div className={`font-semibold text-lg ${marketStatus?.isOpen ? 'text-green-600' : 'text-yellow-500'}`}>
+                    <div className={`font-semibold text-lg ${marketStatusConfig.color}`}>
                       {formData.underlying_index_symbol}: ${indexPrice.toFixed(2)}
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {marketStatus?.isOpen ? 'Live Market Price' : marketStatus?.message || 'Last Known Price'}
                     </div>
                   </div>
-                  <Badge variant="outline" className={`ml-auto ${marketStatus?.isOpen ? 'border-green-500 text-green-600' : 'border-yellow-500 text-yellow-500'}`}>
-                    {marketStatus?.isOpen ? 'Live' : marketStatus ? (marketStatus.status === 'pre-market' ? 'Pre-Market' : marketStatus.status === 'after-hours' ? 'After-Hours' : 'Closed') : 'Live'}
+                  <Badge variant="outline" className={`ml-auto flex items-center gap-1 ${marketStatusConfig.border} ${marketStatusConfig.color}`}>
+                    <marketStatusConfig.icon className="h-3 w-3" />
+                    {marketStatusConfig.label}
                   </Badge>
                 </div>
               ) : (
