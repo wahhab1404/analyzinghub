@@ -20,11 +20,6 @@ export async function middleware(request: NextRequest) {
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY
 
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[Middleware] Missing Supabase environment variables:', {
-      hasUrl: !!supabaseUrl,
-      hasAnonKey: !!supabaseAnonKey,
-      availableEnvVars: Object.keys(process.env).filter(k => k.includes('SUPABASE')),
-    })
     return response
   }
 
@@ -37,57 +32,48 @@ export async function middleware(request: NextRequest) {
           return request.cookies.get(name)?.value
         },
         set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({
-            name,
-            value,
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          })
+          request.cookies.set({ name, value, ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
+          response.cookies.set({ name, value, ...options })
         },
         remove(name: string, options: CookieOptions) {
-          request.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-          })
+          request.cookies.set({ name, value: '', ...options })
+          response = NextResponse.next({ request: { headers: request.headers } })
+          response.cookies.set({ name, value: '', ...options })
         },
       },
     }
   )
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
   const isAuthPage = request.nextUrl.pathname.startsWith('/login') ||
                      request.nextUrl.pathname.startsWith('/register')
   const isDashboardPage = request.nextUrl.pathname.startsWith('/dashboard')
 
-  if (!user && isDashboardPage) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  // Skip auth check for non-auth-gated routes to avoid unnecessary latency
+  if (!isAuthPage && !isDashboardPage) {
+    return response
   }
 
-  if (user && isAuthPage) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  try {
+    // Race the auth check against a 4-second timeout so slow mobile connections
+    // never hang waiting for Supabase — on timeout we allow the request through
+    // and let the page-level auth handle it.
+    const authResult = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+    ])
+
+    const user = authResult ? (authResult as any).data?.user ?? null : null
+
+    if (!user && isDashboardPage) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+
+    if (user && isAuthPage) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    }
+  } catch {
+    // On any auth error, allow the request through — page-level guards handle it
   }
 
   return response
