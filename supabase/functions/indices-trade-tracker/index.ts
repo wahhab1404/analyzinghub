@@ -140,6 +140,14 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // ── UNDERLYING INDEX PRICE ────────────────────────────────────
+        // Always update regardless of streaming state — the streaming
+        // service only tracks the options contract, never the index.
+        const apiKey = Deno.env.get("POLYGON_API_KEY");
+        if (apiKey && trade.polygon_underlying_index_ticker) {
+          await updateUnderlyingPrice(supabase, trade, apiKey);
+        }
+
         // ── STREAMING vs REST FALLBACK ────────────────────────────────
         const streamingFresh = isStreamingFresh(trade.last_stream_event_at);
 
@@ -466,6 +474,53 @@ async function fetchPolygonSnapshot(
     console.error(`Error fetching Polygon snapshot for ${ticker}:`, err.message);
   }
   return null;
+}
+
+// ── UNDERLYING INDEX PRICE UPDATE ────────────────────────────────────────────
+
+async function updateUnderlyingPrice(
+  supabase: any,
+  trade: any,
+  apiKey: string
+): Promise<void> {
+  try {
+    const ticker = trade.polygon_underlying_index_ticker.startsWith("I:")
+      ? trade.polygon_underlying_index_ticker
+      : `I:${trade.polygon_underlying_index_ticker}`;
+
+    const url = `https://api.polygon.io/v3/snapshot/indices?ticker.any_of=${encodeURIComponent(ticker)}&apiKey=${apiKey}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`⚠️  Underlying price fetch failed for ${ticker}: HTTP ${res.status}`);
+      return;
+    }
+
+    const data = await res.json();
+    if (data.status !== "OK" || !data.results?.length) {
+      console.warn(`⚠️  No underlying snapshot data for ${ticker}`);
+      return;
+    }
+
+    const result = data.results[0];
+    const price: number = result.value ?? result.session?.close ?? 0;
+    if (!price || price <= 0) return;
+
+    const currentHigh = trade.underlying_high_since ?? price;
+    const currentLow  = trade.underlying_low_since  ?? price;
+
+    await supabase
+      .from("index_trades")
+      .update({
+        current_underlying:    price,
+        underlying_high_since: Math.max(currentHigh, price),
+        underlying_low_since:  Math.min(currentLow,  price),
+      })
+      .eq("id", trade.id);
+
+    console.log(`📈 Underlying ${ticker}: $${price.toFixed(2)} (high=${Math.max(currentHigh, price).toFixed(2)}, low=${Math.min(currentLow, price).toFixed(2)})`);
+  } catch (err: any) {
+    console.warn(`⚠️  updateUnderlyingPrice error for trade ${trade.id}: ${err.message}`);
+  }
 }
 
 async function tryGenerateSnapshot(

@@ -474,7 +474,7 @@ export async function POST(
                 channel_id: actualChannelId,
                 status: 'pending',
                 priority: 5,
-                next_retry_at: new Date().toISOString(),
+                next_retry_at: new Date(Date.now() + 12_000).toISOString(),
               });
 
               console.log(`[analysis-trade] ✅ Queued new_trade to outbox for channel ${actualChannelId} (snapshot: ${snapshotUrl ?? 'none'})`);
