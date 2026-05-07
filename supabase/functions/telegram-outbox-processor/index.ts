@@ -73,7 +73,8 @@ Deno.serve(async (req) => {
             TELEGRAM_BOT_TOKEN,
             message.channel_id,
             message.payload,
-            msgType
+            msgType,
+            supabase
           );
         } else if (msgType === 'company_new_trade') {
           telegramResult = await processCompanyTradeMessage(
@@ -171,9 +172,27 @@ async function processTradeMessage(
   botToken: string,
   chatId: string,
   payload: any,
-  msgType: string
+  msgType: string,
+  supabase: any
 ): Promise<any> {
-  const trade    = payload?.trade ?? payload;
+  let trade = payload?.trade ?? payload;
+
+  // Re-fetch contract_url from DB — the payload is captured at trade creation
+  // time when contract_url is still null. generate-trade-snapshot sets it ~5s
+  // later, so we must read the live value before attempting image delivery.
+  if (trade?.id) {
+    const { data: freshData } = await supabase
+      .from('index_trades')
+      .select('contract_url')
+      .eq('id', trade.id)
+      .single();
+    if (freshData?.contract_url) {
+      trade = { ...trade, contract_url: freshData.contract_url };
+      console.log(`[outbox:processTradeMessage] 🔄 Refreshed contract_url from DB: ${trade.contract_url}`);
+    } else {
+      console.log(`[outbox:processTradeMessage] ℹ️  DB contract_url still null for trade ${trade.id}`);
+    }
+  }
   const isNewHigh = msgType === 'new_high';
   const isWinning = msgType === 'winning_trade' || msgType === 'milestone';
   const isTesting = payload?.isTestingMode ?? false;
