@@ -255,6 +255,12 @@ export async function POST(
 
     let telegramChannelId = body.telegram_channel_id || null;
 
+    const nowIso = new Date().toISOString();
+    const buyRangeMin = (body as any).buy_range_min ?? null;
+    const buyRangeMax = (body as any).buy_range_max ?? null;
+    const buyRangeExpiresAt = (body as any).buy_range_expires_at ?? null;
+    const buyRangeTelegramChannelId = (body as any).buy_range_telegram_channel_id ?? null;
+
     const { data: trade, error: insertError } = await supabase
       .from('index_trades')
       .insert({
@@ -269,8 +275,10 @@ export async function POST(
         strike: body.strike || null,
         expiry: body.expiry || null,
         option_type: body.option_type || null,
+        qty: (body as any).qty || 1,
         trade_price_basis: body.trade_price_basis || 'OPTION_PREMIUM',
         entry_price_source: entrySource,
+        entry_price: entryContract,
         entry_override_reason: overrideReason,
         entry_underlying_snapshot: underlyingSnapshot,
         entry_contract_snapshot: contractSnapshot,
@@ -288,10 +296,17 @@ export async function POST(
         contract_url: contractUrl,
         telegram_channel_id: telegramChannelId,
         telegram_send_enabled: true,
-        last_quote_at: new Date().toISOString(),
-        published_at: new Date().toISOString(),
+        last_quote_at: nowIso,
+        last_price_update_at: nowIso,
+        published_at: nowIso,
         is_testing: body.is_testing || false,
         testing_channel_ids: [],
+        buy_range_min: buyRangeMin,
+        buy_range_max: buyRangeMax,
+        buy_range_status: (buyRangeMin !== null && buyRangeMax !== null) ? 'pending' : null,
+        buy_range_expires_at: buyRangeExpiresAt,
+        buy_range_telegram_channel_id: buyRangeTelegramChannelId,
+        buy_range_alert_sent: false,
       })
       .select(`
         *,
@@ -317,8 +332,10 @@ export async function POST(
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+      const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzhub.com';
+
       if (supabaseUrl && serviceRoleKey) {
-        console.log('Generating snapshot for trade:', trade.id);
+        console.log(`[analysis-trade] Generating snapshot for trade ${trade.id}, appBaseUrl: ${appBaseUrl}`);
         const snapshotResponse = await fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
           method: 'POST',
           headers: {
@@ -328,7 +345,7 @@ export async function POST(
           body: JSON.stringify({
             tradeId: trade.id,
             isNewHigh: false,
-            appBaseUrl: process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL,
+            appBaseUrl,
           }),
         });
 
@@ -462,6 +479,26 @@ export async function POST(
 
               console.log(`[analysis-trade] ✅ Queued new_trade to outbox for channel ${actualChannelId} (snapshot: ${snapshotUrl ?? 'none'})`);
             }
+
+            // Fire-and-forget: trigger outbox processor immediately without blocking the response
+            const supabaseUrlEnvLocal = supabaseUrlEnv;
+            const serviceRoleKeyLocal = serviceRoleKey;
+            ;(async () => {
+              try {
+                const processorRes = await fetch(`${supabaseUrlEnvLocal}/functions/v1/telegram-outbox-processor`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${serviceRoleKeyLocal}`,
+                  },
+                  body: JSON.stringify({ triggered_by: 'analysis_trade_create', trade_id: trade.id }),
+                });
+                const processorBody = await processorRes.json().catch(() => ({}));
+                console.log(`[analysis-trade] ✅ Outbox processor completed:`, processorBody);
+              } catch (processorErr: any) {
+                console.error('[analysis-trade] ❌ Outbox processor trigger failed:', processorErr?.message);
+              }
+            })();
           } else {
             console.error('[analysis-trade] Missing Supabase URL or service role key');
           }

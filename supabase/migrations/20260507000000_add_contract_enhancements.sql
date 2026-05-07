@@ -160,3 +160,22 @@ $$;
 -- Grant execute to authenticated users (SECURITY DEFINER enforces row-level auth)
 GRANT EXECUTE ON FUNCTION set_buy_range_alert TO authenticated;
 GRANT EXECUTE ON FUNCTION cancel_buy_range_alert TO authenticated;
+
+-- ─── Trigger: auto-stamp last_price_update_at on current_contract change ──────
+CREATE OR REPLACE FUNCTION trg_stamp_last_price_update_at()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF NEW.current_contract IS DISTINCT FROM OLD.current_contract THEN
+    NEW.last_price_update_at = now();
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS stamp_last_price_update_at ON index_trades;
+
+CREATE TRIGGER stamp_last_price_update_at
+  BEFORE UPDATE ON index_trades
+  FOR EACH ROW EXECUTE FUNCTION trg_stamp_last_price_update_at();
