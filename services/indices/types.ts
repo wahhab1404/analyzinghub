@@ -108,6 +108,7 @@ export interface IndexTrade {
   contract_multiplier: number;
   trade_price_basis: 'OPTION_PREMIUM' | 'UNDERLYING_PRICE';
   entry_price_source: 'polygon' | 'manual';
+  entry_price: number | null;
   entry_override_reason: string | null;
   entry_underlying_snapshot: UnderlyingSnapshot;
   entry_contract_snapshot: ContractSnapshot;
@@ -122,9 +123,19 @@ export interface IndexTrade {
   notes: string | null;
   win_condition_met: string | null;
   loss_condition_met: string | null;
+  qty: number | null;
+  telegram_channel_id: string | null;
   telegram_message_id: string | null;
   telegram_published_at: string | null;
   last_quote_at: string | null;
+  last_price_update_at: string | null;
+  buy_range_min: number | null;
+  buy_range_max: number | null;
+  buy_range_status: 'pending' | 'hit' | 'expired' | 'cancelled' | null;
+  buy_range_hit_at: string | null;
+  buy_range_alert_sent: boolean;
+  buy_range_expires_at: string | null;
+  buy_range_telegram_channel_id: string | null;
   created_at: string;
   published_at: string | null;
   closed_at: string | null;
@@ -218,16 +229,24 @@ export interface CreateTradeRequest {
   direction: TradeDirection;
   underlying_index_symbol: IndexSymbol;
   trade_price_basis?: 'OPTION_PREMIUM' | 'UNDERLYING_PRICE';
-  polygon_option_ticker?: string; // Required for options
-  strike?: number; // Required for options
-  expiry?: string; // Required for options
-  option_type?: OptionType; // Required for options
+  polygon_option_ticker?: string;
+  strike?: number;
+  expiry?: string;
+  option_type?: OptionType;
+  qty?: number;
   targets?: TradeTarget[];
   stoploss?: TradeStoploss;
   notes?: string;
   entry_override?: number;
   entry_override_reason?: string;
   auto_publish_telegram?: boolean;
+  telegram_channel_id?: string;
+  is_testing?: boolean;
+  testing_channel_ids?: string[];
+  buy_range_min?: number;
+  buy_range_max?: number;
+  buy_range_expires_at?: string;
+  buy_range_telegram_channel_id?: string;
 }
 
 export interface UpdateTradeRequest {
