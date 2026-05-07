@@ -7,27 +7,25 @@ export const revalidate = 0;
 export async function GET() {
   try {
     const now = new Date();
-    const etTimeString = now.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-    });
-    const etDate = new Date(etTimeString);
-
     const marketStatus = getMarketStatus();
+
+    // Extract ET parts the same reliable way as the library for the debug log
+    const etParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      weekday: 'short',
+      hour:    'numeric',
+      minute:  'numeric',
+      second:  'numeric',
+      hour12:  false,
+    }).formatToParts(now);
+    const getPart = (t: string) => etParts.find(p => p.type === t)?.value ?? '?';
+    const etDebug = `${getPart('weekday')} ${getPart('hour')}:${getPart('minute')}:${getPart('second')} ET`;
 
     console.log('Market Status Check:', {
       serverTime: now.toISOString(),
-      etTime: etDate.toLocaleString('en-US', {
-        timeZone: 'America/New_York',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-        weekday: 'short'
-      }),
-      isOpen: marketStatus.isOpen,
-      status: marketStatus.status,
-      dayOfWeek: etDate.getDay(),
-      hours: etDate.getHours(),
-      minutes: etDate.getMinutes()
+      etTime:     etDebug,
+      isOpen:     marketStatus.isOpen,
+      status:     marketStatus.status,
     });
 
     return NextResponse.json({
@@ -38,19 +36,14 @@ export async function GET() {
         : 'Manual price override available outside RTH',
       debug: {
         serverTime: now.toISOString(),
-        etTime: etDate.toLocaleString('en-US', {
-          timeZone: 'America/New_York',
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
-      }
+        etTime:     etDebug,
+      },
     }, {
       headers: {
         'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      }
+        'Pragma':  'no-cache',
+        'Expires': '0',
+      },
     });
   } catch (error: any) {
     console.error('Error in GET /api/indices/market-status:', error);
@@ -60,3 +53,4 @@ export async function GET() {
     );
   }
 }
+
