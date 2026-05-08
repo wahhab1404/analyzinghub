@@ -9,36 +9,28 @@ const nextConfig = {
   images: { unoptimized: true },
   optimizeFonts: false,
 
-  // ── WASM support ─────────────────────────────────────────────────────────────
-  // @resvg/resvg-wasm's ESM entry has `import * as wasm from './index_bg.wasm'`.
-  // Without asyncWebAssembly, webpack fails to compile it. asyncWebAssembly lets
-  // webpack parse the static .wasm import without crashing.
-  webpack: (config, { isServer }) => {
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true,
-    };
-    // Place WASM chunks where Next.js/Netlify can serve them server-side.
-    if (isServer) {
-      config.output.webassemblyModuleFilename = 'chunks/[id].wasm';
-    }
-    return config;
-  },
-
-  // ── Bundle non-JS assets needed by server-side image generation ─────────────
-  // @resvg/resvg-wasm requires its .wasm binary at runtime (loaded via readFileSync
-  // inside the initWasm() call). @fontsource/inter provides Inter WOFF2 fonts for
-  // satori. Next.js output-file-tracing skips binary/font files from node_modules,
-  // so we explicitly list them here to ensure they land in the Netlify Lambda bundle.
   experimental: {
+    // ── Keep @resvg/resvg-wasm out of the webpack bundle ───────────────────────
+    // The package's ESM entry has `import * as wasm from './index_bg.wasm'`.
+    // Webpack in Next.js 13 cannot handle that static WASM import even with
+    // asyncWebAssembly:true (layer conflicts in RSC mode). Marking it external
+    // tells Next.js to emit require('@resvg/resvg-wasm') instead of bundling it,
+    // so webpack never touches the .wasm import. The package is then loaded by
+    // Node.js at runtime from node_modules (included via outputFileTracingIncludes).
+    serverComponentsExternalPackages: ['@resvg/resvg-wasm'],
+
+    // ── Bundle non-JS assets into the Netlify Lambda ───────────────────────────
+    // Output-file-tracing does not automatically pick up binary/font files from
+    // node_modules. We include the entire @resvg/resvg-wasm package (so the .wasm
+    // binary + CJS files are present at runtime) plus the Inter WOFF2 fonts.
     outputFileTracingIncludes: {
       '/api/indices/trades/[id]/generate-image': [
-        './node_modules/@resvg/resvg-wasm/index_bg.wasm',
+        './node_modules/@resvg/resvg-wasm/**',
         './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
         './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
       ],
       '/api/debug/contract-image': [
-        './node_modules/@resvg/resvg-wasm/index_bg.wasm',
+        './node_modules/@resvg/resvg-wasm/**',
         './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
         './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
       ],
