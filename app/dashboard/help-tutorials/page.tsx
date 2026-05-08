@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useLanguage } from '@/lib/i18n/language-context';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -1286,6 +1287,300 @@ const ARTICLES: Article[] = [
   },
 ];
 
+/* ═══════════════════════════════════════════════════════════════════
+   ARABIC TRANSLATIONS — keyed by article id
+═══════════════════════════════════════════════════════════════════ */
+const AR_ARTICLES: Record<string, {
+  title: string; summary: string; readTime: string; badge?: string; content: React.ReactNode;
+}> = {
+  'platform-overview': {
+    title: 'نظرة عامة على المنصة: ما هو AnalyzingHub؟',
+    summary: 'مقدمة شاملة لمحطة استخبارات التداول AnalyzingHub — الأدوار والميزات وما يميزها عن غيرها.',
+    readTime: '٥ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>AnalyzingHub هي منصة استخبارات تداول احترافية صُممت لردم الهوة بين محللي السوق والمتداولين النشطين. على خلاف تطبيقات التداول الاجتماعي التقليدية، تقوم المنصة على مفهوم <strong>التحليلات السوقية المنظمة والموثقة</strong> — لا مجرد منشورات عابرة.</p>
+        <h3>الفلسفة الجوهرية</h3>
+        <p>كل تحليل يُنشر على المنصة يلتزم ببنية موحدة: رمز محدد، توجه اتجاهي (شراء أو بيع)، سعر دخول، أهداف ربح، ووقف خسارة. تفرض هذه البنية الانضباط وتجعل تتبع الأداء دقيقاً رياضياً. المنصة تتابع كل ذلك تلقائياً، فتبني سجل أداء حقيقياً وموثقاً لكل محلل.</p>
+        <h3>نوعان من المستخدمين</h3>
+        <p><strong>المحللون (Analyzers)</strong> هم منشئو المحتوى: ينشرون التحليلات، يبنون قاعدة مشتركين، ويحققون دخلاً من خبرتهم عبر مستويات الاشتراك المدفوعة. يمتلكون أدوات كاملة: إنشاء التحليلات، تدوين الصفقات، التقارير، تكامل Telegram، ومحطة مركز المؤشرات.</p>
+        <p><strong>المتداولون (Traders)</strong> هم المستهلكون والممارسون: يتابعون المحللين، يشتركون في المحتوى المميز، ويديرون مجلات صفقاتهم الخاصة، ويبنون سجلات أدائهم بمرور الوقت.</p>
+        <h3>ما يميز AnalyzingHub</h3>
+        <ul>
+          <li><strong>تتبع الأداء الموثق</strong> — معدلات الفوز وإحصائيات الربح والخسارة مبنية على نتائج فعلية لا تقارير ذاتية</li>
+          <li><strong>واجهة مستوحاة من Bloomberg</strong> — مصممة للسرعة وكثافة البيانات</li>
+          <li><strong>دعم ثنائي اللغة</strong> — واجهة كاملة بالإنجليزية والعربية مع تخطيط RTL</li>
+          <li><strong>تكامل Telegram</strong> — تقارير آلية وتنبيهات فورية لمشتركيك</li>
+          <li><strong>ذكاء SPX</strong> — إشارات S&P 500 مدعومة بالذكاء الاصطناعي</li>
+        </ul>
+        <h3>قائمة تحقق البدء</h3>
+        <p>قبل التعمق في الميزات: (١) أكمل ملفك الشخصي بصورة وسيرة ذاتية. (٢) كوّن تفضيلات الإشعارات. (٣) إن كنت محللاً، اربط قناة Telegram وأنشئ مستوى اشتراك واحداً على الأقل. (٤) قم بجولة المنصة التفاعلية من هذه الصفحة. (٥) انشر أول تحليل أو افتح أول إدخال في مجلة الصفقات.</p>
+      </div>
+    ),
+  },
+  'account-setup': {
+    title: 'إعداد الحساب وتهيئة الملف الشخصي',
+    summary: 'دليل خطوة بخطوة لإعداد حساب AnalyzingHub وملفك الشخصي وإشعاراتك وتكامل Telegram.',
+    readTime: '٧ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>ملفك الشخصي على AnalyzingHub هو هويتك التداولية الاحترافية. للمحللين، الملف المكتمل يؤثر مباشرة في اكتساب المشتركين. للمتداولين، يحدد موقعك في لوحة المتصدرين المجتمعية.</p>
+        <h3>الخطوة ١: أكمل ملفك الشخصي</h3>
+        <p>انتقل إلى <strong>ملفي الشخصي ← تعديل الملف</strong>. ستجد حقولاً لاسمك وسيرتك الذاتية وتخصصاتك. يقبل حقل السيرة حتى ٥٠٠ حرف — استخدمه بحكمة لوصف أسلوبك التداولي وإدارة المخاطر. الملفات التي تحتوي صورة تحصل على استفسارات اشتراك أكثر بكثير من تلك التي بلا صورة.</p>
+        <h3>الخطوة ٢: إضافة وسوم التخصص</h3>
+        <p>وسوم مثل "تداول التأرجح"، "الخيارات"، "التحليل الفني"، "SPX" تظهر على ملفك العام وتجعلك قابلاً للاكتشاف. أضف ثلاثة إلى ستة وسوم تعكس خبرتك الحقيقية.</p>
+        <h3>الخطوة ٣: تهيئة الإشعارات</h3>
+        <p>اذهب إلى <strong>الإعدادات ← الإشعارات</strong>. ستجد مفاتيح تبديل لكل فئة: وصول هدف السعر، تفعيل وقف الخسارة، مشترك جديد، إعجاب بتحليل، وتقرير يومي. فعّل ما يهمك وعطّل الباقي — التشبع من الإشعارات حقيقي.</p>
+        <h3>الخطوة ٤: ربط Telegram (للمحللين)</h3>
+        <p>انتقل إلى <strong>الإعدادات ← تكامل Telegram</strong>. ستحتاج إلى توكن API من @BotFather ومعرّف قناتك. أدخل القيمتين واضغط "التحقق من الاتصال". ستتلقى رسالة اختبار للتأكيد.</p>
+        <h3>الخطوة ٥: عرض ملفك العام</h3>
+        <p>انقر "عرض الملف العام" في أي وقت لترى ما يراه المشتركون المحتملون: سيرتك، إجمالي التحليلات، معدل الفوز، عدد المشتركين، وتغذية تحليلاتك المنشورة. الصفقات الخاصة لا تظهر أبداً.</p>
+      </div>
+    ),
+  },
+  'dashboard-overview': {
+    title: 'لوحة التحكم: مركز قيادة التداول',
+    summary: 'تعمق في كل لوحة ومقياس وعنصر على لوحة التحكم الرئيسية — وكيفية تفسيرها بدقة.',
+    readTime: '٨ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>لوحة التحكم هي الشاشة الأولى التي تراها بعد تسجيل الدخول، ومحور سير العمل اليومي. صُممت لإعطائك نظرة فورية كثيفة على أداء التداول والنشاط المجتمعي وبيانات السوق الحية — دون الحاجة للتنقل.</p>
+        <h3>شريط السوق العالمي</h3>
+        <p>يعرض الشريط العلوي أسعاراً حية لـ SPX و NDX و DJI و VIX وعدة أسهم رئيسية. القيم الخضراء تشير إلى ارتفاع الأداة فوق إغلاق الجلسة السابقة، والحمراء إلى انخفاضها. قراءة VIX مهمة بشكل خاص — فوق ٢٠ يشير إلى خوف مرتفع في السوق.</p>
+        <h3>صف مقاييس الأداء</h3>
+        <p><strong>إجمالي الربح والخسارة</strong>: مجموع المكاسب والخسائر المحققة لجميع الصفقات المغلقة. لا يشمل المكاسب غير المحققة.</p>
+        <p><strong>معدل الفوز</strong>: (عدد الصفقات الرابحة المغلقة ÷ إجمالي الصفقات المغلقة) × ١٠٠. اقرأه دائماً جنباً إلى جنب مع نسبة R:R المتوسطة.</p>
+        <p><strong>الصفقات النشطة</strong>: مراكزك المفتوحة حالياً. تتحدث شبه فورياً مع تحرك الأسعار.</p>
+        <h3>تغذية التحليلات الأخيرة</h3>
+        <p>المنطقة الرئيسية تعرض تحليلات المحللين الذين تتابعهم. كل بطاقة تظهر الرمز، التوجه، سعر الدخول، الأهداف، ووقف الخسارة مع المسافة عن السعر الحالي.</p>
+        <h3>لوحة الصفقات النشطة</h3>
+        <p>تعرض نسخة مدمجة من مجلة صفقاتك المفتوحة: سعر الدخول، السعر الحالي، الربح/الخسارة غير المحققة، والمسافة إلى وقف الخسارة وأقرب هدف. الصفوف الخضراء رابحة، والحمراء خاسرة.</p>
+        <h3>تخصيص العرض</h3>
+        <p>تدعم التغذية التصفية حسب نوع التحليل، والمحللين المتابعين فقط، أو التحليلات المحفوظة. يمكن تغيير ترتيب الفرز إلى الأحدث، الأقدم، أعلى معدل فوز، أو الأكثر إعجاباً. تُحفظ هذه الإعدادات للجلسة التالية.</p>
+      </div>
+    ),
+  },
+  'notifications-guide': {
+    title: 'مركز الإشعارات وتنبيهات الأسعار',
+    summary: 'تهيئة وإدارة والتصرف بناءً على الإشعارات وتنبيهات الأسعار الفورية لجميع أدواتك المتتبعة.',
+    readTime: '٥ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>نظام الإشعارات هو الجهاز العصبي الفوري لـ AnalyzingHub. تنبيهات الأسعار وأحداث المشتركين وتحديثات المنصة كلها تتدفق عبر مركز إشعارات واحد.</p>
+        <h3>أنواع الإشعارات</h3>
+        <p><strong>تنبيهات الأسعار</strong>: تُطلق عندما يتجاوز سعر أداة متتبعة مستوى حددته — منطقة الدخول أو هدف الربح أو وقف الخسارة. حساسة للوقت ويجب التصرف فوراً.</p>
+        <p><strong>إشعارات نتيجة التحليل</strong>: تُطلق تلقائياً عند تحقيق هدف أو تفعيل وقف خسارة. يتلقاها المحلل وجميع المشتركين الذين أضافوا التحليل لقائمة المراقبة.</p>
+        <p><strong>أحداث المشتركين</strong>: تُعلم المحللين عند انضمام مشترك جديد أو تجديد اشتراك أو إلغائه.</p>
+        <p><strong>إشعارات النظام</strong>: تغطي ميزات جديدة، صيانة مجدولة، وأحداث أمان الحساب.</p>
+        <h3>تهيئة حدود التنبيه</h3>
+        <p>انتقل إلى <strong>الإعدادات ← الإشعارات</strong>. عتبة حركة السعر تتحكم في حجم الحركة اللازمة قبل إطلاق التنبيه. ١-٢٪ مناسب لمعظم متداولي الأسهم. يستخدم متداولو الخيارات غالباً ٠.٥٪ بسبب حساسيتهم الأعلى للوقت.</p>
+        <h3>إدارة درج الإشعارات</h3>
+        <p>انقر أيقونة الجرس لفتح الدرج. استخدم التبويبات للتصفية: الكل، تنبيهات الأسعار، أحداث المشتركين، والنظام. انقر أي إشعار للانتقال مباشرة إلى التحليل أو الصفقة ذات الصلة.</p>
+        <h3>إشعارات المتصفح</h3>
+        <p>إذا منحت إذن إشعارات المتصفح، ستظهر تنبيهات الأسعار الحرجة كإشعارات سطح مكتب حتى عندما لا تكون AnalyzingHub هي التبويب النشط. يُنصح بهذا بشدة للمتداولين النشطين.</p>
+      </div>
+    ),
+  },
+  'creating-analysis': {
+    title: 'إنشاء تحليل سوقي احترافي',
+    summary: 'الدليل الكامل لنشر تحليل سوقي منظم وعالي الجودة — من اختيار الرمز إلى النشر.',
+    readTime: '١٠ دقائق قراءة',
+    badge: 'للمحللين فقط',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>نشر تحليل سوقي على AnalyzingHub هو النشاط الجوهري للمحللين. التحليل الجيد يحقق ثلاثة أهداف: يوصل أطروحتك بوضوح للمشتركين، يخلق سجلاً محاسبياً لحكمك، ويرسّخ مكانتك كمحترف يمكن التحقق من أدائه.</p>
+        <h3>قبل البدء: انضباط التحليل</h3>
+        <p>الخطأ الأكثر شيوعاً هو النشر بكثرة أو بدون اقتناع كافٍ. لا يمكن حذف تحليل منشور — هذه المحاسبة مقصودة. قبل فتح النموذج، اسأل نفسك: هل سأخاطر برأس مال حقيقي على هذا الإعداد؟ إذا لم تكن الإجابة نعم فورية، التحليل ليس جاهزاً.</p>
+        <h3>الخطوة ١: اختر رمزك</h3>
+        <p>انتقل إلى <strong>الأسهم ← إنشاء تحليل</strong> أو اضغط ⌘N. ابدأ بكتابة الرمز في الحقل المخصص. تبحث المنصة فورياً في جميع أسهم NYSE و NASDAQ والصناديق المتداولة والمؤشرات الرئيسية.</p>
+        <h3>الخطوة ٢: حدد الاتجاه ومستويات الأسعار</h3>
+        <p>اختر <strong>شراء</strong> للتوقع الصعودي أو <strong>بيع</strong> للتوقع الهبوطي. حدد: سعر الدخول (المستوى الفعلي للدخول لا السعر الحالي)، الأهداف (بناءً على المقاومات ومستويات فيبوناتشي)، ووقف الخسارة (حيث تبطل أطروحتك). نسبة R:R بمقدار ٢:١ أو أكثر هي المعيار الاحترافي.</p>
+        <h3>الخطوة ٣: اكتب أطروحتك</h3>
+        <p>اشرح "لماذا" وراء مستويات أسعارك: النمط الفني، المستويات الرئيسية، الإطار الزمني، المحفزات القادمة، والشروط التي تبطل أطروحتك. استهدف ١٥٠-٣٠٠ كلمة. استخدم مراجع سعرية محددة.</p>
+        <h3>الخطوة ٤: الرؤية والنشر</h3>
+        <p>اختر <strong>عام</strong> أو <strong>للمشتركين فقط</strong>. انقر <strong>نشر التحليل</strong>. يظهر التحليل فوراً في التغذية المجتمعية. إذا كان تكامل Telegram نشطاً، يُرسل تنبيه لقناتك خلال ٣٠ ثانية.</p>
+      </div>
+    ),
+  },
+  'analysis-feed': {
+    title: 'التنقل في تغذية التحليل',
+    summary: 'كيفية تصفية وفرز والتفاعل مع والاستفادة القصوى من تغذية التحليل المجتمعية.',
+    readTime: '٦ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>تغذية التحليل هي قلب مجتمع AnalyzingHub — بث مباشر للتحليلات من المحللين الذين تتابعهم والمجتمع الأوسع. إتقان التنقل فيها هو المهارة الأساسية للمتداولين الذين يستخدمون المنصة لاستقاء أفكار الصفقات.</p>
+        <h3>تكوين التغذية</h3>
+        <p>افتراضياً، تعرض التغذية تحليلات من جميع المحللين مرتبة بالأحدث أولاً. يمكنك تضييق ذلك للمحللين الذين تتابعهم فقط باستخدام فلتر "المتابَعون فقط". كل بطاقة تعرض: اسم المحلل ومعدل فوزه، الرمز والاتجاه، سعر الدخول والأهداف ووقف الخسارة، نسبة R:R، وتاريخ النشر والحالة الحالية.</p>
+        <h3>خيارات التصفية</h3>
+        <p>يدعم لوح التصفية عدة فلاتر متزامنة: <strong>الحالة</strong> (نشط، مغلق بربح، مغلق بخسارة)، <strong>الاتجاه</strong> (شراء، بيع)، <strong>فئة الأصول</strong> (أسهم، مؤشرات، صناديق)، <strong>الإطار الزمني</strong> (يومي، تأرجح، مراكز).</p>
+        <h3>التفاعل مع التحليلات</h3>
+        <p>اضغط <strong>الإعجاب</strong> لتأييد تحليل وتعزيز ظهوره. اضغط <strong>الحفظ</strong> لإضافته لقائمة مراقبتك. اضغط <strong>المشاركة</strong> لنسخ رابط عام. اضغط <strong>تعليق</strong> لترك ملاحظة — يُعلم المحللون بالتعليقات الجديدة. اضغط أيقونة <strong>الجرس</strong> على أي بطاقة للاشتراك في تنبيهات سعر ذلك التحليل تحديداً.</p>
+        <h3>فتح التحليل الكامل</h3>
+        <p>انقر في أي مكان على البطاقة (خارج أزرار الإجراءات) لفتح عرض التحليل التفصيلي: النص الكامل، الرسوم البيانية، جدول مستويات الأسعار، سلسلة التعليقات، وملخص ملف المحلل. من العرض الكامل يمكنك ربط التحليل بصفقة في مجلتك.</p>
+      </div>
+    ),
+  },
+  'trade-journal': {
+    title: 'مجلة الصفقات: تسجيل المراكز وتتبعها',
+    summary: 'كيفية تسجيل الصفقات وإعداد مراقبة المراكز وإدارة الإغلاقات الجزئية والحفاظ على مجلة تداول احترافية.',
+    readTime: '٩ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>مجلة الصفقات هي دفتر أداءك الخاص على AnalyzingHub. على خلاف التحليلات المنشورة العامة، مجلة صفقاتك خاصة تماماً — أنت وحدك من يراها. تخدم المجلة غرضين: مراقبة المراكز الآنية وتتبع الأداء التاريخي.</p>
+        <h3>فلسفة التدوين</h3>
+        <p>المتداولون المحترفون يدونون كل صفقة لأن عملية التسجيل تفرض الوضوح. قبل تسجيل أي صفقة يجب الإجابة على: ما الرمز؟ ما الاتجاه؟ ما سعر الدخول؟ ما وقف الخسارة؟ ما الأهداف؟ هذه الأسئلة تُصفي الدخولات الاندفاعية غير المخططة.</p>
+        <h3>فتح صفقة جديدة</h3>
+        <p>انتقل إلى <strong>الصفقات</strong> في الشريط الجانبي. انقر <strong>+ صفقة جديدة</strong>. في الحوار ستجد: الرمز، الاتجاه، سعر الدخول (استخدم دخولك الفعلي)، حجم المركز، وقف الخسارة، الأهداف، ربط بتحليل (اختياري)، وملاحظات.</p>
+        <h3>مراقبة المراكز الحية</h3>
+        <p>بعد تسجيل الصفقة تظهر في مراقب الصفقات ببيانات أسعار حية. لكل صفقة مفتوحة: الربح/الخسارة غير المحقق، المسافة إلى وقف الخسارة، المسافة إلى الهدف، وعمر الصفقة بالأيام.</p>
+        <h3>إدارة المراكز المفتوحة</h3>
+        <p>انقر أي صفقة للوصول إلى: <strong>تعديل وقف الخسارة</strong> (حركه إلى نقطة التعادل أو تتبع المكاسب)، <strong>إغلاق جزئي</strong> (أغلق نسبة من مركزك عند الهدف الأول)، <strong>إضافة للمركز</strong> (سجّل دخولاً إضافياً)، و<strong>إغلاق كامل</strong> (أدخل سعر الخروج الفعلي).</p>
+        <h3>تحليلات أداء الصفقات</h3>
+        <p>تبويب <strong>الأداء</strong> يعرض إحصاءاتك المجمعة: معدل الفوز، متوسط الكسب، متوسط الخسارة، عامل الربح، الحد الأقصى للتراجع، ومتوسط R:R — كلها محسوبة تلقائياً من تاريخ صفقاتك المغلقة.</p>
+      </div>
+    ),
+  },
+  'performance-analytics': {
+    title: 'تحليلات الأداء ولوحة التحكم المالية',
+    summary: 'فهم معدل الفوز ومنحنيات الربح والخسارة ومقاييس التراجع وكيفية استخدام التحليلات لتحسين تداولك.',
+    readTime: '٧ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>لوحة التحكم المالية هي المكان الذي تتحول فيه بيانات الصفقات الخام إلى استخبارات قابلة للتنفيذ حول أدائك. تتجاوز أرقام الربح والخسارة البسيطة لتكشف الأنماط والمزايا والنقاط الضعيفة في نهجك.</p>
+        <h3>منحنى الأسهم</h3>
+        <p>منحنى الأسهم هو أهم رسم بياني في تحليلات أدائك. يرسم القيمة التراكمية لحساب تداولك عبر الزمن مع كل صفقة مغلقة. ابحث عن نعومة المنحنى — المنحنى المتصاعد بسلاسة يشير إلى تحجيم مراكز واتساق في إدارة المخاطر.</p>
+        <h3>معدل الفوز مقابل التوقع</h3>
+        <p>معدل الفوز هو الإحصاء الأكثر استشهاداً والأكثر سوء فهم. معدل فوز ٧٠٪ ممتاز — إذا كان متوسط ربحك أكبر من متوسط خسارتك. الإحصاء المهم هو <strong>التوقع</strong>: (معدل الفوز × متوسط الكسب) − (معدل الخسارة × متوسط الخسارة). أي نظام تداول يجب أن يكون له توقع إيجابي ليكون مستداماً.</p>
+        <h3>عامل الربح</h3>
+        <p>عامل الربح = إجمالي الأرباح الإجمالية ÷ إجمالي الخسائر الإجمالية. عامل ١.٠ يعني التعادل. عامل ١.٥ يعني أنك تكسب ١.٥ دولار لكل دولار تخسره. أنظمة التداول الاحترافية تستهدف عاملاً بين ١.٣-١.٨ كهدف مستدام.</p>
+        <h3>تحليل التراجع</h3>
+        <p>الحد الأقصى للتراجع (MDD) هو أكبر انخفاض من قمة إلى قاع في منحنى أسهمك. التراجع فوق ٢٠٪ صعب على معظم المتداولين تحمّله دون اتخاذ قرارات عاطفية تزيد الخسائر.</p>
+        <h3>تحليل مستوى الرمز والوقت</h3>
+        <p>جدول تفصيل الرموز يكشف أنماطاً غير متوقعة — قد تجد معدل فوز ٨٠٪ على تحليلات AAPL لكن ٤٥٪ فقط على TSLA. التصرف بناءً على هذه الرؤية والتركيز فقط على الأدوات التي لديك فيها ميزة حقيقية هو أحد أعلى التحسينات تأثيراً.</p>
+      </div>
+    ),
+  },
+  'indices-terminal': {
+    title: 'مركز المؤشرات: المحطة الاحترافية للمؤشرات',
+    summary: 'إتقان محطة المؤشرات متعددة الأجزاء — شريط السوق وتغذية التحليل واللوحة اليمنى وبيانات تدفق الخيارات.',
+    readTime: '١٠ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>مركز المؤشرات هو الواجهة الأكثر تطوراً في AnalyzingHub — محطة متعددة الأجزاء مستوحاة من Bloomberg، مصممة خصيصاً لتداول وتحليل المؤشرات الرئيسية: SPX وNDX وDJI وVIX والأدوات ذات الصلة.</p>
+        <h3>لماذا محطة مؤشرات مخصصة؟</h3>
+        <p>تداول المؤشرات مختلف جوهرياً عن تداول الأسهم الفردية. تتأثر المؤشرات بقوى كلية — سياسة الاحتياطي الفيدرالي، إصدارات البيانات الاقتصادية، الأحداث الجيوسياسية. لها أيضاً نظم مشتقات (خيارات، عقود آجلة) أضخم بكثير من أي سهم فردي.</p>
+        <h3>شريط السوق العالمي</h3>
+        <p>يُظهر الشريط العلاقة بين المؤشرات: عندما يرتفع SPX ١٪ ويرتفع VIX ٢٪ في آنٍ واحد، هذا تباعد غير معتاد يسبق عادةً ارتفاعاً في التقلبات. VIX دون ١٥ يشير إلى بيئة هادئة. VIX فوق ٣٠ يشير إلى خوف مرتفع.</p>
+        <h3>لوحة التحليل اليسرى وبيانات تدفق الخيارات</h3>
+        <p>اللوحة اليسرى تعرض التحليلات الخاصة بالمؤشرات. انقر أي تحليل لتحميله في اللوحة اليمنى دون مغادرة المحطة. هذا العرض الجانبي هو ميزة الكفاءة الأساسية للمحطة.</p>
+        <p>قسم تدفق الخيارات يكشف النشاط غير المعتاد في سوق مشتقات المؤشرات: نوع المعاملة (شراء/بيع)، سعر التنفيذ وتاريخ الانتهاء، القيمة الدولارية التقديرية. المسوح الكبيرة للمشتريات فوق مستويات المقاومة تشير إلى تموضع مؤسسي صعودي.</p>
+      </div>
+    ),
+  },
+  'spx-intelligence': {
+    title: 'ذكاء SPX: إشارات الذكاء الاصطناعي وتحليلات الخيارات',
+    summary: 'دليل معمق لـ SPX Intelligence — الإشارات الذكية، تعرض غاما (GEX)، تدفق الخيارات، وكيفية استخدامها معاً.',
+    readTime: '١٢ دقيقة قراءة',
+    badge: 'متقدم',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>SPX Intelligence هي الميزة الأكثر تطوراً في AnalyzingHub — لوحة تحليلات كمية مبنية خصيصاً لسوق خيارات S&P 500. تجمع إشارات الاتجاه المدعومة بالذكاء الاصطناعي مع بيانات المستوى المؤسسي حول تعرض غاما ونسب الشراء/البيع وتدفق الخيارات غير المعتاد.</p>
+        <h3>فهم تعرض غاما (GEX)</h3>
+        <p>تعرض غاما هو أقوى المفاهيم — وأقلها فهماً — في تحليل سوق الخيارات الحديث. عندما يبيع صانعو السوق خيارات، يجب عليهم التحوط عن طريق شراء أو بيع المؤشر الأساسي. عندما يكون صانعو السوق في وضع غاما إيجابي (GEX+)، يشترون عند الهبوط ويبيعون عند الارتفاع — ما يكبت التقلبات. في وضع غاما سلبي (GEX-)، يضخمون التحركات ويزيدون التقلبات. بيئات GEX السلبية تنتج تحركات SPX السريعة الكبيرة.</p>
+        <h3>قراءة إشارة الذكاء الاصطناعي</h3>
+        <p>تجمع الإشارة اليومية مدخلات كمية متعددة في رأي اتجاهي واحد (صعودي، هبوطي، أو محايد) بنسبة ثقة. مستوى ثقة ٧٥٪+ يرتبط تاريخياً باحتمالية أعلى للاتجاه المشار إليه خلال ١-٣ جلسات. مستويات دون ٦٠٪ تشير إلى إشارات متضاربة — ينبغي أن تحمل مخرجات النموذج وزناً أقل.</p>
+        <h3>تفسير تدفق الخيارات في السياق</h3>
+        <p>الفرق الجوهري بين <strong>المسوح</strong> (أوامر تأخذ مستويات متعددة من دفتر الطلبات — تعطي أولوية للسرعة، تشير إلى الإلحاح) و<strong>الكتل</strong> (معاملات فردية كبيرة، غالباً تحوط مؤسسي). عندما ترى مسوح شراء متعددة عند نفس سعر التنفيذ في نفس اليوم، يشير ذلك في الغالب إلى رهان اتجاهي صعودي من مشاركين متطورين.</p>
+        <h3>الجمع بين مجموعات البيانات الثلاث</h3>
+        <p>تنشأ إشارات SPX الأعلى اقتناعاً عندما تتوافق البيانات الثلاث: إشارة الذكاء الاصطناعي صعودية، GEX يُظهر غاما إيجابية (تكبت التقلب الهبوطي)، وتدفق الخيارات يُظهر مسوح شراء. عند التعارض بين هذه العوامل، تكون الحذر مبرراً.</p>
+      </div>
+    ),
+  },
+  'performance-reports': {
+    title: 'تقارير الأداء الآلية وتوزيع Telegram',
+    summary: 'إعداد وتهيئة وتوزيع تقارير أداء PDF الآلية إلى قنوات مشتركي Telegram.',
+    readTime: '٨ دقائق قراءة',
+    badge: 'للمحللين فقط',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>تقارير الأداء الآلية هي واحدة من أقوى أدوات الاحتفاظ بالمشتركين في AnalyzingHub. تقرير أسبوعي احترافي مليء بالبيانات يُرسل تلقائياً لقناة Telegram الخاصة بك يُثبت الاتساق ويبني الثقة ويمنح المشتركين دليلاً ملموساً على قيمة ما يدفعون مقابله.</p>
+        <h3>بنية التقرير</h3>
+        <p>يُولَّد كل تقرير من بيانات صفقاتك المغلقة للفترة المحددة (يومياً أو أسبوعياً أو شهرياً). يتضمن: ملخص الأداء (الصفقات المغلقة، معدل الفوز، صافي الربح والخسارة)، رسم منحنى الأسهم، جدول الصفقات التفصيلي، وملخص الأداء حسب الرمز.</p>
+        <h3>الخطوة ١: ربط Telegram</h3>
+        <p>انتقل إلى <strong>الإعدادات ← تكامل Telegram</strong>. تحتاج إلى توكن API من @BotFather ومعرّف القناة. أدخل القيمتين واضغط <strong>التحقق من الاتصال</strong>. إذا لم تصل رسالة الاختبار، تأكد أن البوت مشرف في القناة بصلاحية نشر الرسائل.</p>
+        <h3>الخطوة ٢: تهيئة إعدادات التقرير</h3>
+        <p>انتقل إلى <strong>مركز المؤشرات ← التقارير ← الإعدادات</strong>: اختر <strong>دورة التقرير</strong> (يومي، أسبوعي، شهري)، <strong>اللغة</strong> (إنجليزي، عربي، أو ثنائي اللغة)، <strong>وقت الإرسال</strong>، والمنطقة الزمنية. خيار التعليق يضيف قسم ملاحظاتك للمشتركين.</p>
+        <h3>الخطوة ٣: معاينة واختبار</h3>
+        <p>انقر <strong>توليد معاينة</strong> لعرض التقرير الحالي كـ PDF في المتصفح. تحقق أن اسمك وصورتك وجميع الصفقات ظاهرة بشكل صحيح، ثم انقر <strong>إرسال اختبار إلى Telegram</strong>.</p>
+        <h3>الخطوة ٤: تفعيل الإرسال التلقائي</h3>
+        <p>فعّل <strong>الإرسال التلقائي</strong>. من هذه اللحظة يُولَّد النظام التقارير ويُرسلها تلقائياً وفق جدولك المحدد. يمكنك أيضاً توليد تقرير يدوي لنطاق تواريخ مخصص في أي وقت بصيغة PDF أو HTML أو صورة PNG.</p>
+      </div>
+    ),
+  },
+  'rankings-leaderboard': {
+    title: 'نظام التصنيفات ولوحة المتصدرين',
+    summary: 'كيفية عمل لوحة المتصدرين وكيفية حساب درجتك واستراتيجيات تحسين تصنيفك بمرور الوقت.',
+    readTime: '٦ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>نظام التصنيفات هو ميريقراطية مجتمع AnalyzingHub — لوحة متصدرين محدَّثة باستمرار تصنّف المحللين بدرجة مركبة تعكس جودة تحليلاتهم واتساقها. هو الآلية الأساسية لاكتشاف أفضل المحللين.</p>
+        <h3>كيف تُحسب درجة التصنيف</h3>
+        <p>الدرجة مزيج موزون من أربعة مكونات:</p>
+        <ul>
+          <li><strong>معدل الفوز (٤٠٪)</strong> — نسبة التحليلات التي أُغلقت بربح</li>
+          <li><strong>متوسط R:R (٣٠٪)</strong> — متوسط نسبة المخاطرة/العائد عبر جميع التحليلات المنشورة</li>
+          <li><strong>عدد الصفقات (١٥٪)</strong> — الحد الأدنى ٢٠ تحليلاً مغلقاً للظهور في اللوحة</li>
+          <li><strong>عدد المشتركين (١٥٪)</strong> — يعكس ثقة المجتمع</li>
+        </ul>
+        <h3>فلاتر الفترة الزمنية</h3>
+        <p>ثلاثة فلاتر: <strong>كل الأوقات</strong> (الأكثر موثوقية إحصائياً)، <strong>هذا الشهر</strong> (لتحديد من يؤدي بشكل استثنائي الآن)، <strong>هذا الأسبوع</strong> (عينات صغيرة — تفسير بحذر). تُعاد اللوحة الشهرية في أول كل شهر. كل الأوقات تراكمية ولا تُعاد أبداً.</p>
+        <h3>تحسين تصنيفك</h3>
+        <p>المسار الأكثر موثوقية: نشر المزيد من التحليلات عالية الجودة وبناء علاقات حقيقية مع المشتركين. الطرق المختصرة — كنشر تحليلات منخفضة المخاطر لحماية معدل الفوز — مرئية في البيانات. مكون R:R يعاقب المحللين الذين ينشرون باستمرار إعدادات بنسبة ١:١ أو أقل. ركّز على: انتظار الإعدادات عالية الاقتناع، تحديد وقف خسارة واضح وأهداف واقعية، وتفاعل مع تعليقات المشتركين لتحسين معدل الاحتفاظ.</p>
+      </div>
+    ),
+  },
+  'settings-guide': {
+    title: 'مرجع الإعدادات وإدارة الحساب',
+    summary: 'مرجع كامل لكل قسم في الإعدادات — الحساب والملف الشخصي والإشعارات و Telegram والمظهر والفواتير.',
+    readTime: '٦ دقائق قراءة',
+    content: (
+      <div className="prose-article" dir="rtl">
+        <p>منطقة الإعدادات هي لوحة التحكم في حسابك على AnalyzingHub. تغطي كل شيء من ملفك العام إلى حدود الإشعارات إلى إدارة الفواتير.</p>
+        <h3>الإعدادات ← الحساب</h3>
+        <p><strong>اسم العرض</strong> يظهر عبر جميع تحليلاتك وصفحات الملف الشخصي ورسائل Telegram. اختر اسماً احترافياً يتسق مع علامتك التجارية. <strong>عنوان البريد الإلكتروني</strong> يُستخدم لرموز OTP وإشعارات الحساب المهمة. <strong>حذف الحساب</strong> في أسفل هذا القسم يزيل حسابك وجميع تحليلاتك وصفقاتك وبيانات المشتركين نهائياً بعد فترة تهدئة ١٤ يوماً.</p>
+        <h3>الإعدادات ← الملف الشخصي</h3>
+        <p><strong>السيرة الذاتية</strong> (حتى ٥٠٠ حرف) تظهر في ملفك العام وتقارير Telegram. <strong>الصورة الشخصية</strong> تظهر على كل بطاقة تحليل تنشرها. <strong>وسوم التخصص</strong> (حتى ٦) تُصنّف خبرتك كفلاتر قابلة للبحث.</p>
+        <h3>الإعدادات ← الإشعارات</h3>
+        <p>١٢ نوعاً من الإشعارات قابلة للتبديل بشكل مستقل. عتبة حركة السعر (افتراضي ١٪) تتحكم في حساسية تنبيهات الأسعار. يمكن منح أو سحب إذن إشعارات المتصفح هنا.</p>
+        <h3>الإعدادات ← المظهر والأمان</h3>
+        <p>تبديل بين الوضع الداكن (الافتراضي) والوضع الفاتح. اختيار اللغة (إنجليزي أو عربي) يُبدّل الواجهة بالكامل بما في ذلك الشريط الجانبي والرؤوس والأزرار وتسميات النماذج. AnalyzingHub تستخدم مصادقة OTP — لا كلمة مرور دائمة، مما يجعل الحسابات آمنة بطبيعتها.</p>
+      </div>
+    ),
+  },
+};
+
+const AR_CATEGORIES: Record<string, string> = {
+  'getting-started': 'البداية والإعداد',
+  'dashboard': 'لوحة التحكم',
+  'analysis': 'التحليل',
+  'trades': 'الصفقات',
+  'indices': 'مركز المؤشرات',
+  'reports': 'التقارير',
+  'rankings': 'التصنيفات',
+  'account': 'الحساب والإعدادات',
+};
+
+const AR_FAQ = [
+  { q: 'ما الفرق بين دور المحلل والمتداول؟', a: 'المحللون (Analyzers) ينشرون تحليلات السوق العامة، ويديرون المشتركين، ويكسبون دخلاً من مستويات الاشتراك المدفوعة. المتداولون (Traders) يتابعون التحليلات، ويديرون مجلة صفقات خاصة، ويشتركون في المحللين. SuperAdmins لديهم وصول كامل للمنصة.' },
+  { q: 'كيف يعمل نظام الدخل من الاشتراكات؟', a: 'يُنشئ المحللون مستويات اشتراك مسماة بأسعار شهرية مخصصة. يشترك المتداولون في محللين محددين ويحصلون على التحليلات الحصرية وتنبيهات Telegram. يُتابع الدخل في لوحة التحكم المالية.' },
+  { q: 'هل يمكنني استخدام AnalyzingHub بالعربية؟', a: 'نعم. انقر على محوّل اللغة (EN/AR) في الرأس. تتحول الواجهة بالكامل إلى العربية مع تخطيط RTL الصحيح. يمكن أيضاً توليد ملفات PDF وتقارير Telegram بالعربية أو بنسختين.' },
+  { q: 'كيف تُتتبع نتائج التحليل تلقائياً؟', a: 'تستطلع المنصة بيانات السوق الحية لكل أداة بها تحليل نشط. عندما يتجاوز السعر الحالي منطقة الدخول أو الهدف أو وقف الخسارة، تتحدث بطاقة التحليل وتُرسل إشعارات لك وللمشتركين.' },
+  { q: 'ما هو تعرض غاما (GEX) ولماذا يهم؟', a: 'GEX يقيس مقدار ما يجب على صانعي سوق SPX شراؤه أو بيعه للتحوط مع تحرك الأسعار. GEX الإيجابي يكبت التقلبات؛ السلبي يضخمها. فهم GEX يساعد في التنبؤ بما إذا كان السوق سيتجه أو يتراوح.' },
+  { q: 'كيف تعمل تقارير Telegram الآلية؟', a: 'ارتبط بوت Telegram الخاص بك في الإعدادات، ثم هيّئ إعدادات التقرير في مركز المؤشرات ← التقارير. تُولَّد التقارير كملفات PDF وتُرسل تلقائياً إلى قناتك وفق الجدول الذي تحدده — يومياً أو أسبوعياً أو شهرياً.' },
+  { q: 'هل بيانات مجلة صفقاتي خاصة؟', a: 'نعم. مجلة صفقاتك خاصة تماماً. أنت وحدك من يرى صفقاتك المسجلة ومراكزك المفتوحة وتحليلات أدائك. التحليلات المنشورة عامة أو للمشتركين فقط؛ إدخالات مجلة الصفقات لا تُكشف أبداً.' },
+  { q: 'كيف تُحسب درجة تصنيف لوحة المتصدرين؟', a: 'الدرجة = معدل الفوز (٤٠٪) + متوسط R:R (٣٠٪) + عدد الصفقات (١٥٪) + عدد المشتركين (١٥٪). جميع المكونات تُطبَّع على مقياس ٠-١٠٠ قبل الترجيح. الحد الأدنى ٢٠ تحليلاً مغلقاً للظهور في اللوحة.' },
+];
+
 const CATEGORIES = [
   { id: 'getting-started', label: 'Getting Started', icon: GraduationCap, color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3, color: 'text-slate-400', bg: 'bg-slate-500/10 border-slate-500/20' },
@@ -1316,10 +1611,17 @@ export default function HelpTutorialsPage() {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [openArticle, setOpenArticle] = useState<Article | null>(null);
+  const { language } = useLanguage();
+  const isAr = language === 'ar';
+
+  const getAr = (a: Article) => AR_ARTICLES[a.id] ?? { title: a.title, summary: a.summary, readTime: a.readTime, badge: a.badge, content: a.content };
 
   const filtered = ARTICLES.filter(a => {
+    const ar = getAr(a);
     const matchCat = !activeCategory || a.category === activeCategory;
-    const matchSearch = !search || a.title.toLowerCase().includes(search.toLowerCase()) || a.summary.toLowerCase().includes(search.toLowerCase());
+    const searchTitle = isAr ? ar.title : a.title;
+    const searchSummary = isAr ? ar.summary : a.summary;
+    const matchSearch = !search || searchTitle.toLowerCase().includes(search.toLowerCase()) || searchSummary.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   });
 
@@ -1332,26 +1634,28 @@ export default function HelpTutorialsPage() {
   if (openArticle) {
     const catMeta = CATEGORIES.find(c => c.id === openArticle.category);
     const sameCategory = ARTICLES.filter(a => a.category === openArticle.category && a.id !== openArticle.id);
+    const arData = getAr(openArticle);
+    const catLabel = isAr ? (AR_CATEGORIES[openArticle.category] ?? catMeta?.label) : catMeta?.label;
     return (
-      <div className="max-w-4xl mx-auto pb-16">
+      <div className="max-w-4xl mx-auto pb-16" dir={isAr ? 'rtl' : 'ltr'}>
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
           <button
             onClick={() => setOpenArticle(null)}
             className="flex items-center gap-1.5 hover:text-foreground transition-colors"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Help & Tutorials
+            {isAr ? <ArrowRight className="h-3.5 w-3.5" /> : <ArrowLeft className="h-3.5 w-3.5" />}
+            {isAr ? 'المساعدة والدروس' : 'Help & Tutorials'}
           </button>
           <ChevronRight className="h-3.5 w-3.5 opacity-40" />
           <button
             onClick={() => { setActiveCategory(openArticle.category); setOpenArticle(null); }}
             className="hover:text-foreground transition-colors"
           >
-            {catMeta?.label}
+            {catLabel}
           </button>
           <ChevronRight className="h-3.5 w-3.5 opacity-40" />
-          <span className="text-foreground">{openArticle.title}</span>
+          <span className="text-foreground">{isAr ? arData.title : openArticle.title}</span>
         </div>
 
         {/* Article header */}
@@ -1360,18 +1664,18 @@ export default function HelpTutorialsPage() {
             {catMeta && (
               <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${catMeta.bg} ${catMeta.color}`}>
                 <catMeta.icon className="h-3 w-3" />
-                {catMeta.label}
+                {catLabel}
               </span>
             )}
-            {openArticle.badge && (
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${openArticle.badgeColor}`}>{openArticle.badge}</span>
+            {(isAr ? arData.badge : openArticle.badge) && (
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${openArticle.badgeColor}`}>{isAr ? arData.badge : openArticle.badge}</span>
             )}
             <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Clock className="h-3 w-3" />{openArticle.readTime}
+              <Clock className="h-3 w-3" />{isAr ? arData.readTime : openArticle.readTime}
             </span>
           </div>
-          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3 leading-tight">{openArticle.title}</h1>
-          <p className="text-muted-foreground text-base leading-relaxed">{openArticle.summary}</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-foreground mb-3 leading-tight">{isAr ? arData.title : openArticle.title}</h1>
+          <p className="text-muted-foreground text-base leading-relaxed">{isAr ? arData.summary : openArticle.summary}</p>
         </div>
 
         {/* Terminal Mockup */}
@@ -1391,26 +1695,26 @@ export default function HelpTutorialsPage() {
               .prose-article ul li::before { content: "›"; position: absolute; left: 0; color: hsl(var(--primary)); font-weight: bold; }
               .prose-article em { font-style: italic; color: hsl(var(--foreground)); }
             `}</style>
-            {openArticle.content}
+            {isAr ? arData.content : openArticle.content}
           </CardContent>
         </Card>
 
         {/* Related articles */}
         {sameCategory.length > 0 && (
           <div>
-            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">Related Articles</p>
+            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4">{isAr ? 'مقالات ذات صلة' : 'Related Articles'}</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {sameCategory.slice(0, 4).map(a => {
-                const cat = CATEGORIES.find(c => c.id === a.category);
+                const arA = getAr(a);
                 return (
                   <button
                     key={a.id}
                     onClick={() => { setOpenArticle(a); window.scrollTo(0, 0); }}
                     className="text-left p-4 rounded-xl border border-border bg-card hover:border-primary/50 hover:bg-primary/5 transition-all group"
                   >
-                    <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors mb-1 line-clamp-2">{a.title}</p>
+                    <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors mb-1 line-clamp-2">{isAr ? arA.title : a.title}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground mt-2">
-                      <Clock className="h-3 w-3" />{a.readTime}
+                      <Clock className="h-3 w-3" />{isAr ? arA.readTime : a.readTime}
                       <ArrowRight className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
                     </div>
                   </button>
@@ -1425,7 +1729,7 @@ export default function HelpTutorialsPage() {
 
   /* ── Main Index View ── */
   return (
-    <div className="max-w-6xl mx-auto pb-16 space-y-10">
+    <div className="max-w-6xl mx-auto pb-16 space-y-10" dir={isAr ? 'rtl' : 'ltr'}>
 
       {/* ── Hero ── */}
       <div className="relative overflow-hidden rounded-2xl border border-border bg-card">
@@ -1436,26 +1740,35 @@ export default function HelpTutorialsPage() {
             <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             <span className="text-xs font-bold text-primary tracking-wide">AnalyzingHub Documentation v2.0</span>
           </div>
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3 leading-tight">Help Center & Tutorials</h1>
+          <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3 leading-tight">
+            {isAr ? 'مركز المساعدة والدروس' : 'Help Center & Tutorials'}
+          </h1>
           <p className="text-muted-foreground text-base md:text-lg leading-relaxed mb-8">
-            Deep-dive guides for every feature of the AnalyzingHub trading terminal — from your first analysis to advanced SPX intelligence workflows.
+            {isAr
+              ? 'أدلة معمّقة لكل ميزة في محطة التداول AnalyzingHub — من تحليلك الأول إلى سير عمل ذكاء SPX المتقدم.'
+              : 'Deep-dive guides for every feature of the AnalyzingHub trading terminal — from your first analysis to advanced SPX intelligence workflows.'}
           </p>
           <div className="relative max-w-lg">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
             <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search articles, features, FAQs…"
+              placeholder={isAr ? 'ابحث في المقالات والميزات والأسئلة الشائعة…' : 'Search articles, features, FAQs…'}
               className="pl-10 pr-4 h-11 bg-background/70 border-border focus:border-primary"
             />
           </div>
           <div className="flex flex-wrap gap-5 mt-7 text-sm text-muted-foreground">
-            {[
+            {(isAr ? [
+              { icon: BookOpen, label: `${ARTICLES.length} مقالاً` },
+              { icon: GraduationCap, label: '٨ أقسام موضوعية' },
+              { icon: Terminal, label: 'محاكاة محطة حية' },
+              { icon: HelpCircle, label: 'أسئلة شائعة ودعم' },
+            ] : [
               { icon: BookOpen, label: `${ARTICLES.length} Articles` },
               { icon: GraduationCap, label: '8 Topic Sections' },
               { icon: Terminal, label: 'Live Terminal Mockups' },
               { icon: HelpCircle, label: 'FAQ & Support' },
-            ].map(({ icon: Icon, label }) => (
+            ]).map(({ icon: Icon, label }) => (
               <div key={label} className="flex items-center gap-1.5">
                 <Icon className="h-3.5 w-3.5 text-primary" />
                 {label}
@@ -1472,7 +1785,7 @@ export default function HelpTutorialsPage() {
             onClick={() => setActiveCategory(null)}
             className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${!activeCategory ? 'bg-primary text-primary-foreground border-primary' : 'bg-secondary/50 border-border text-muted-foreground hover:text-foreground hover:border-primary/40'}`}
           >
-            All Topics
+            {isAr ? 'جميع المواضيع' : 'All Topics'}
           </button>
           {CATEGORIES.map(cat => {
             const Icon = cat.icon;
@@ -1484,7 +1797,7 @@ export default function HelpTutorialsPage() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${active ? `${cat.bg} ${cat.color} border-current` : 'bg-secondary/50 border-border text-muted-foreground hover:text-foreground hover:border-primary/40'}`}
               >
                 <Icon className="h-3 w-3" />
-                {cat.label}
+                {isAr ? (AR_CATEGORIES[cat.id] ?? cat.label) : cat.label}
               </button>
             );
           })}
@@ -1495,13 +1808,14 @@ export default function HelpTutorialsPage() {
       {!activeCategory && !search && (
         <div>
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Zap className="h-3.5 w-3.5 text-primary" /> Popular Articles
+            <Zap className="h-3.5 w-3.5 text-primary" /> {isAr ? 'المقالات الأكثر قراءة' : 'Popular Articles'}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {['platform-overview', 'creating-analysis', 'trade-journal', 'spx-intelligence'].map(id => {
               const a = ARTICLES.find(x => x.id === id)!;
               const cat = CATEGORIES.find(c => c.id === a.category)!;
               const CatIcon = cat.icon;
+              const arA = getAr(a);
               return (
                 <button
                   key={id}
@@ -1511,10 +1825,10 @@ export default function HelpTutorialsPage() {
                   <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 bg-background/50 border border-current/20`}>
                     <CatIcon className={`h-4 w-4 ${cat.color}`} />
                   </div>
-                  <p className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors leading-tight">{a.title}</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{a.summary}</p>
+                  <p className="text-sm font-bold text-foreground mb-1 group-hover:text-primary transition-colors leading-tight">{isAr ? arA.title : a.title}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2">{isAr ? arA.summary : a.summary}</p>
                   <div className="flex items-center gap-1 mt-3 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" />{a.readTime}
+                    <Clock className="h-3 w-3" />{isAr ? arA.readTime : a.readTime}
                     <ArrowRight className="h-3 w-3 ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
                 </button>
@@ -1528,8 +1842,8 @@ export default function HelpTutorialsPage() {
       {search && filtered.length === 0 && (
         <div className="text-center py-16 text-muted-foreground">
           <Search className="h-10 w-10 mx-auto mb-3 opacity-30" />
-          <p className="font-semibold">No articles match "{search}"</p>
-          <p className="text-sm mt-1">Try a different keyword or browse by category.</p>
+          <p className="font-semibold">{isAr ? `لا توجد مقالات تطابق "${search}"` : `No articles match "${search}"`}</p>
+          <p className="text-sm mt-1">{isAr ? 'جرب كلمة مختلفة أو تصفح حسب الفئة.' : 'Try a different keyword or browse by category.'}</p>
         </div>
       )}
 
@@ -1542,12 +1856,15 @@ export default function HelpTutorialsPage() {
                 <CatIcon className={`h-4 w-4 ${cat.color}`} />
               </div>
               <div>
-                <h2 className="text-base font-bold text-foreground">{cat.label}</h2>
-                <p className="text-xs text-muted-foreground">{cat.articles.length} article{cat.articles.length !== 1 ? 's' : ''}</p>
+                <h2 className="text-base font-bold text-foreground">{isAr ? (AR_CATEGORIES[cat.id] ?? cat.label) : cat.label}</h2>
+                <p className="text-xs text-muted-foreground">{isAr ? `${cat.articles.length} مقال` : `${cat.articles.length} article${cat.articles.length !== 1 ? 's' : ''}`}</p>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {cat.articles.map(a => (
+              {cat.articles.map(a => {
+                const arA = getAr(a);
+                const displayBadge = isAr ? (arA.badge ?? a.badge) : a.badge;
+                return (
                 <button
                   key={a.id}
                   onClick={() => { setOpenArticle(a); window.scrollTo(0, 0); }}
@@ -1558,21 +1875,22 @@ export default function HelpTutorialsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-2 flex-wrap mb-1">
-                      <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors leading-snug">{a.title}</p>
-                      {a.badge && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${a.badgeColor}`}>{a.badge}</span>
+                      <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors leading-snug">{isAr ? arA.title : a.title}</p>
+                      {displayBadge && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${a.badgeColor}`}>{displayBadge}</span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed mb-3 line-clamp-2">{a.summary}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed mb-3 line-clamp-2">{isAr ? arA.summary : a.summary}</p>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Clock className="h-3 w-3" />{a.readTime}
+                      <Clock className="h-3 w-3" />{isAr ? arA.readTime : a.readTime}
                       <span className="ml-auto flex items-center gap-0.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity font-semibold text-[11px]">
-                        Read <ArrowRight className="h-3 w-3" />
+                        {isAr ? 'اقرأ' : 'Read'} <ArrowRight className="h-3 w-3" />
                       </span>
                     </div>
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
@@ -1584,12 +1902,21 @@ export default function HelpTutorialsPage() {
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
               <Keyboard className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Keyboard Shortcuts</CardTitle>
+              <CardTitle className="text-base">{isAr ? 'اختصارات لوحة المفاتيح' : 'Keyboard Shortcuts'}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
+              {(isAr ? [
+                { keys: ['⌘', 'K'], desc: 'لوحة الأوامر' },
+                { keys: ['⌘', 'N'], desc: 'تحليل جديد' },
+                { keys: ['⌘', '/'], desc: 'بحث عام' },
+                { keys: ['⌘', 'D'], desc: 'لوحة التحكم' },
+                { keys: ['⌘', 'F'], desc: 'التغذية' },
+                { keys: ['⌘', 'T'], desc: 'الصفقات' },
+                { keys: ['Esc'], desc: 'إغلاق الحوار' },
+                { keys: ['Tab'], desc: 'الحقل التالي' },
+              ] : [
                 { keys: ['⌘', 'K'], desc: 'Command palette' },
                 { keys: ['⌘', 'N'], desc: 'New analysis' },
                 { keys: ['⌘', '/'], desc: 'Global search' },
@@ -1598,7 +1925,7 @@ export default function HelpTutorialsPage() {
                 { keys: ['⌘', 'T'], desc: 'Trades' },
                 { keys: ['Esc'], desc: 'Close dialog' },
                 { keys: ['Tab'], desc: 'Next form field' },
-              ].map(({ keys, desc }) => (
+              ]).map(({ keys, desc }) => (
                 <div key={desc} className="flex items-center gap-2.5 p-2.5 rounded-lg border border-border bg-secondary/20">
                   <div className="flex items-center gap-0.5 flex-shrink-0">
                     {keys.map((k, i) => (
@@ -1622,12 +1949,12 @@ export default function HelpTutorialsPage() {
           <CardHeader className="pb-2">
             <div className="flex items-center gap-2">
               <HelpCircle className="h-4 w-4 text-primary" />
-              <CardTitle className="text-base">Frequently Asked Questions</CardTitle>
+              <CardTitle className="text-base">{isAr ? 'الأسئلة الشائعة' : 'Frequently Asked Questions'}</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
             <Accordion type="single" collapsible>
-              {FAQ_ITEMS.map((item, i) => (
+              {(isAr ? AR_FAQ : FAQ_ITEMS).map((item, i) => (
                 <AccordionItem key={i} value={`faq-${i}`}>
                   <AccordionTrigger className="text-sm font-semibold text-left hover:text-primary py-4">
                     {item.q}
@@ -1645,11 +1972,15 @@ export default function HelpTutorialsPage() {
       {/* ── Support Footer ── */}
       {!search && !activeCategory && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {[
+          {(isAr ? [
+            { icon: LifeBuoy, title: 'تواصل مع الدعم', desc: 'تواصل مع الفريق لمشكلات الحساب أو الإبلاغ عن أخطاء أو استفسارات الفواتير.', action: 'فتح تذكرة دعم', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
+            { icon: BookMarked, title: 'ملاحظات الإصدار', desc: 'اطلع على آخر تحديثات المنصة والميزات الجديدة والمشكلات المحلولة.', action: 'عرض سجل التغييرات', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20' },
+            { icon: Bookmark, title: 'إعادة جولة المنصة', desc: 'ابدأ الجولة الإرشادية التفاعلية لإعادة زيارة أي ميزة خطوة بخطوة.', action: 'بدء الجولة', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+          ] : [
             { icon: LifeBuoy, title: 'Contact Support', desc: 'Reach the team for account issues, bug reports, or billing questions.', action: 'Open Support Ticket', color: 'text-blue-400', bg: 'bg-blue-500/10 border-blue-500/20' },
             { icon: BookMarked, title: 'Release Notes', desc: 'See the latest platform updates, new features, and resolved issues.', action: 'View Changelog', color: 'text-violet-400', bg: 'bg-violet-500/10 border-violet-500/20' },
             { icon: Bookmark, title: 'Restart Platform Tour', desc: 'Launch the interactive guided tour to revisit any feature step-by-step.', action: 'Launch Tour', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
-          ].map(({ icon: Icon, title, desc, action, color, bg }) => (
+          ]).map(({ icon: Icon, title, desc, action, color, bg }) => (
             <div key={title} className={`rounded-xl border p-5 flex flex-col ${bg}`}>
               <Icon className={`h-6 w-6 ${color} mb-3 flex-shrink-0`} />
               <p className="font-bold text-sm mb-1">{title}</p>
@@ -1666,7 +1997,7 @@ export default function HelpTutorialsPage() {
       {!search && !activeCategory && (
         <div className="flex items-start gap-3 p-4 rounded-lg border border-border bg-secondary/10 text-xs text-muted-foreground">
           <Terminal className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-          <p><span className="font-bold text-foreground">AnalyzingHub Terminal</span> — All platform content is for educational and informational purposes only. Market analyses are user-generated. Past performance does not guarantee future results. Always conduct independent research before making financial decisions.</p>
+          <p><span className="font-bold text-foreground">AnalyzingHub Terminal</span> — {isAr ? 'جميع محتويات المنصة للأغراض التعليمية والمعلوماتية فقط. تحليلات السوق من إنشاء المستخدمين. الأداء السابق لا يضمن النتائج المستقبلية. أجرِ دائماً بحثك المستقل قبل اتخاذ قرارات مالية.' : 'All platform content is for educational and informational purposes only. Market analyses are user-generated. Past performance does not guarantee future results. Always conduct independent research before making financial decisions.'}</p>
         </div>
       )}
     </div>
