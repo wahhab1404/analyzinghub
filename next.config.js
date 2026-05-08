@@ -4,19 +4,32 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors. This is safe because we've excluded
-    // Supabase Edge Functions (Deno) from tsconfig.json
     ignoreBuildErrors: true,
   },
   images: { unoptimized: true },
   optimizeFonts: false,
 
+  // ── WASM support ─────────────────────────────────────────────────────────────
+  // @resvg/resvg-wasm's ESM entry has `import * as wasm from './index_bg.wasm'`.
+  // Without asyncWebAssembly, webpack fails to compile it. asyncWebAssembly lets
+  // webpack parse the static .wasm import without crashing.
+  webpack: (config, { isServer }) => {
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+    };
+    // Place WASM chunks where Next.js/Netlify can serve them server-side.
+    if (isServer) {
+      config.output.webassemblyModuleFilename = 'chunks/[id].wasm';
+    }
+    return config;
+  },
+
   // ── Bundle non-JS assets needed by server-side image generation ─────────────
-  // @resvg/resvg-wasm requires its .wasm binary at runtime.
-  // @fontsource/inter provides the Inter font WOFF2 files used by satori.
-  // Next.js output-file-tracing does NOT automatically include binary/font files
-  // from node_modules — this list ensures they are bundled into the Lambda.
+  // @resvg/resvg-wasm requires its .wasm binary at runtime (loaded via readFileSync
+  // inside the initWasm() call). @fontsource/inter provides Inter WOFF2 fonts for
+  // satori. Next.js output-file-tracing skips binary/font files from node_modules,
+  // so we explicitly list them here to ensure they land in the Netlify Lambda bundle.
   experimental: {
     outputFileTracingIncludes: {
       '/api/indices/trades/[id]/generate-image': [
