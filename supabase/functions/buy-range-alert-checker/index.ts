@@ -88,6 +88,7 @@ Deno.serve(async (req: Request) => {
         buy_range_status, buy_range_alert_sent, buy_range_image_sent,
         buy_range_expires_at, buy_range_telegram_channel_id,
         analysis_id, author_id, status,
+        contract_url, alert_image_url,
         author:profiles!author_id(id, full_name),
         analysis:index_analyses(id, title, index_symbol)
       `)
@@ -181,27 +182,45 @@ Deno.serve(async (req: Request) => {
       const caption = buildPriceHitsCaption(trade, currentPrice, BASE_URL);
 
       // ── Try image send ───────────────────────────────────────────────────
-      console.log(`[buy-range-checker]   📸 IMAGE GENERATION STARTED — tradeId: ${trade.id}`);
       let imageSent = false;
 
-      if (!BASE_URL.includes('localhost')) {
+      // Prefer the pre-generated snapshot URL (instant) over on-demand rendering.
+      // alert_image_url is set by POST /api/indices/trades/[id]/snapshot-image.
+      // contract_url is set by the generate-trade-snapshot edge function at trade creation.
+      const snapshotUrl: string | null = trade.alert_image_url || trade.contract_url || null;
+
+      if (snapshotUrl) {
+        console.log(`[buy-range-checker]   ⚡ Using pre-generated snapshot URL — calling sendPhoto with URL`);
+        try {
+          await sendTelegramPhotoUrl(botToken, channelId, snapshotUrl, caption);
+          imageSent = true;
+          results.images_sent++;
+          console.log(`[buy-range-checker]   ✅ PHOTO (URL) SENT to ${channelId}`);
+        } catch (urlErr: any) {
+          console.error(`[buy-range-checker]   ❌ sendPhoto (URL) failed: ${urlErr.message} — falling back to on-demand generation`);
+        }
+      }
+
+      // On-demand generation fallback: fetch + upload bytes if no snapshot URL or URL send failed
+      if (!imageSent && !BASE_URL.includes('localhost')) {
+        console.log(`[buy-range-checker]   📸 On-demand image generation — tradeId: ${trade.id}`);
         try {
           const imgBuffer = await fetchImageBuffer(trade.id, BASE_URL);
 
           if (imgBuffer && imgBuffer.byteLength > 1024) {
-            console.log(`[buy-range-checker]   📸 Image ready (${imgBuffer.byteLength} bytes) — calling sendPhoto`);
+            console.log(`[buy-range-checker]   📸 Image ready (${imgBuffer.byteLength} bytes) — calling sendPhoto (bytes)`);
             await sendTelegramPhotoBytes(botToken, channelId, imgBuffer, caption);
             imageSent = true;
             results.images_sent++;
-            console.log(`[buy-range-checker]   ✅ PHOTO SENT to ${channelId}`);
+            console.log(`[buy-range-checker]   ✅ PHOTO (bytes) SENT to ${channelId}`);
           } else {
             console.warn(`[buy-range-checker]   ⚠️  Image buffer empty or too small — falling back to text`);
           }
         } catch (imgErr: any) {
-          console.error(`[buy-range-checker]   ❌ Image/sendPhoto failed: ${imgErr.message} — falling back to text`);
+          console.error(`[buy-range-checker]   ❌ On-demand image/sendPhoto failed: ${imgErr.message} — falling back to text`);
         }
-      } else {
-        console.log(`[buy-range-checker]   ⚠️  BASE_URL is localhost — skipping image generation`);
+      } else if (!imageSent) {
+        console.log(`[buy-range-checker]   ⚠️  BASE_URL is localhost and no snapshot URL — skipping image`);
       }
 
       // ── Text fallback if image not sent ──────────────────────────────────
@@ -311,6 +330,34 @@ async function fetchImageBuffer(tradeId: string, baseUrl: string): Promise<Array
 }
 
 // ─── Telegram helpers ─────────────────────────────────────────────────────────
+
+async function sendTelegramPhotoUrl(
+  botToken: string,
+  chatId: string,
+  photoUrl: string,
+  caption: string
+): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      photo: photoUrl,
+      caption: caption.substring(0, 1024),
+      parse_mode: "HTML",
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram sendPhoto (URL) error (${res.status}): ${err}`);
+  }
+
+  const body = await res.json();
+  if (!body.ok) {
+    throw new Error(`Telegram sendPhoto (URL) rejected: ${JSON.stringify(body)}`);
+  }
+}
 
 async function sendTelegramPhotoBytes(
   botToken: string,

@@ -222,6 +222,23 @@ export async function PATCH(
       }
     }
 
+    // When a trade is activated, pre-generate the alert image snapshot so buy-range
+    // alerts can send the photo instantly using a URL instead of rendering on demand.
+    if (updates.status === 'active' && existing.status !== 'active') {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (supabaseUrl && serviceKey) {
+        fetch(`${supabaseUrl}/functions/v1/generate-trade-snapshot`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({ tradeId: id }),
+        }).catch((e: any) => console.error('[snapshot] trigger failed:', e.message));
+      }
+    }
+
     return NextResponse.json({ trade });
   } catch (error: any) {
     console.error('Error in PATCH /api/indices/trades/[id]:', error);
