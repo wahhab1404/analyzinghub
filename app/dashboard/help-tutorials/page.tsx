@@ -21,141 +21,287 @@ import {
 } from 'lucide-react';
 
 /* ═══════════════════════════════════════════════════════════════════
-   TERMINAL MOCKUP COMPONENTS  (built purely in JSX — no images)
+   TERMINAL MOCKUP COMPONENTS — faithful recreations of actual UI
 ═══════════════════════════════════════════════════════════════════ */
 
-function TerminalFrame({ title, live = false, children }: {
-  title: string; live?: boolean; children: React.ReactNode;
+function TerminalFrame({ title, live = false, closed = false, children }: {
+  title: string; live?: boolean; closed?: boolean; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border overflow-hidden shadow-xl my-6">
-      <div className="bg-[hsl(222,47%,8%)] border-b border-border px-4 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-red-500/70" />
-            <div className="w-3 h-3 rounded-full bg-amber-500/70" />
-            <div className="w-3 h-3 rounded-full bg-emerald-500/70" />
-          </div>
-          <span className="text-[11px] text-slate-400 font-mono">{title}</span>
+    <div className="rounded-xl border border-border overflow-hidden shadow-2xl my-6 select-none">
+      {/* Chrome bar */}
+      <div className="bg-[#0d1117] border-b border-white/8 px-3 py-2 flex items-center gap-3">
+        <div className="flex gap-1.5 flex-shrink-0">
+          <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#ffbd2e]" />
+          <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-[11px] text-slate-500 font-mono truncate">{title}</span>
         </div>
         {live && (
-          <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] text-emerald-400 font-mono font-bold tracking-widest">LIVE</span>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[9px] text-emerald-400 font-mono font-bold tracking-widest">LIVE</span>
+          </div>
+        )}
+        {closed && (
+          <div className="flex items-center gap-1 bg-red-600 rounded px-2 py-0.5 flex-shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-red-300" />
+            <span className="text-[9px] text-white font-bold">CLOSED</span>
           </div>
         )}
       </div>
-      <div className="bg-[hsl(222,47%,6%)]">{children}</div>
+      <div className="bg-[#0d1117]">{children}</div>
     </div>
   );
 }
 
+/* ── Dashboard ── matches actual screenshot: 6 stat tiles, 3-col layout */
 function DashboardMockup() {
   return (
-    <TerminalFrame title="dashboard — AnalyzingHub Terminal" live>
-      {/* Top market bar */}
-      <div className="bg-[hsl(222,47%,9%)] border-b border-white/5 px-4 py-2 flex gap-6 overflow-x-auto">
+    <TerminalFrame title="analyzinghub.com/dashboard" live>
+      {/* 6-tile stat bar */}
+      <div className="grid grid-cols-6 divide-x divide-white/5 border-b border-white/5">
         {[
-          { sym: 'SPX', val: '5,847.21', chg: '+1.24%', up: true },
-          { sym: 'NDX', val: '20,941.5', chg: '+1.87%', up: true },
-          { sym: 'DJI', val: '43,112.0', chg: '+0.54%', up: true },
-          { sym: 'VIX', val: '14.83', chg: '-8.20%', up: false },
-          { sym: 'AAPL', val: '228.52', chg: '+0.91%', up: true },
-          { sym: 'NVDA', val: '878.40', chg: '+3.14%', up: true },
-        ].map(({ sym, val, chg, up }) => (
-          <div key={sym} className="flex items-center gap-2 text-[11px] font-mono whitespace-nowrap">
-            <span className="text-slate-400">{sym}</span>
-            <span className="text-slate-200 font-semibold">{val}</span>
-            <span className={up ? 'text-emerald-400' : 'text-red-400'}>{chg}</span>
+          { label: 'LIVE POSITIONS', val: '3', sub: '1C · 2P', valColor: 'text-amber-400' },
+          { label: 'WIN RATE', val: '59.6%', sub: '62 wins / 104 closed', valColor: 'text-amber-400' },
+          { label: 'TOTAL P&L', val: '$29,115', sub: 'All-time realized', valColor: 'text-emerald-400' },
+          { label: 'MTD P&L', val: '$3,927', sub: 'Month-to-date', valColor: 'text-emerald-400' },
+          { label: 'ANALYSTS LIVE', val: '1', sub: '3 total signals', valColor: 'text-slate-200' },
+          { label: 'MY ANALYSES', val: '22', sub: '57.14% success rate', valColor: 'text-slate-200' },
+        ].map(({ label, val, sub, valColor }) => (
+          <div key={label} className="px-3 py-2.5 bg-[#0d1117]">
+            <p className="text-[8px] text-slate-600 uppercase tracking-wider font-medium mb-1">{label}</p>
+            <p className={`text-sm font-bold font-mono leading-none ${valColor}`}>{val}</p>
+            <p className="text-[9px] text-slate-600 mt-1 leading-none">{sub}</p>
           </div>
         ))}
       </div>
-      {/* Stats row */}
-      <div className="grid grid-cols-4 gap-px bg-border">
-        {[
-          { label: 'Total P&L', val: '+$12,840', sub: 'All time', color: 'text-emerald-400' },
-          { label: 'Win Rate', val: '73.2%', sub: '87 trades', color: 'text-blue-400' },
-          { label: 'Active Trades', val: '8', sub: '3 in profit', color: 'text-amber-400' },
-          { label: 'Subscribers', val: '142', sub: '+12 this week', color: 'text-violet-400' },
-        ].map(({ label, val, sub, color }) => (
-          <div key={label} className="bg-[hsl(222,47%,7%)] p-4">
-            <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-1">{label}</p>
-            <p className={`text-xl font-bold font-mono ${color}`}>{val}</p>
-            <p className="text-[10px] text-slate-600 mt-0.5">{sub}</p>
+      {/* 3-column body */}
+      <div className="grid grid-cols-12 divide-x divide-white/5" style={{ minHeight: 220 }}>
+        {/* Left panel */}
+        <div className="col-span-3 p-3 space-y-3">
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-2">MARKET SENTIMENT</p>
+            <div className="flex items-center gap-2 mb-1.5">
+              <TrendingDown className="h-3 w-3 text-red-400" />
+              <span className="text-red-400 font-bold text-xs">BEARISH</span>
+              <span className="text-red-400 font-bold text-sm ml-auto">33%</span>
+            </div>
+            <div className="h-2 rounded-full bg-white/5 overflow-hidden">
+              <div className="h-full rounded-full bg-gradient-to-r from-emerald-500/60 via-slate-600 to-red-500/80" style={{ width: '100%' }} />
+            </div>
+            <div className="flex justify-between text-[9px] text-slate-600 mt-0.5">
+              <span>1 BULL</span><span>2 BEAR</span>
+            </div>
           </div>
-        ))}
-      </div>
-      {/* Recent analyses */}
-      <div className="p-4 space-y-2">
-        <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-3">Recent Analyses</p>
-        {[
-          { sym: 'AAPL', dir: 'LONG', entry: '224.00', target: '245.00', stop: '214.00', status: 'Active', rr: '2.1x' },
-          { sym: 'SPX', dir: 'SHORT', entry: '5900', target: '5650', stop: '5980', status: 'Active', rr: '3.1x' },
-          { sym: 'NVDA', dir: 'LONG', entry: '820.00', target: '920.00', stop: '790.00', status: 'Closed ✓', rr: '3.3x' },
-        ].map(({ sym, dir, entry, target, stop, status, rr }) => (
-          <div key={sym + dir} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/3 border border-white/5 text-[11px] font-mono">
-            <span className="font-bold text-slate-200 w-10">{sym}</span>
-            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${dir === 'LONG' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{dir}</span>
-            <span className="text-slate-500">E:{entry}</span>
-            <span className="text-emerald-400">T:{target}</span>
-            <span className="text-red-400">SL:{stop}</span>
-            <span className="ml-auto text-slate-400">{rr}</span>
-            <span className={`text-[9px] ${status.includes('Closed') ? 'text-emerald-400' : 'text-blue-400'}`}>{status}</span>
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1.5">PLATFORM ACTIVITY</p>
+            {[['Analysts Live','1'],['Active Signals','3'],['Win Rate','59.6%'],['Symbols Tracked','1']].map(([k,v]) => (
+              <div key={k} className="flex justify-between text-[10px] py-0.5 border-b border-white/4">
+                <span className="text-slate-500">{k}</span>
+                <span className="text-slate-300 font-mono font-semibold">{v}</span>
+              </div>
+            ))}
           </div>
-        ))}
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-1.5">MY PERFORMANCE</p>
+            {[['Total Analyses','22'],['Active','4'],['Successful','12'],['Success Rate','57.14%'],['Followers','2']].map(([k,v]) => (
+              <div key={k} className="flex justify-between text-[10px] py-0.5 border-b border-white/4">
+                <span className="text-slate-500">{k}</span>
+                <span className={`font-mono font-semibold ${k==='Success Rate' ? 'text-amber-400' : 'text-slate-300'}`}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Centre */}
+        <div className="col-span-6 p-3 space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">LIVE POSITIONS <span className="text-blue-400 ml-1">3</span></p>
+            </div>
+            <div className="text-[9px] text-slate-600 grid grid-cols-6 gap-1 px-2 mb-1">
+              {['SYMBOL / ANALYST','DIR','ENTRY','CURRENT','HIGH','BEST P&L'].map(h=><span key={h}>{h}</span>)}
+            </div>
+            {[
+              { sym:'SPX', dir:'PUT', entry:'$1.83', curr:'$0.13', high:'$4.30', pnl:'+135.6%', up:true },
+              { sym:'SPX', dir:'CALL', entry:'$2.70', curr:'$0.07', high:'$2.88', pnl:'+6.7%', up:true },
+              { sym:'SPX', dir:'PUT', entry:'$3.45', curr:'$0.15', high:'$18.00', pnl:'+421.7%', up:true },
+            ].map(({sym,dir,entry,curr,high,pnl,up},i)=>(
+              <div key={i} className="grid grid-cols-6 gap-1 px-2 py-1.5 border-b border-white/4 text-[10px] font-mono items-center">
+                <span className="text-slate-300 font-semibold">{sym}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold text-center ${dir==='PUT'?'bg-red-500/25 text-red-400':'bg-emerald-500/25 text-emerald-400'}`}>{dir}</span>
+                <span className="text-slate-400">{entry}</span>
+                <span className="text-red-400 font-bold">{curr}</span>
+                <span className="text-emerald-400">{high}</span>
+                <span className="text-emerald-400 font-bold">{pnl}</span>
+              </div>
+            ))}
+          </div>
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-2">OPTIONS ACTIVITY <span className="text-blue-400 ml-1">3</span></p>
+            <div className="text-[9px] text-slate-600 grid grid-cols-7 gap-1 px-2 mb-1">
+              {['TYPE','SYMBOL','STRIKE','EXPIRY','ENTRY$','CURR$','BEST P&L'].map(h=><span key={h}>{h}</span>)}
+            </div>
+            {[
+              {type:'PUT',strike:'$7,320',exp:'May 7',entry:'$1.83',curr:'$0.13',pnl:'+135.62%',put:true},
+              {type:'CALL',strike:'$7,355',exp:'May 7',entry:'$2.70',curr:'$0.07',pnl:'+6.67%',put:false},
+              {type:'PUT',strike:'$7,330',exp:'May 7',entry:'$3.45',curr:'$0.15',pnl:'+421.74%',put:true},
+            ].map(({type,strike,exp,entry,curr,pnl,put},i)=>(
+              <div key={i} className="grid grid-cols-7 gap-1 px-2 py-1 border-b border-white/4 text-[9px] font-mono items-center">
+                <span className={`px-1.5 rounded text-[8px] font-bold text-center ${put?'bg-red-500/25 text-red-400':'bg-emerald-500/25 text-emerald-400'}`}>{type}</span>
+                <span className="text-slate-300">SPX</span>
+                <span className="text-slate-400">{strike}</span>
+                <span className="text-slate-500">{exp}</span>
+                <span className="text-slate-400">{entry}</span>
+                <span className="text-red-400">{curr}</span>
+                <span className="text-emerald-400 font-bold">{pnl}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Right panel */}
+        <div className="col-span-3 p-3 space-y-3">
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-2">ANALYST LEADERBOARD</p>
+            <div className="flex items-center gap-2 p-2 rounded bg-white/3 border border-white/5">
+              <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-[9px] font-bold text-black">🏆</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-semibold text-slate-200">Analyzer</p>
+                <p className="text-[8px] text-amber-400 font-mono">1 trade · 0% WR</p>
+              </div>
+              <span className="text-blue-400 font-bold text-sm font-mono">60</span>
+            </div>
+            <p className="text-[9px] text-blue-400 mt-1 text-right">Full rankings →</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold mb-2">ANALYST ACTIVITY <span className="text-blue-400 ml-1">19</span></p>
+            {['SPX إيجابي قوي','SPX رؤية إيجابية بانخراق','SPX موجتي','SPX اكتمال نمط مثلث','SPX الاتجاه الهابط مسيطر'].map((a,i)=>(
+              <div key={i} className="flex items-center justify-between py-1 border-b border-white/4 text-[9px]">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1 rounded">SPX</span>
+                  <span className="text-slate-400 truncate max-w-[90px]">{a.replace('SPX ','')}</span>
+                </div>
+                <span className="text-slate-600 font-mono">{(i+9)*10}d</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </TerminalFrame>
   );
 }
 
+/* ── Analysis Creation ── matches actual form screenshots */
 function AnalysisMockup() {
   return (
-    <TerminalFrame title="create-analysis — AnalyzingHub Terminal">
-      <div className="p-5 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+    <TerminalFrame title="analyzinghub.com/dashboard/create-analysis">
+      <div className="grid grid-cols-2 divide-x divide-white/5">
+        {/* Left: Price Targets form */}
+        <div className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded-full border-2 border-emerald-400 flex items-center justify-center">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              </div>
+              <span className="text-sm font-semibold text-slate-200">Price Targets</span>
+              <span className="text-red-400 text-xs">*</span>
+            </div>
+            <div className="flex items-center gap-1.5 border border-white/15 rounded-lg px-2.5 py-1 text-[11px] text-slate-300">
+              <Plus className="h-3 w-3" /> Add Target
+            </div>
+          </div>
+          {/* Target card */}
+          <div className="border border-blue-500/30 bg-blue-500/5 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-5 h-5 rounded-full bg-blue-600 flex items-center justify-center text-[10px] font-bold text-white">1</div>
+              <span className="text-sm font-semibold text-slate-200">Target Price</span>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-[11px] text-slate-500">e.g., 175.00</div>
+            <div>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-1.5">
+                <Clock className="h-3 w-3" />
+                Expected Date <span className="text-slate-600">(optional)</span>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-lg px-3 py-2 flex items-center gap-2 text-[11px] text-slate-500">
+                <Clock className="h-3 w-3" /> Pick a date
+              </div>
+              <p className="text-[9px] text-slate-600 mt-1">Format: dd/mm/yyyy</p>
+            </div>
+          </div>
+          {/* Activation condition */}
+          <div className="border border-blue-500/25 bg-blue-500/4 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-blue-400" />
+                <span className="text-[11px] font-semibold text-slate-300">Activation Condition <span className="text-slate-500">(Optional)</span></span>
+              </div>
+              <div className="flex items-center gap-1.5 border border-white/15 rounded px-2 py-0.5 text-[10px] text-slate-400">
+                <div className="w-3 h-3 border border-slate-500 rounded-sm" /> Enable
+              </div>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-relaxed">Set a condition that must be met before the analysis becomes active. If stoploss is hit before activation, it will NOT be counted as a failure.</p>
+          </div>
+          {/* Description */}
           <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Symbol</p>
-            <div className="bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm font-mono text-blue-400 flex items-center gap-2">
-              <Search className="h-3.5 w-3.5 text-slate-500" />
-              AAPL — Apple Inc.
+            <p className="text-sm text-slate-300 mb-2">Analysis Description <span className="text-slate-500 text-xs">(optional)</span></p>
+            <div className="bg-white/3 border border-white/10 rounded-lg p-3 h-16">
+              <p className="text-[10px] text-slate-600">Add additional context, reasoning, or notes about your analysis...</p>
             </div>
+            <p className="text-[9px] text-slate-600 mt-1">Provide additional details. This will be included when sharing on Telegram.</p>
+          </div>
+        </div>
+        {/* Right: Image, Visibility, Telegram, Publish */}
+        <div className="p-5 space-y-5">
+          <div>
+            <p className="text-sm font-semibold text-slate-200 mb-3">Image <span className="text-slate-500 text-xs">(optional)</span></p>
+            <div className="border-2 border-dashed border-white/15 rounded-xl p-6 text-center space-y-2">
+              <div className="flex items-center justify-center gap-2 bg-white/8 border border-white/10 rounded-lg py-2.5 mx-4 text-[11px] text-slate-300 cursor-pointer">
+                <Download className="h-3.5 w-3.5" /> Upload Image
+              </div>
+              <p className="text-[10px] text-slate-600">PNG, JPG up to 5MB</p>
+            </div>
+            <div className="flex items-center gap-2 my-3">
+              <div className="flex-1 h-px bg-white/8" />
+              <span className="text-[9px] text-slate-600 border border-white/10 rounded px-2 py-0.5">OR ENTER IMAGE URL</span>
+              <div className="flex-1 h-px bg-white/8" />
+            </div>
+            <div className="bg-white/3 border border-white/10 rounded-lg px-3 py-2 text-[10px] text-slate-600">https://example.com/chart.png</div>
           </div>
           <div>
-            <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Direction</p>
-            <div className="flex gap-2">
-              <div className="flex-1 bg-emerald-500/20 border border-emerald-500/40 rounded-lg px-3 py-2.5 text-xs font-bold text-emerald-400 text-center">▲ LONG</div>
-              <div className="flex-1 bg-white/3 border border-white/10 rounded-lg px-3 py-2.5 text-xs font-bold text-slate-500 text-center">▼ SHORT</div>
+            <div className="flex items-center gap-2 mb-2">
+              <Globe className="h-3.5 w-3.5 text-slate-400" />
+              <p className="text-sm font-semibold text-slate-200">Audience &amp; Visibility</p>
+            </div>
+            <div className="flex items-center justify-between bg-white/5 border border-white/10 rounded-lg px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Globe className="h-3.5 w-3.5 text-blue-400" />
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-200">Public — Everyone</p>
+                  <p className="text-[9px] text-slate-500">Anyone can see this in the global feed</p>
+                </div>
+              </div>
+              <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+            </div>
+            <p className="text-[9px] text-slate-600 mt-1">Choose who can see this post in their feed</p>
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Send className="h-3.5 w-3.5 text-slate-400" />
+              <p className="text-sm font-semibold text-slate-200">Telegram Channel</p>
+            </div>
+            <div className="border border-emerald-500/30 bg-emerald-500/5 rounded-lg px-3 py-3">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Send className="h-3 w-3 text-emerald-400" />
+                <p className="text-[11px] font-semibold text-emerald-400">Will broadcast to: Wahhab charts tests</p>
+              </div>
+              <p className="text-[9px] text-slate-500">Your public audience will see this analysis on Telegram</p>
             </div>
           </div>
-        </div>
-        <div className="grid grid-cols-4 gap-3">
-          {[
-            { label: 'Entry Price', val: '$224.00', color: 'text-slate-200' },
-            { label: 'Target 1', val: '$238.00', color: 'text-emerald-400' },
-            { label: 'Target 2', val: '$252.00', color: 'text-emerald-300' },
-            { label: 'Stop Loss', val: '$214.00', color: 'text-red-400' },
-          ].map(({ label, val, color }) => (
-            <div key={label} className="bg-white/3 border border-white/10 rounded-lg p-3">
-              <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-              <p className={`text-sm font-bold font-mono ${color}`}>{val}</p>
-            </div>
-          ))}
-        </div>
-        <div className="bg-white/3 border border-white/10 rounded-lg p-3">
-          <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">Analysis Thesis</p>
-          <p className="text-xs text-slate-400 leading-relaxed">Apple is forming a bullish flag pattern on the daily chart after the recent earnings gap. Key resistance at $235 aligns with the 0.618 Fibonacci extension. Risk/reward stands at 2.8:1 with stop below the earnings gap at $214...</p>
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-[11px] font-mono">
-            <span className="text-slate-500">R:R</span>
-            <span className="text-emerald-400 font-bold">2.8x</span>
-            <span className="text-slate-600 mx-2">|</span>
-            <span className="text-slate-500">Max Loss</span>
-            <span className="text-red-400 font-bold">$10.00</span>
-          </div>
-          <div className="flex gap-2">
-            <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-400">Preview</div>
-            <div className="px-3 py-1.5 rounded-lg bg-blue-600 text-[11px] text-white font-bold">Publish Analysis</div>
+          <div className="bg-blue-600 hover:bg-blue-500 rounded-xl py-3 flex items-center justify-center gap-2 cursor-pointer">
+            <LineChart className="h-4 w-4 text-white" />
+            <span className="text-sm font-bold text-white">Publish Analysis</span>
           </div>
         </div>
       </div>
@@ -163,241 +309,388 @@ function AnalysisMockup() {
   );
 }
 
+/* ── Live Monitor ── matches actual SPX $7320 PUT screenshot */
 function TradeMockup() {
   return (
-    <TerminalFrame title="trades — AnalyzingHub Terminal" live>
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-2">
-            {['All', 'Open', 'Closed', 'Expired'].map((f, i) => (
-              <div key={f} className={`px-2.5 py-1 rounded text-[10px] font-semibold ${i === 1 ? 'bg-blue-600 text-white' : 'bg-white/5 text-slate-500'}`}>{f}</div>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5 bg-blue-600 rounded-lg px-3 py-1.5 text-[11px] text-white font-bold">
-            <Plus className="h-3 w-3" /> New Trade
-          </div>
+    <TerminalFrame title="analyzinghub.com/dashboard/indices/live-monitor" closed>
+      {/* Index top bar */}
+      <div className="bg-[#0a0e1a] border-b border-white/5 px-4 py-2 flex items-center gap-6">
+        <div className="flex items-center gap-1.5">
+          <BarChart3 className="h-3 w-3 text-blue-400" />
+          <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">INDICES HUB</span>
         </div>
-        <div className="space-y-2">
-          {[
-            { sym: 'AAPL', dir: 'L', entry: '224.00', now: '231.45', target: '245.00', stop: '214.00', pnl: '+$745', pct: '+3.3%', up: true, size: 100 },
-            { sym: 'SPX', dir: 'S', entry: '5900', now: '5847', target: '5650', stop: '5980', pnl: '+$530', pct: '+0.9%', up: true, size: 1 },
-            { sym: 'TSLA', dir: 'L', entry: '185.00', now: '178.20', target: '210.00', stop: '175.00', pnl: '-$680', pct: '-3.7%', up: false, size: 100 },
-          ].map(({ sym, dir, entry, now, target, stop, pnl, pct, up, size }) => (
-            <div key={sym} className="grid grid-cols-7 gap-2 items-center px-3 py-2.5 rounded-lg bg-white/3 border border-white/5 text-[11px] font-mono">
-              <div className="flex items-center gap-2 col-span-2">
-                <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${dir === 'L' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>{dir === 'L' ? 'LONG' : 'SHORT'}</span>
-                <span className="font-bold text-slate-200">{sym}</span>
-              </div>
-              <span className="text-slate-500">E:{entry}</span>
-              <span className="text-slate-300">Now:{now}</span>
-              <span className="text-emerald-400">T:{target}</span>
-              <span className="text-red-400">SL:{stop}</span>
-              <div className="text-right">
-                <span className={`font-bold ${up ? 'text-emerald-400' : 'text-red-400'}`}>{pnl}</span>
-                <span className={`text-[9px] ml-1 ${up ? 'text-emerald-500' : 'text-red-500'}`}>{pct}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-4 grid grid-cols-4 gap-3 pt-4 border-t border-white/5">
-          {[
-            { label: 'Open Positions', val: '8', color: 'text-blue-400' },
-            { label: 'Open P&L', val: '+$4,820', color: 'text-emerald-400' },
-            { label: 'Today Closed', val: '3', color: 'text-slate-300' },
-            { label: 'Win Rate', val: '73.2%', color: 'text-amber-400' },
-          ].map(({ label, val, color }) => (
-            <div key={label} className="text-center">
-              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">{label}</p>
-              <p className={`font-bold text-sm ${color}`}>{val}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </TerminalFrame>
-  );
-}
-
-function IndicesMockup() {
-  return (
-    <TerminalFrame title="indices-hub — SPX Terminal" live>
-      <div className="grid grid-cols-5 gap-px bg-border border-b border-border">
         {[
-          { sym: 'SPX', val: '5,847.21', chg: '+68.43', pct: '+1.18%', up: true },
-          { sym: 'NDX', val: '20,941', chg: '+385.2', pct: '+1.87%', up: true },
-          { sym: 'DJI', val: '43,112', chg: '+231.0', pct: '+0.54%', up: true },
-          { sym: 'VIX', val: '14.83', chg: '-1.32', pct: '-8.18%', up: false },
-          { sym: 'VVIX', val: '89.4', chg: '-3.1', pct: '-3.3%', up: false },
-        ].map(({ sym, val, chg, pct, up }) => (
-          <div key={sym} className={`bg-[hsl(222,47%,7%)] p-3 ${sym === 'SPX' ? 'border-b-2 border-blue-500' : ''}`}>
-            <p className="text-[9px] text-slate-500 uppercase tracking-widest">{sym}</p>
-            <p className="text-base font-bold font-mono text-slate-100 mt-0.5">{val}</p>
-            <div className={`flex items-center gap-1 text-[10px] font-mono ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-              <span>{up ? '▲' : '▼'}{chg}</span>
-              <span>({pct})</span>
-            </div>
+          {sym:'SPX',val:'7,337.11',sub:'S&P 500',up:true},
+          {sym:'NDX',val:'28,563.95',sub:'NASDAQ',up:true},
+          {sym:'VIX',val:'17.08',sub:'Volatility',up:false},
+          {sym:'DJI',val:'49,596.97',sub:'Dow Jones',up:true},
+        ].map(({sym,val,sub,up})=>(
+          <div key={sym} className="flex items-center gap-1.5 text-[10px] font-mono">
+            <span className="text-slate-500">{sym}</span>
+            <span className={`font-bold ${up?'text-slate-200':'text-red-400'}`}>{val}</span>
           </div>
         ))}
-      </div>
-      <div className="grid grid-cols-3 divide-x divide-border">
-        <div className="p-4">
-          <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3">Options Flow — Today</p>
-          {[
-            { type: 'CALL SWEEP', strike: '5900C', exp: 'Jun 21', size: '$2.4M', bull: true },
-            { type: 'PUT BLOCK', strike: '5700P', exp: 'Jun 14', size: '$1.1M', bull: false },
-            { type: 'CALL BLOCK', strike: '6000C', exp: 'Jul 18', size: '$890K', bull: true },
-          ].map(({ type, strike, exp, size, bull }) => (
-            <div key={strike} className="flex items-center justify-between py-1.5 border-b border-white/5 text-[10px] font-mono">
-              <div>
-                <span className={`${bull ? 'text-emerald-400' : 'text-red-400'} font-bold`}>{type}</span>
-                <span className="text-slate-500 ml-2">{strike} {exp}</span>
-              </div>
-              <span className={`font-bold ${bull ? 'text-emerald-400' : 'text-red-400'}`}>{size}</span>
-            </div>
-          ))}
-        </div>
-        <div className="p-4">
-          <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3">GEX by Strike</p>
-          {[
-            { strike: '5800', gex: '+$4.2B', dir: 'Pinning', pct: 85 },
-            { strike: '5900', gex: '+$2.1B', dir: 'Support', pct: 42 },
-            { strike: '5750', gex: '-$1.3B', dir: 'Magnet ↓', pct: 26 },
-          ].map(({ strike, gex, dir, pct }) => (
-            <div key={strike} className="mb-2">
-              <div className="flex justify-between text-[10px] font-mono mb-0.5">
-                <span className="text-slate-400">{strike}</span>
-                <span className="text-slate-300">{gex}</span>
-                <span className="text-slate-500">{dir}</span>
-              </div>
-              <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="p-4">
-          <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3">AI Signal — Today</p>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-emerald-400">BULLISH</p>
-              <p className="text-[10px] text-slate-500">Confidence: 78%</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-500 leading-relaxed">Put/call ratio at 0.72. Dealer gamma net positive $8.4B at 5800. VIX term structure in contango — volatility suppressed near term.</p>
+        <div className="ml-auto flex items-center gap-2 text-[9px] text-slate-500 font-mono">
+          <span>Thu, May 7</span>
+          <span>08:27:41</span>
         </div>
       </div>
-    </TerminalFrame>
-  );
-}
-
-function ReportsMockup() {
-  return (
-    <TerminalFrame title="reports — Weekly Performance Report">
-      <div className="p-5 grid grid-cols-3 gap-4">
-        <div className="col-span-2 space-y-4">
-          <div className="flex items-center justify-between">
+      <div className="grid grid-cols-12 divide-x divide-white/5">
+        {/* Sidebar */}
+        <div className="col-span-2 bg-[#090d18] py-3 px-2 space-y-1">
+          <div className="flex items-center gap-1.5 px-2 py-1.5 text-[10px] text-slate-500 hover:text-slate-300">
+            <ArrowLeft className="h-3 w-3" /> Back to List
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded bg-white/5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[10px] font-bold text-slate-200">LIVE MONITOR</span>
+          </div>
+          <p className="text-[8px] text-slate-600 uppercase tracking-widest px-2 pt-2">NAVIGATION</p>
+          {['Overview','Analyses','Trades','Reports','Archive'].map(n=>(
+            <div key={n} className="flex items-center gap-2 px-2 py-1.5 text-[10px] text-slate-500">{n}</div>
+          ))}
+          <p className="text-[8px] text-slate-600 uppercase tracking-widest px-2 pt-2">QUICK ACTIONS</p>
+          {['+ New Analysis','+ New Trade'].map(n=>(
+            <div key={n} className="flex items-center gap-2 px-2 py-1.5 text-[10px] text-slate-500">{n}</div>
+          ))}
+        </div>
+        {/* Main content */}
+        <div className="col-span-7 p-4 space-y-3">
+          <div className="flex items-start justify-between mb-1">
             <div>
-              <p className="text-sm font-bold text-slate-200">Weekly Performance Report</p>
-              <p className="text-[10px] text-slate-500 font-mono">May 1 – May 7, 2026 · Generated auto</p>
+              <h2 className="text-lg font-bold text-slate-100">SPX $7320 PUT</h2>
+              <p className="text-[10px] text-slate-500 font-mono">0: SPXW260507P07320000</p>
+              <p className="text-[10px] text-slate-500">Expires: 07/05/2026</p>
             </div>
-            <div className="flex gap-2">
-              <div className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[10px] text-slate-400">PDF</div>
-              <div className="px-2 py-1 rounded bg-blue-600/80 text-[10px] text-white font-bold">Send →</div>
-            </div>
+            <div className="px-3 py-1 rounded-full bg-blue-500/20 border border-blue-500/30 text-[10px] text-blue-400 font-bold">active</div>
           </div>
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { l: 'Trades', v: '24', c: 'text-slate-200' },
-              { l: 'Win Rate', v: '71%', c: 'text-emerald-400' },
-              { l: 'Net P&L', v: '+$8,240', c: 'text-emerald-400' },
-              { l: 'Best Trade', v: '+$3,100', c: 'text-emerald-300' },
-            ].map(({ l, v, c }) => (
-              <div key={l} className="bg-white/3 border border-white/5 rounded-lg p-2.5 text-center">
-                <p className="text-[8px] text-slate-600 uppercase tracking-wider">{l}</p>
-                <p className={`text-sm font-bold font-mono mt-0.5 ${c}`}>{v}</p>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Contract Price */}
+            <div className="border border-white/8 rounded-xl p-4 bg-white/2">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-3">
+                <DollarSign className="h-3 w-3" /> Contract Price
               </div>
-            ))}
+              <div className="text-4xl font-bold text-slate-100 font-mono mb-1">0.13</div>
+              <div className="flex items-center gap-2 text-[9px] text-slate-600 mb-4">
+                <Clock className="h-2.5 w-2.5" /> 22:55:04
+                <span className="border border-white/10 rounded px-1.5 py-0.5 text-slate-500">Market Closed</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  {l:'Entry',v:'1.83',c:'text-slate-300'},
+                  {l:'P&L',v:'++$170.00',c:'text-emerald-400',sub:'+93.15%'},
+                  {l:'↗ High',v:'4.30',c:'text-emerald-400',sub:'@ 22:25:04'},
+                  {l:'↘ Low',v:'0.13',c:'text-red-400',sub:'@ 22:55:04'},
+                ].map(({l,v,c,sub})=>(
+                  <div key={l}>
+                    <p className="text-[9px] text-slate-600 mb-0.5">{l}</p>
+                    <p className={`text-sm font-bold font-mono ${c}`}>{v}</p>
+                    {sub && <p className={`text-[9px] ${c} opacity-70`}>{sub}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Underlying Index */}
+            <div className="border border-white/8 rounded-xl p-4 bg-white/2">
+              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 mb-3">
+                <Activity className="h-3 w-3" /> Underlying Index
+              </div>
+              <p className="text-[10px] text-slate-500 mb-1">SPX</p>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-3xl font-bold text-slate-100 font-mono">$7,337.11</span>
+                <TrendingUp className="h-4 w-4 text-emerald-400" />
+              </div>
+              <p className="text-[10px] text-emerald-400 mb-4">+0.06% since entry</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  {l:'↗ High',v:'$7,340.84',c:'text-emerald-400'},
+                  {l:'↘ Low',v:'$7,324.58',c:'text-red-400'},
+                ].map(({l,v,c})=>(
+                  <div key={l}>
+                    <p className="text-[9px] text-slate-600 mb-0.5">{l}</p>
+                    <p className={`text-sm font-bold font-mono ${c}`}>{v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="bg-white/3 border border-white/5 rounded-lg p-3">
-            <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-2">Equity Curve</p>
-            <div className="h-16 flex items-end gap-1">
-              {[35, 42, 38, 55, 48, 62, 70, 58, 75, 82, 78, 90, 85, 100].map((h, i) => (
-                <div key={i} className="flex-1 rounded-sm" style={{ height: `${h}%`, background: h > 60 ? 'rgba(52,211,153,0.4)' : 'rgba(248,113,113,0.4)' }} />
+        </div>
+        {/* Right MARKET INTEL */}
+        <div className="col-span-3 bg-[#090d18] p-3 space-y-4">
+          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">MARKET INTEL</p>
+          <div>
+            <p className="text-[8px] text-slate-600 uppercase tracking-widest mb-2">⚡ MARKET SENTIMENT</p>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-slate-400">Trend Bias</span>
+              <div className="flex items-center gap-1">
+                <TrendingDown className="h-3 w-3 text-red-400" />
+                <span className="text-[10px] font-bold text-red-400">BEARISH</span>
+              </div>
+            </div>
+            <div className="h-1.5 rounded-full bg-gradient-to-r from-emerald-500 to-red-500 mb-1" />
+            <div className="flex justify-between text-[9px]">
+              <span className="text-red-400 font-bold">BEAR 71% ↓71%</span>
+              <span className="text-emerald-400">29% BULL</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {[{l:'Fear/Greed',v:'76',sub:'Extreme Greed'},{l:'Volatility',v:'17.1',sub:'VIX'}].map(({l,v,sub})=>(
+                <div key={l} className="bg-white/3 border border-white/5 rounded p-2 text-center">
+                  <p className="text-[8px] text-slate-600">{l}</p>
+                  <p className="text-sm font-bold text-slate-200 font-mono">{v}</p>
+                  <p className="text-[8px] text-slate-600">{sub}</p>
+                </div>
               ))}
             </div>
           </div>
-        </div>
-        <div className="space-y-3">
-          <p className="text-[9px] text-slate-500 uppercase tracking-wider">By Symbol</p>
-          {[
-            { sym: 'AAPL', trades: 8, wr: '75%', pnl: '+$2,840' },
-            { sym: 'SPX', trades: 6, wr: '67%', pnl: '+$3,100' },
-            { sym: 'NVDA', trades: 5, wr: '80%', pnl: '+$1,980' },
-            { sym: 'TSLA', trades: 5, wr: '60%', pnl: '+$320' },
-          ].map(({ sym, trades, wr, pnl }) => (
-            <div key={sym} className="bg-white/3 border border-white/5 rounded-lg p-2.5">
-              <div className="flex justify-between text-[10px] font-mono">
-                <span className="text-slate-300 font-bold">{sym}</span>
-                <span className="text-emerald-400">{pnl}</span>
+          <div>
+            <p className="text-[8px] text-slate-600 uppercase tracking-widest mb-2">⚡ OPTIONS FLOW</p>
+            {[['Call Vol','306.7K','text-emerald-400'],['Put Vol','283.8K','text-red-400'],['P/C Ratio','0.93','text-slate-300'],['Unusual OI','7300P','text-amber-400']].map(([l,v,c])=>(
+              <div key={l} className="flex justify-between py-0.5 text-[9px] border-b border-white/4">
+                <span className="text-slate-500">{l}</span>
+                <span className={`font-mono font-semibold ${c}`}>{v}</span>
               </div>
-              <div className="flex justify-between text-[9px] text-slate-600 mt-0.5">
-                <span>{trades} trades</span><span>WR {wr}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </TerminalFrame>
-  );
-}
-
-function RankingsMockup() {
-  return (
-    <TerminalFrame title="rankings — Leaderboard Terminal">
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex gap-2">
-            {['All Time', 'This Month', 'This Week'].map((t, i) => (
-              <div key={t} className={`px-2.5 py-1 rounded text-[10px] font-semibold ${i === 1 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-white/5 text-slate-500'}`}>{t}</div>
             ))}
           </div>
-          <div className="text-[10px] text-slate-500 font-mono">238 Analyzers ranked</div>
-        </div>
-        <div className="space-y-2">
-          {[
-            { rank: 1, name: 'Ahmad Al-Rashidi', wr: '84%', pnl: '+$48,200', score: 96.4, badge: '🥇', subs: 342 },
-            { rank: 2, name: 'Sara Khalid', wr: '79%', pnl: '+$31,800', score: 91.2, badge: '🥈', subs: 218 },
-            { rank: 3, name: 'Mike Torres', wr: '76%', pnl: '+$27,400', score: 88.7, badge: '🥉', subs: 175 },
-            { rank: 4, name: 'Lin Wei', wr: '71%', pnl: '+$19,200', score: 82.1, badge: '04', subs: 124 },
-            { rank: 5, name: 'Omar Hassan', wr: '69%', pnl: '+$14,900', score: 78.3, badge: '05', subs: 98 },
-          ].map(({ rank, name, wr, pnl, score, badge, subs }) => (
-            <div key={rank} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/3 border border-white/5 text-[11px]">
-              <span className="text-base w-6 text-center">{badge}</span>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-slate-200 text-sm">{name}</p>
-                <p className="text-[10px] text-slate-600">{subs} subscribers</p>
+          <div>
+            <p className="text-[8px] text-slate-600 uppercase tracking-widest mb-2">⊕ KEY LEVELS</p>
+            {[['Resistance','7385','bg-red-500/20 text-red-400'],['Fair Value','7348','bg-slate-600/30 text-slate-300'],['Support','7321','bg-emerald-500/20 text-emerald-400'],['Liquidity','7365','bg-blue-500/20 text-blue-400']].map(([l,v,c])=>(
+              <div key={l} className="flex justify-between items-center py-0.5 text-[9px]">
+                <span className="text-slate-500">{l}</span>
+                <span className={`font-mono font-bold px-1.5 rounded ${c}`}>{v}</span>
               </div>
-              <div className="flex items-center gap-4 font-mono text-[10px]">
-                <span className="text-emerald-400">{wr} WR</span>
-                <span className="text-emerald-300 font-bold">{pnl}</span>
-                <div className="flex flex-col items-end">
-                  <span className="text-blue-400 font-bold">{score}</span>
-                  <span className="text-[8px] text-slate-600">score</span>
-                </div>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </TerminalFrame>
   );
 }
 
+/* ── Indices / SPX Intelligence ── */
+function IndicesMockup() {
+  return (
+    <TerminalFrame title="analyzinghub.com/dashboard/indices/spx-intelligence" live>
+      <div className="grid grid-cols-4 gap-px bg-white/5 border-b border-white/5">
+        {[
+          {sym:'SPX',val:'7,337.11',chg:'+0.06%',up:true},
+          {sym:'NDX',val:'28,563.95',chg:'+1.42%',up:true},
+          {sym:'VIX',val:'17.08',chg:'-2.1%',up:false},
+          {sym:'DJI',val:'49,596.97',chg:'+0.38%',up:true},
+        ].map(({sym,val,chg,up})=>(
+          <div key={sym} className="bg-[#0d1117] px-4 py-3">
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest">{sym}</p>
+            <p className="text-base font-bold font-mono text-slate-100">{val}</p>
+            <p className={`text-[10px] font-mono ${up?'text-emerald-400':'text-red-400'}`}>{up?'▲':'▼'} {chg}</p>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 divide-x divide-white/5">
+        <div className="p-4">
+          <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold mb-3">⚡ OPTIONS FLOW</p>
+          {[
+            {type:'CALL',strike:'7355C',exp:'May 7',size:'$306.7K',bull:true},
+            {type:'PUT',strike:'7320P',exp:'May 7',size:'$283.8K',bull:false},
+            {type:'PUT',strike:'7300P',exp:'May 7',size:'$1.2M',bull:false},
+          ].map(({type,strike,exp,size,bull})=>(
+            <div key={strike} className="flex items-center justify-between py-1.5 border-b border-white/4 text-[10px] font-mono">
+              <div className="flex items-center gap-2">
+                <span className={`px-1.5 rounded text-[8px] font-bold ${bull?'bg-emerald-500/20 text-emerald-400':'bg-red-500/20 text-red-400'}`}>{type}</span>
+                <span className="text-slate-500">{strike} {exp}</span>
+              </div>
+              <span className={`font-bold ${bull?'text-emerald-400':'text-red-400'}`}>{size}</span>
+            </div>
+          ))}
+          <div className="mt-3 space-y-1">
+            {[['Call Vol','306.7K','text-emerald-400'],['Put Vol','283.8K','text-red-400'],['P/C Ratio','0.93','text-slate-300'],['Unusual OI','7300P','text-amber-400']].map(([l,v,c])=>(
+              <div key={l} className="flex justify-between text-[9px]">
+                <span className="text-slate-600">{l}</span>
+                <span className={`font-mono font-semibold ${c}`}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-4">
+          <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold mb-3">⊕ KEY LEVELS</p>
+          {[
+            {label:'Resistance',val:'7385',color:'bg-red-500/20 text-red-400',pct:85},
+            {label:'Fair Value',val:'7348',color:'bg-slate-600/30 text-slate-300',pct:55},
+            {label:'Support',val:'7321',color:'bg-emerald-500/20 text-emerald-400',pct:35},
+            {label:'Liquidity',val:'7365',color:'bg-blue-500/20 text-blue-400',pct:65},
+          ].map(({label,val,color,pct})=>(
+            <div key={label} className="mb-2.5">
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-slate-500">{label}</span>
+                <span className={`font-mono font-bold px-1.5 rounded text-[9px] ${color}`}>{val}</span>
+              </div>
+              <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full bg-slate-600" style={{width:`${pct}%`}} />
+              </div>
+            </div>
+          ))}
+          <div className="mt-3 pt-3 border-t border-white/5">
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest mb-2">⊕ MARKET PULSE</p>
+            {[
+              {label:'PUT SPX @7320',val:'+115.0%',entry:'Entry: 2.00',bull:false},
+              {label:'CALL SPX @7355',val:'+0.0%',entry:'Entry: 2.40',bull:true},
+            ].map(({label,val,entry,bull})=>(
+              <div key={label} className="flex justify-between py-1 border-b border-white/4 text-[9px]">
+                <div>
+                  <span className={`font-semibold ${bull?'text-emerald-400':'text-red-400'}`}>{label}</span>
+                  <p className="text-slate-600">{entry}</p>
+                </div>
+                <span className={`font-bold font-mono ${bull?'text-emerald-400':'text-red-400'}`}>{val}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="p-4">
+          <p className="text-[8px] text-slate-500 uppercase tracking-widest font-bold mb-3">AI SIGNAL — TODAY</p>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-8 h-8 rounded-full bg-red-500/20 border border-red-500/40 flex items-center justify-center">
+              <TrendingDown className="h-4 w-4 text-red-400" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-red-400">BEARISH</p>
+              <p className="text-[10px] text-slate-500">Confidence: 71%</p>
+            </div>
+          </div>
+          <div className="h-2 rounded-full bg-white/5 overflow-hidden mb-3">
+            <div className="h-full bg-gradient-to-r from-emerald-500/60 to-red-500" style={{width:'71%'}} />
+          </div>
+          <p className="text-[10px] text-slate-500 leading-relaxed">P/C ratio 0.93 near neutral. VIX at 17.1 — elevated. Dealer gamma net short at 7320 creates amplified downside risk below current levels.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {[{l:'Bear',v:'71%',c:'text-red-400'},{l:'Bull',v:'29%',c:'text-emerald-400'}].map(({l,v,c})=>(
+              <div key={l} className="bg-white/3 border border-white/5 rounded p-2 text-center">
+                <p className={`text-xs font-bold ${c}`}>{v}</p>
+                <p className="text-[9px] text-slate-600">{l}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </TerminalFrame>
+  );
+}
+
+/* ── Reports History ── matches actual Reports screenshot */
+function ReportsMockup() {
+  return (
+    <TerminalFrame title="analyzinghub.com/dashboard/reports">
+      <div className="p-4 pb-2">
+        <p className="text-xl font-bold text-slate-100">Reports</p>
+        <p className="text-[11px] text-slate-500 mb-4">Generate and manage trading reports</p>
+        {/* Tabs */}
+        <div className="flex border-b border-white/8 mb-5">
+          {['Generate','Automated','History'].map((t,i)=>(
+            <div key={t} className={`flex items-center gap-1.5 px-6 py-2.5 text-[11px] font-semibold cursor-pointer ${i===2?'border-b-2 border-slate-200 text-slate-200':'text-slate-500'}`}>
+              {i===0&&<FileText className="h-3 w-3"/>}
+              {i===1&&<Settings className="h-3 w-3"/>}
+              {i===2&&<Clock className="h-3 w-3"/>}
+              {t}
+            </div>
+          ))}
+        </div>
+        <p className="text-sm font-bold text-slate-200 mb-0.5">Generated Reports</p>
+        <p className="text-[10px] text-slate-500 mb-4">History of generated reports</p>
+      </div>
+      {/* Report cards */}
+      {[
+        {date:'May 7th, 2026',range:'May 07 – May 07, 2026',profit:'+$3648',profitSub:'530.0% avg',total:'+$3648',totalSub:'from wins',wr:'100.0%',wrSub:'2W / 0L',best:'+$2515',bestSub:'636.7% gain'},
+        {date:'May 6th, 2026',range:'May 06 – May 06, 2026',profit:'+$3648',profitSub:'530.0% avg',total:'+$3648',totalSub:'from wins',wr:'100.0%',wrSub:'2W / 0L',best:'+$2515',bestSub:'636.7% gain'},
+      ].map(({date,range,profit,profitSub,total,totalSub,wr,wrSub,best,bestSub},ri)=>(
+        <div key={date} className={`mx-4 mb-4 rounded-xl border ${ri===0?'border-cyan-500/40 bg-gradient-to-br from-cyan-900/20 to-teal-900/10':'border-white/8 bg-white/2'} p-4`}>
+          <div className="flex items-center gap-2 mb-0.5">
+            <p className="text-sm font-bold text-slate-200">{date}</p>
+            <span className="flex items-center gap-1 text-[9px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full px-2 py-0.5">
+              <CheckCircle2 className="h-2.5 w-2.5"/> Generated
+            </span>
+            <span className="text-[9px] bg-white/10 text-slate-300 border border-white/15 rounded-full px-2 py-0.5">Both</span>
+          </div>
+          <p className="text-[10px] text-slate-500 mb-3">{range}</p>
+          <div className="grid grid-cols-4 gap-3 mb-3">
+            {[
+              {l:'Net Profit',v:profit,sub:profitSub,border:'border-l-emerald-500',txt:'text-emerald-400'},
+              {l:'Total Profit',v:total,sub:totalSub,border:'border-l-cyan-500',txt:'text-cyan-400'},
+              {l:'Win Rate',v:wr,sub:wrSub,border:'border-l-amber-500',txt:'text-amber-400'},
+              {l:'Best Trade',v:best,sub:bestSub,border:'border-l-purple-500',txt:'text-purple-400'},
+            ].map(({l,v,sub,border,txt})=>(
+              <div key={l} className={`bg-white/4 border border-white/8 border-l-2 ${border} rounded-lg p-3`}>
+                <p className="text-[9px] text-slate-500 mb-1">{l}</p>
+                <p className={`text-base font-bold font-mono ${txt}`}>{v}</p>
+                <p className="text-[9px] text-slate-600">{sub}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex gap-3">
+              {[{i:Eye,l:'Preview'},{i:ImageIcon,l:'Image'},{i:Download,l:'HTML'},{i:FileText,l:'PDF'}].map(({i:Icon,l})=>(
+                <div key={l} className="flex items-center gap-1.5 text-[10px] text-slate-400 cursor-pointer hover:text-slate-200">
+                  <Icon className="h-3 w-3"/> {l}
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-1.5 bg-blue-600 rounded-lg px-3 py-1.5 text-[11px] text-white font-bold cursor-pointer">
+              <Send className="h-3 w-3"/> Send
+            </div>
+          </div>
+        </div>
+      ))}
+    </TerminalFrame>
+  );
+}
+
+/* ── Rankings ── matches Analyst Leaderboard section */
+function RankingsMockup() {
+  return (
+    <TerminalFrame title="analyzinghub.com/dashboard/rankings">
+      <div className="p-4">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex gap-1">
+            {['All Time','This Month','This Week'].map((t,i)=>(
+              <div key={t} className={`px-3 py-1.5 rounded-lg text-[10px] font-semibold ${i===1?'bg-amber-500/20 text-amber-400 border border-amber-500/30':'bg-white/5 border border-white/8 text-slate-500'}`}>{t}</div>
+            ))}
+          </div>
+          <span className="text-[10px] text-slate-500 font-mono">238 Analyzers ranked</span>
+        </div>
+        {/* Table header */}
+        <div className="grid grid-cols-12 gap-2 px-3 py-1.5 text-[9px] text-slate-600 uppercase tracking-wider border-b border-white/5 mb-1">
+          <span className="col-span-1">#</span>
+          <span className="col-span-4">Analyzer</span>
+          <span className="col-span-2 text-right">Win Rate</span>
+          <span className="col-span-2 text-right">Net P&L</span>
+          <span className="col-span-2 text-right">Subscribers</span>
+          <span className="col-span-1 text-right">Score</span>
+        </div>
+        {[
+          {rank:1,name:'Ahmad Al-Rashidi',wr:'84%',pnl:'+$48,200',subs:342,score:96.4,medal:'🥇'},
+          {rank:2,name:'Sara Khalid',wr:'79%',pnl:'+$31,800',subs:218,score:91.2,medal:'🥈'},
+          {rank:3,name:'Mike Torres',wr:'76%',pnl:'+$27,400',subs:175,score:88.7,medal:'🥉'},
+          {rank:4,name:'Analyzer',wr:'57%',pnl:'+$29,115',subs:2,score:60,medal:'04'},
+          {rank:5,name:'Omar Hassan',wr:'69%',pnl:'+$14,900',subs:98,score:78.3,medal:'05'},
+        ].map(({rank,name,wr,pnl,subs,score,medal})=>(
+          <div key={rank} className={`grid grid-cols-12 gap-2 items-center px-3 py-2.5 rounded-lg border text-[11px] mb-1 ${rank===4?'bg-blue-500/8 border-blue-500/20':'bg-white/2 border-white/5'}`}>
+            <span className="col-span-1 text-base">{medal.length>2?medal:`0${rank}`}</span>
+            <div className="col-span-4 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0">
+                {name.split(' ').map(w=>w[0]).join('').slice(0,2)}
+              </div>
+              <span className="font-semibold text-slate-200">{name}</span>
+            </div>
+            <span className="col-span-2 text-right font-mono font-bold text-amber-400">{wr}</span>
+            <span className="col-span-2 text-right font-mono font-bold text-emerald-400">{pnl}</span>
+            <span className="col-span-2 text-right font-mono text-slate-400">{subs}</span>
+            <span className="col-span-1 text-right font-mono font-bold text-blue-400">{score}</span>
+          </div>
+        ))}
+      </div>
+    </TerminalFrame>
+  );
+}
+
+/* ── Profile ── */
 function ProfileMockup() {
   return (
-    <TerminalFrame title="profile — AnalyzingHub Terminal">
+    <TerminalFrame title="analyzinghub.com/dashboard/profile">
       <div className="p-5">
         <div className="flex gap-4 mb-5">
           <div className="w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">AK</div>
@@ -419,13 +712,13 @@ function ProfileMockup() {
             <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-slate-400">Follow</div>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-px bg-border rounded-xl overflow-hidden">
+        <div className="grid grid-cols-3 gap-px bg-white/5 rounded-xl overflow-hidden">
           {[
-            { label: 'Total P&L', val: '+$48,200', color: 'text-emerald-400' },
-            { label: 'Avg R:R', val: '2.8:1', color: 'text-blue-400' },
-            { label: 'Best Month', val: '+$12,400', color: 'text-emerald-300' },
-          ].map(({ label, val, color }) => (
-            <div key={label} className="bg-[hsl(222,47%,7%)] p-3 text-center">
+            {label:'Total P&L',val:'+$48,200',color:'text-emerald-400'},
+            {label:'Avg R:R',val:'2.8:1',color:'text-blue-400'},
+            {label:'Best Month',val:'+$12,400',color:'text-emerald-300'},
+          ].map(({label,val,color})=>(
+            <div key={label} className="bg-[#0d1117] p-3 text-center">
               <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-1">{label}</p>
               <p className={`font-bold font-mono ${color}`}>{val}</p>
             </div>
@@ -436,30 +729,29 @@ function ProfileMockup() {
   );
 }
 
+/* ── Settings ── */
 function SettingsMockup() {
   return (
-    <TerminalFrame title="settings — AnalyzingHub Terminal">
+    <TerminalFrame title="analyzinghub.com/dashboard/settings">
       <div className="grid grid-cols-4 h-56">
-        <div className="bg-[hsl(222,47%,8%)] border-r border-border p-3 space-y-1">
-          {['Account', 'Profile', 'Notifications', 'Telegram', 'Appearance', 'Billing'].map((item, i) => (
-            <div key={item} className={`px-2.5 py-2 rounded text-[11px] font-medium ${i === 2 ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
-              {item}
-            </div>
+        <div className="bg-[#090d18] border-r border-white/5 p-3 space-y-1">
+          {['Account','Profile','Notifications','Telegram','Appearance','Billing'].map((item,i)=>(
+            <div key={item} className={`px-2.5 py-2 rounded text-[11px] font-medium ${i===2?'bg-blue-600 text-white':'text-slate-500'}`}>{item}</div>
           ))}
         </div>
         <div className="col-span-3 p-4 space-y-3">
           <p className="text-sm font-semibold text-slate-200">Notification Preferences</p>
           {[
-            { label: 'Price target reached', on: true },
-            { label: 'New subscriber', on: true },
-            { label: 'Analysis liked', on: false },
-            { label: 'Daily report ready', on: true },
-            { label: 'Stop loss hit', on: true },
-          ].map(({ label, on }) => (
+            {label:'Price target reached',on:true},
+            {label:'New subscriber',on:true},
+            {label:'Analysis liked',on:false},
+            {label:'Daily report ready',on:true},
+            {label:'Stop loss hit',on:true},
+          ].map(({label,on})=>(
             <div key={label} className="flex items-center justify-between py-1.5 border-b border-white/5">
               <span className="text-[11px] text-slate-400">{label}</span>
-              <div className={`w-8 h-4 rounded-full flex items-center px-0.5 transition-colors ${on ? 'bg-blue-600 justify-end' : 'bg-white/10 justify-start'}`}>
-                <div className="w-3 h-3 rounded-full bg-white" />
+              <div className={`w-8 h-4 rounded-full flex items-center px-0.5 ${on?'bg-blue-600 justify-end':'bg-white/10 justify-start'}`}>
+                <div className="w-3 h-3 rounded-full bg-white"/>
               </div>
             </div>
           ))}
