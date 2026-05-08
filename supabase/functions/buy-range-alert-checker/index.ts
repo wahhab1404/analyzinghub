@@ -3,11 +3,13 @@
  *
  * Scheduled edge function that checks active index_trades with pending buy range
  * alerts. When the current contract price enters the analyst-defined buy range,
- * it sends a "Price Hits" Telegram alert once and marks the alert as hit.
+ * it sends a "Price Hits" Telegram alert (image + caption) once and marks the
+ * alert as hit.
  *
- * Deduplication: buy_range_alert_sent prevents duplicate alerts.
+ * Deduplication: buy_range_alert_sent prevents duplicate text alerts.
+ *                buy_range_image_sent prevents duplicate image sends.
  * Expiry:        expired alerts are marked and skipped.
- * Cancellation:  cancelled alerts are skipped.
+ * Fallback:      if image generation or sendPhoto fails, text message is sent.
  *
  * Invocation: POST (from cron) or via the Supabase schedule:
  *   supabase functions invoke buy-range-alert-checker --no-verify-jwt
@@ -15,13 +17,13 @@
  * Required Supabase secrets:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *   TELEGRAM_BOT_TOKEN (or stored in admin_settings)
- *   APP_BASE_URL  — your production Next.js URL (for analysis links)
+ *   APP_BASE_URL  — your production Next.js URL (e.g. https://analyzhub.com)
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_URL             = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BASE_URL = Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://analyzhub.com";
 
@@ -39,6 +41,7 @@ Deno.serve(async (req: Request) => {
   const startedAt = new Date().toISOString();
   console.log(`[buy-range-checker] ══════════════════════════════════════════`);
   console.log(`[buy-range-checker] BUY RANGE ALERT CHECK STARTED at ${startedAt}`);
+  console.log(`[buy-range-checker] BASE_URL: ${BASE_URL}`);
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -82,7 +85,7 @@ Deno.serve(async (req: Request) => {
         current_contract, entry_price,
         entry_contract_snapshot,
         buy_range_min, buy_range_max,
-        buy_range_status, buy_range_alert_sent,
+        buy_range_status, buy_range_alert_sent, buy_range_image_sent,
         buy_range_expires_at, buy_range_telegram_channel_id,
         analysis_id, author_id, status,
         author:profiles!author_id(id, full_name),
@@ -110,7 +113,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const results = { checked: 0, alerts_sent: 0, errors: 0, skipped: 0 };
+    const results = { checked: 0, alerts_sent: 0, images_sent: 0, text_fallbacks: 0, errors: 0, skipped: 0 };
 
     for (const trade of trades!) {
       results.checked++;
@@ -130,7 +133,7 @@ Deno.serve(async (req: Request) => {
       const priceInRange = currentPrice >= rangeMin && currentPrice <= rangeMax;
 
       if (!priceInRange) {
-        console.log(`[buy-range-checker]   ⏩ Price ${currentPrice} not in range [${rangeMin}, ${rangeMax}] — no alert`);
+        console.log(`[buy-range-checker]   ⏩ Price ${currentPrice} not in range [${rangeMin}, ${rangeMax}]`);
         results.skipped++;
         continue;
       }
@@ -151,7 +154,6 @@ Deno.serve(async (req: Request) => {
       }
 
       if (!channelId) {
-        // Fallback: use the first enabled channel for this analyst
         const { data: channels } = await supabase
           .from("telegram_channels")
           .select("channel_id")
@@ -162,7 +164,7 @@ Deno.serve(async (req: Request) => {
       }
 
       if (!channelId) {
-        console.warn(`[buy-range-checker]   ⚠️  No Telegram channel found for trade ${trade.id} — marking alert as hit anyway to avoid re-check`);
+        console.warn(`[buy-range-checker]   ⚠️  No Telegram channel for trade ${trade.id} — marking hit`);
         await supabase
           .from("index_trades")
           .update({
@@ -175,52 +177,86 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      // ── Build the "Price Hits" Telegram message ──────────────────────────
-      const message = buildPriceHitsMessage(trade, currentPrice, BASE_URL);
+      // ── Build caption ────────────────────────────────────────────────────
+      const caption = buildPriceHitsCaption(trade, currentPrice, BASE_URL);
 
-      // ── Send to Telegram ─────────────────────────────────────────────────
-      console.log(`[buy-range-checker]   📨 TELEGRAM SENDING STARTED — channel: ${channelId}`);
-      try {
-        const telegramRes = await fetch(
-          `https://api.telegram.org/bot${botToken}/sendMessage`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: channelId,
-              text: message,
-              parse_mode: "HTML",
-              disable_web_page_preview: true,
-            }),
+      // ── Try image send ───────────────────────────────────────────────────
+      console.log(`[buy-range-checker]   📸 IMAGE GENERATION STARTED — tradeId: ${trade.id}`);
+      let imageSent = false;
+
+      if (!BASE_URL.includes('localhost')) {
+        try {
+          const imgBuffer = await fetchImageBuffer(trade.id, BASE_URL);
+
+          if (imgBuffer && imgBuffer.byteLength > 1024) {
+            console.log(`[buy-range-checker]   📸 Image ready (${imgBuffer.byteLength} bytes) — calling sendPhoto`);
+            await sendTelegramPhotoBytes(botToken, channelId, imgBuffer, caption);
+            imageSent = true;
+            results.images_sent++;
+            console.log(`[buy-range-checker]   ✅ PHOTO SENT to ${channelId}`);
+          } else {
+            console.warn(`[buy-range-checker]   ⚠️  Image buffer empty or too small — falling back to text`);
           }
-        );
+        } catch (imgErr: any) {
+          console.error(`[buy-range-checker]   ❌ Image/sendPhoto failed: ${imgErr.message} — falling back to text`);
+        }
+      } else {
+        console.log(`[buy-range-checker]   ⚠️  BASE_URL is localhost — skipping image generation`);
+      }
 
-        const telegramBody = await telegramRes.json();
+      // ── Text fallback if image not sent ──────────────────────────────────
+      if (!imageSent) {
+        try {
+          const telegramRes = await fetch(
+            `https://api.telegram.org/bot${botToken}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: channelId,
+                text: caption,
+                parse_mode: "HTML",
+                disable_web_page_preview: true,
+              }),
+            }
+          );
 
-        if (!telegramRes.ok || !telegramBody.ok) {
-          console.error(`[buy-range-checker]   ❌ TELEGRAM SENDING FAILED:`, JSON.stringify(telegramBody));
+          const telegramBody = await telegramRes.json();
+
+          if (!telegramRes.ok || !telegramBody.ok) {
+            console.error(`[buy-range-checker]   ❌ TEXT SEND FAILED:`, JSON.stringify(telegramBody));
+            results.errors++;
+            continue;
+          }
+
+          results.text_fallbacks++;
+          console.log(`[buy-range-checker]   ✅ TEXT FALLBACK SENT — message_id: ${telegramBody.result?.message_id}`);
+        } catch (textErr: any) {
+          console.error(`[buy-range-checker]   ❌ Text send exception: ${textErr.message}`);
           results.errors++;
           continue;
         }
-
-        console.log(`[buy-range-checker]   ✅ TELEGRAM SENDING COMPLETED — message_id: ${telegramBody.result?.message_id}`);
-
-        // ── Mark alert as hit + sent ─────────────────────────────────────
-        await supabase
-          .from("index_trades")
-          .update({
-            buy_range_status: "hit",
-            buy_range_hit_at: new Date().toISOString(),
-            buy_range_alert_sent: true,
-          })
-          .eq("id", trade.id);
-
-        console.log(`[buy-range-checker]   ✅ Trade ${trade.id} marked buy_range_status=hit, buy_range_alert_sent=true`);
-        results.alerts_sent++;
-      } catch (sendErr: any) {
-        console.error(`[buy-range-checker]   ❌ Telegram send exception:`, sendErr.message);
-        results.errors++;
       }
+
+      // ── Mark alert as hit + sent ─────────────────────────────────────────
+      const updatePayload: Record<string, unknown> = {
+        buy_range_status: "hit",
+        buy_range_hit_at: new Date().toISOString(),
+        buy_range_alert_sent: true,
+        buy_range_image_sent: imageSent,
+        telegram_image_sent_at: imageSent ? new Date().toISOString() : undefined,
+        telegram_image_error: imageSent ? null : 'Image failed — text fallback sent',
+      };
+      // Remove undefined keys so Supabase doesn't send them
+      Object.keys(updatePayload).forEach(k => updatePayload[k] === undefined && delete updatePayload[k]);
+
+      await supabase
+        .from("index_trades")
+        .update(updatePayload)
+        .eq("id", trade.id);
+
+      console.log(`[buy-range-checker]   ✅ Trade ${trade.id} marked buy_range_status=hit, image=${imageSent}`);
+      results.alerts_sent++;
     }
 
     const summary = {
@@ -246,21 +282,77 @@ Deno.serve(async (req: Request) => {
   }
 });
 
-// ─── Message builder ─────────────────────────────────────────────────────────
+// ─── Image fetching ───────────────────────────────────────────────────────────
 
-function buildPriceHitsMessage(trade: any, currentPrice: number, baseUrl: string): string {
-  const author = trade.author as { full_name?: string } | null;
+async function fetchImageBuffer(tradeId: string, baseUrl: string): Promise<ArrayBuffer | null> {
+  const url = `${baseUrl}/api/indices/trades/${tradeId}/generate-image`;
+
+  console.log(`[buy-range-checker] Fetching image from: ${url}`);
+
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(28_000),
+    headers: { Accept: "image/png" },
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(unreadable)");
+    console.error(`[buy-range-checker] Image fetch HTTP ${res.status}: ${body.substring(0, 300)}`);
+    return null;
+  }
+
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.startsWith("image/")) {
+    const body = await res.text().catch(() => "(unreadable)");
+    console.error(`[buy-range-checker] Unexpected content-type "${ct}": ${body.substring(0, 200)}`);
+    return null;
+  }
+
+  return res.arrayBuffer();
+}
+
+// ─── Telegram helpers ─────────────────────────────────────────────────────────
+
+async function sendTelegramPhotoBytes(
+  botToken: string,
+  chatId: string,
+  pngBytes: ArrayBuffer,
+  caption: string
+): Promise<void> {
+  const form = new FormData();
+  form.append("chat_id", chatId);
+  form.append("photo", new Blob([pngBytes], { type: "image/png" }), "alert.png");
+  form.append("caption", caption.substring(0, 1024));
+  form.append("parse_mode", "HTML");
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: "POST",
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram sendPhoto error (${res.status}): ${err}`);
+  }
+
+  const body = await res.json();
+  if (!body.ok) {
+    throw new Error(`Telegram sendPhoto rejected: ${JSON.stringify(body)}`);
+  }
+}
+
+// ─── Caption builder ─────────────────────────────────────────────────────────
+
+function buildPriceHitsCaption(trade: any, currentPrice: number, baseUrl: string): string {
+  const author   = trade.author as { full_name?: string } | null;
   const analysis = trade.analysis as { id?: string; title?: string; index_symbol?: string } | null;
 
-  const symbol = analysis?.index_symbol ?? trade.underlying_index_symbol ?? "";
-  const ticker = trade.polygon_option_ticker?.replace(/^O:/, "") ?? "";
+  const symbol     = analysis?.index_symbol ?? trade.underlying_index_symbol ?? "";
+  const ticker     = trade.polygon_option_ticker?.replace(/^O:/, "") ?? "";
   const optionType = (trade.option_type ?? trade.direction ?? "").toUpperCase();
-  const strike = trade.strike ? Number(trade.strike).toFixed(0) : "";
-  const expiry = trade.expiry
+  const strike     = trade.strike ? Number(trade.strike).toFixed(0) : "";
+  const expiry     = trade.expiry
     ? new Date(trade.expiry).toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
+        year: "numeric", month: "2-digit", day: "2-digit",
       })
     : "";
   const entryPrice = trade.entry_price
@@ -269,26 +361,22 @@ function buildPriceHitsMessage(trade: any, currentPrice: number, baseUrl: string
   const analysisLink = analysis?.id ? `${baseUrl}/dashboard/analysis/${analysis.id}` : null;
   const now = new Date().toLocaleString("en-US", {
     timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
+    month: "short", day: "numeric", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: true,
   });
 
-  let msg = `🎯 <b>Price Hits</b>\n\n`;
+  let msg = `🎯 <b>Price Hits Buy Range</b>\n\n`;
   msg += `<b>${symbol} Contract Alert</b>\n`;
-  if (ticker) msg += `<b>Contract:</b> ${ticker}\n`;
+  if (ticker)   msg += `<b>Contract:</b> ${ticker}\n`;
   msg += `<b>Type:</b> ${optionType}\n`;
-  if (strike) msg += `<b>Strike:</b> $${strike}\n`;
-  if (expiry) msg += `<b>Expiration:</b> ${expiry}\n`;
+  if (strike)   msg += `<b>Strike:</b> $${strike}\n`;
+  if (expiry)   msg += `<b>Expiration:</b> ${expiry}\n`;
   msg += `<b>Current Price:</b> $${currentPrice.toFixed(2)}\n`;
   msg += `<b>Buy Range:</b> $${Number(trade.buy_range_min).toFixed(2)} – $${Number(trade.buy_range_max).toFixed(2)}\n`;
   if (entryPrice > 0) msg += `<b>Entry Price:</b> $${Number(entryPrice).toFixed(2)}\n`;
   if (author?.full_name) msg += `<b>Analyst:</b> ${author.full_name}\n`;
-  if (analysisLink) msg += `<b>Analysis:</b> <a href="${analysisLink}">View</a>\n`;
+  if (analysisLink)      msg += `<b>Analysis:</b> <a href="${analysisLink}">View</a>\n`;
   msg += `<b>Time:</b> ${now} ET\n`;
 
-  return msg;
+  return msg.length > 1020 ? msg.substring(0, 1020) + "…" : msg;
 }

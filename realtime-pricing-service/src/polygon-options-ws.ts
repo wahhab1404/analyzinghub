@@ -24,6 +24,7 @@ import WebSocket from 'ws';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { computeSmartHybridPrice } from './premium-calculator';
 import { streamHealth } from './stream-health';
+import { TelegramAlertsService, BuyRangeTrade } from './telegram-alerts';
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
 
@@ -74,16 +75,39 @@ const FLUSH_INTERVAL_MS     = 250; // Batch events → flush to Supabase every 2
 
 // ── CLASS ─────────────────────────────────────────────────────────────────────
 
+/** Buy-range metadata stored per trade, populated from syncActiveTrades */
+interface BuyRangeMeta {
+  min:         number;
+  max:         number;
+  channelUuid: string | null;
+  authorId:    string;
+  symbol:      string;
+  ticker:      string;
+  optionType:  string;
+  strike:      number | null;
+  expiry:      string | null;
+  entryPrice:  number;
+  analysisId:  string | null;
+  analystName: string | null;
+}
+
 export class PolygonOptionsWebSocket {
   private ws: WebSocket | null = null;
   private supabase: SupabaseClient;
   private apiKey: string;
+  private telegramAlerts: TelegramAlertsService | null;
 
   /** ticker → tradeId (for the active trades we care about) */
   private tickerToTradeId = new Map<string, string>();
 
+  /** ticker → buy-range metadata (only for trades with pending buy-range alerts) */
+  private tickerToBuyRange = new Map<string, BuyRangeMeta>();
+
   /** tickers currently subscribed in Polygon */
   private subscribedTickers = new Set<string>();
+
+  /** tradeIds for which we have already resolved the Telegram channel (cache) */
+  private resolvedChannels = new Map<string, string>();
 
   private isAuthenticated = false;
   private isConnecting    = false;
@@ -101,37 +125,48 @@ export class PolygonOptionsWebSocket {
   private rpcRateLimitTimer: NodeJS.Timeout | null = null;
   private readonly MAX_RPC_PER_SECOND = 20;
 
-  constructor(apiKey: string, supabase: SupabaseClient) {
-    this.apiKey  = apiKey;
-    this.supabase = supabase;
+  constructor(apiKey: string, supabase: SupabaseClient, telegramAlerts: TelegramAlertsService | null = null) {
+    this.apiKey         = apiKey;
+    this.supabase       = supabase;
+    this.telegramAlerts = telegramAlerts;
   }
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────────
 
   /** Register all active trades that should be tracked via streaming */
-  setActiveTrades(trades: Array<{ tradeId: string; optionTicker: string }>): void {
-    const newMap = new Map<string, string>();
+  setActiveTrades(trades: Array<{
+    tradeId: string;
+    optionTicker: string;
+    buyRange?: BuyRangeMeta | null;
+  }>): void {
+    const newTradeMap    = new Map<string, string>();
+    const newBuyRangeMap = new Map<string, BuyRangeMeta>();
+
     for (const t of trades) {
       const ticker = t.optionTicker.startsWith('O:')
         ? t.optionTicker
         : `O:${t.optionTicker}`;
-      newMap.set(ticker, t.tradeId);
+      newTradeMap.set(ticker, t.tradeId);
+      if (t.buyRange) {
+        newBuyRangeMap.set(ticker, t.buyRange);
+      }
     }
 
     // Unsubscribe tickers no longer needed
     for (const [ticker] of this.tickerToTradeId) {
-      if (!newMap.has(ticker) && this.subscribedTickers.has(ticker)) {
+      if (!newTradeMap.has(ticker) && this.subscribedTickers.has(ticker)) {
         this.sendUnsubscribe([ticker]);
         this.subscribedTickers.delete(ticker);
       }
     }
 
-    this.tickerToTradeId = newMap;
-    streamHealth.setSubscribedCount('options', newMap.size);
+    this.tickerToTradeId    = newTradeMap;
+    this.tickerToBuyRange   = newBuyRangeMap;
+    streamHealth.setSubscribedCount('options', newTradeMap.size);
 
     // Subscribe to new tickers
     if (this.isAuthenticated) {
-      const toSubscribe = Array.from(newMap.keys()).filter(
+      const toSubscribe = Array.from(newTradeMap.keys()).filter(
         t => !this.subscribedTickers.has(t)
       );
       if (toSubscribe.length > 0) {
@@ -455,8 +490,7 @@ export class PolygonOptionsWebSocket {
       const result = data as any;
 
       if (result?.skipped) {
-        // Manual price override active — do not log this every tick
-        return;
+        return; // Manual price override active — skip silently
       }
 
       if (result?.is_new_high) {
@@ -472,9 +506,105 @@ export class PolygonOptionsWebSocket {
           `max_profit $${(result.max_profit_dollars as number).toFixed(2)}`
         );
       }
+
+      // ── Buy-range check ─────────────────────────────────────────────────
+      // On every tick, check if the live price has entered the analyst's
+      // buy range. If yes — and the alert hasn't been sent — fire Telegram.
+      const buyRange = this.tickerToBuyRange.get(ticker);
+      if (
+        buyRange &&
+        priceResult.price !== null &&
+        this.telegramAlerts
+      ) {
+        const price = priceResult.price;
+        const inRange = price >= buyRange.min && price <= buyRange.max;
+
+        if (inRange) {
+          console.log(
+            `[OptionsWS] 🎯 PRICE IN BUY RANGE — trade ${tradeId} ticker=${ticker} ` +
+            `price=${price} range=[${buyRange.min}, ${buyRange.max}]`
+          );
+
+          // Resolve the Telegram channel id for this trade
+          const channelId = await this.resolveTelegramChannel(tradeId, buyRange);
+
+          if (channelId) {
+            const alertTrade: BuyRangeTrade = {
+              id:          tradeId,
+              symbol:      buyRange.symbol,
+              ticker:      buyRange.ticker,
+              optionType:  buyRange.optionType.toUpperCase(),
+              strike:      buyRange.strike,
+              expiry:      buyRange.expiry,
+              entryPrice:  buyRange.entryPrice,
+              buyRangeMin: buyRange.min,
+              buyRangeMax: buyRange.max,
+              channelId,
+              analysisId:  buyRange.analysisId,
+              analystName: buyRange.analystName,
+            };
+
+            // Remove from map immediately to prevent duplicate concurrent calls
+            this.tickerToBuyRange.delete(ticker);
+
+            // Fire-and-forget with error guard
+            this.telegramAlerts.sendBuyRangeAlert(alertTrade, price).then(res => {
+              if (res.ok) {
+                console.log(`[OptionsWS] ✅ Buy-range alert sent for trade ${tradeId} — image=${res.imageSent}`);
+              } else {
+                console.error(`[OptionsWS] ❌ Buy-range alert failed for trade ${tradeId}: ${res.error}`);
+              }
+            }).catch(err => {
+              console.error(`[OptionsWS] ❌ Buy-range alert exception for trade ${tradeId}:`, err.message);
+            });
+          } else {
+            console.warn(`[OptionsWS] ⚠️  No Telegram channel for trade ${tradeId} — buy-range alert skipped`);
+            // Remove from map so we don't keep trying every tick
+            this.tickerToBuyRange.delete(ticker);
+          }
+        }
+      }
+
     } catch (err: any) {
       console.error(`[OptionsWS] Exception calling RPC for trade ${tradeId}:`, err.message);
     }
+  }
+
+  /** Resolve the Telegram channel_id string for a trade's buy-range alert */
+  private async resolveTelegramChannel(tradeId: string, buyRange: BuyRangeMeta): Promise<string | null> {
+    // Check in-memory cache first
+    const cached = this.resolvedChannels.get(tradeId);
+    if (cached) return cached;
+
+    let channelId: string | null = null;
+
+    // Try the specific channel assigned to this buy-range alert
+    if (buyRange.channelUuid) {
+      const { data } = await this.supabase
+        .from('telegram_channels')
+        .select('channel_id')
+        .eq('id', buyRange.channelUuid)
+        .eq('enabled', true)
+        .maybeSingle();
+      channelId = data?.channel_id ?? null;
+    }
+
+    // Fall back to the analyst's first enabled channel
+    if (!channelId) {
+      const { data } = await this.supabase
+        .from('telegram_channels')
+        .select('channel_id')
+        .eq('user_id', buyRange.authorId)
+        .eq('enabled', true)
+        .limit(1);
+      channelId = data?.[0]?.channel_id ?? null;
+    }
+
+    if (channelId) {
+      this.resolvedChannels.set(tradeId, channelId);
+    }
+
+    return channelId;
   }
 
   // ── PRIVATE: SUBSCRIPTIONS ─────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { SubscriptionManager } from './subscription-manager';
 import { PolygonOptionsWebSocket } from './polygon-options-ws';
 import { streamHealth } from './stream-health';
+import { TelegramAlertsService } from './telegram-alerts';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,19 @@ export class PolygonQuoteFetcher {
     this.apiKey               = apiKey;
     this.supabase             = supabase;
     this.subscriptionManager  = subscriptionManager;
-    this.optionsWs            = new PolygonOptionsWebSocket(apiKey, supabase);
+
+    // Build TelegramAlertsService if bot token + base URL are available
+    const botToken   = process.env.TELEGRAM_BOT_TOKEN ?? '';
+    const appBaseUrl = process.env.APP_BASE_URL ?? 'https://analyzhub.com';
+    const telegramAlerts = botToken
+      ? new TelegramAlertsService(botToken, appBaseUrl, supabase)
+      : null;
+
+    if (!botToken) {
+      console.warn('[PolygonFetcher] TELEGRAM_BOT_TOKEN not set — buy-range Telegram alerts disabled');
+    }
+
+    this.optionsWs = new PolygonOptionsWebSocket(apiKey, supabase, telegramAlerts);
   }
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────────
@@ -256,9 +269,32 @@ export class PolygonQuoteFetcher {
   }
 
   private async syncActiveTrades(): Promise<void> {
+    // Fetch active trades including buy-range fields so the options WS can
+    // trigger near-realtime alerts when price enters the analyst-defined range.
     const { data: trades, error } = await this.supabase
       .from('index_trades')
-      .select('id, polygon_option_ticker, polygon_underlying_index_ticker, instrument_type')
+      .select(`
+        id,
+        polygon_option_ticker,
+        polygon_underlying_index_ticker,
+        instrument_type,
+        underlying_index_symbol,
+        strike,
+        expiry,
+        option_type,
+        direction,
+        entry_price,
+        entry_contract_snapshot,
+        buy_range_min,
+        buy_range_max,
+        buy_range_status,
+        buy_range_alert_sent,
+        buy_range_telegram_channel_id,
+        author_id,
+        analysis_id,
+        author:profiles!author_id(full_name),
+        analysis:index_analyses(id, index_symbol)
+      `)
       .eq('status', 'active')
       .not('polygon_option_ticker', 'is', null);
 
@@ -267,12 +303,37 @@ export class PolygonQuoteFetcher {
       return;
     }
 
-    const activeTrades = (trades ?? []).map(t => ({
-      tradeId:      t.id as string,
-      optionTicker: t.polygon_option_ticker as string,
-    }));
+    const activeTrades = (trades ?? []).map(t => {
+      // Resolve the Telegram channel id synchronously (stored in buy_range_telegram_channel_id
+      // as a UUID; the options WS will look it up when needed, or fall back to author's channel).
+      const snap       = (t.entry_contract_snapshot as any) ?? {};
+      const entryPrice = parseFloat(snap.price ?? snap.mid ?? snap.last ?? '0') || 0;
 
-    console.log(`[FetcherSync] Synced ${activeTrades.length} active trade(s) to options WS`);
+      return {
+        tradeId:      t.id as string,
+        optionTicker: t.polygon_option_ticker as string,
+        // Buy-range fields for realtime alert checking
+        buyRange: (t.buy_range_min && t.buy_range_max && t.buy_range_status === 'pending' && !t.buy_range_alert_sent)
+          ? {
+              min:          Number(t.buy_range_min),
+              max:          Number(t.buy_range_max),
+              channelUuid:  t.buy_range_telegram_channel_id as string | null,
+              authorId:     t.author_id as string,
+              symbol:       ((t.analysis as any)?.index_symbol ?? t.underlying_index_symbol ?? '') as string,
+              ticker:       (t.polygon_option_ticker ?? '') as string,
+              optionType:   (t.option_type ?? t.direction ?? '') as string,
+              strike:       t.strike ? Number(t.strike) : null,
+              expiry:       t.expiry ? new Date(t.expiry).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : null,
+              entryPrice,
+              analysisId:   ((t.analysis as any)?.id ?? t.analysis_id ?? null) as string | null,
+              analystName:  ((t.author as any)?.full_name ?? null) as string | null,
+            }
+          : null,
+      };
+    });
+
+    const withBuyRange = activeTrades.filter(t => t.buyRange !== null).length;
+    console.log(`[FetcherSync] Synced ${activeTrades.length} active trade(s) — ${withBuyRange} with pending buy-range alerts`);
     this.optionsWs.setActiveTrades(activeTrades);
   }
 }
