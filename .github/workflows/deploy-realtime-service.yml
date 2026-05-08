@@ -1,0 +1,34 @@
+name: Deploy Realtime Pricing Service to Fly.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'realtime-pricing-service/**'
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: realtime-pricing-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create app if it doesn't exist
+        run: |
+          flyctl apps list | grep -q "indices-hub-realtime" \
+            || flyctl apps create indices-hub-realtime --machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --wait-timeout 120
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
