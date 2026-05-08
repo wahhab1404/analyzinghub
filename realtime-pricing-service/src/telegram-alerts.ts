@@ -229,11 +229,12 @@ export class TelegramAlertsService {
   }
 
   private async writeDbError(tradeId: string, errorMsg: string): Promise<void> {
-    await this.supabase
-      .from('index_trades')
-      .update({ telegram_image_error: errorMsg.substring(0, 500) })
-      .eq('id', tradeId)
-      .catch(() => {/* best-effort */});
+    try {
+      await this.supabase
+        .from('index_trades')
+        .update({ telegram_image_error: errorMsg.substring(0, 500) })
+        .eq('id', tradeId);
+    } catch { /* best-effort */ }
   }
 
   private buildCaption(trade: BuyRangeTrade, currentPrice: number): string {
