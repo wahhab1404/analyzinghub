@@ -4,13 +4,38 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors. This is safe because we've excluded
-    // Supabase Edge Functions (Deno) from tsconfig.json
     ignoreBuildErrors: true,
   },
   images: { unoptimized: true },
   optimizeFonts: false,
+
+  experimental: {
+    // ── Keep @resvg/resvg-wasm out of the webpack bundle ───────────────────────
+    // The package's ESM entry has `import * as wasm from './index_bg.wasm'`.
+    // Webpack in Next.js 13 cannot handle that static WASM import even with
+    // asyncWebAssembly:true (layer conflicts in RSC mode). Marking it external
+    // tells Next.js to emit require('@resvg/resvg-wasm') instead of bundling it,
+    // so webpack never touches the .wasm import. The package is then loaded by
+    // Node.js at runtime from node_modules (included via outputFileTracingIncludes).
+    serverComponentsExternalPackages: ['@resvg/resvg-wasm'],
+
+    // ── Bundle non-JS assets into the Netlify Lambda ───────────────────────────
+    // Output-file-tracing does not automatically pick up binary/font files from
+    // node_modules. We include the entire @resvg/resvg-wasm package (so the .wasm
+    // binary + CJS files are present at runtime) plus the Inter WOFF2 fonts.
+    outputFileTracingIncludes: {
+      '/api/indices/trades/[id]/generate-image': [
+        './node_modules/@resvg/resvg-wasm/**',
+        './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+        './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+      ],
+      '/api/debug/contract-image': [
+        './node_modules/@resvg/resvg-wasm/**',
+        './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+        './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+      ],
+    },
+  },
 };
 
 module.exports = nextConfig;

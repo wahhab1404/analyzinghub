@@ -34,3 +34,5 @@ primary_region = "iad"
 # SUPABASE_SERVICE_ROLE_KEY
 # REDIS_URL
 # JWT_SECRET
+# TELEGRAM_BOT_TOKEN   — required for buy-range Telegram alerts
+# APP_BASE_URL         — your production Next.js URL, e.g. https://analyzhub.com
