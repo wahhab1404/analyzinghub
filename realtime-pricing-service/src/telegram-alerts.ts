@@ -238,7 +238,7 @@ export class TelegramAlertsService {
   }
 
   private buildCaption(trade: BuyRangeTrade, currentPrice: number): string {
-    const baseUrl = this.appBaseUrl.includes('localhost') ? 'https://analyzhub.com' : this.appBaseUrl;
+    const baseUrl = this.appBaseUrl.includes('localhost') ? 'https://analyzinghub.com' : this.appBaseUrl;
     const analysisLink = trade.analysisId
       ? `${baseUrl}/dashboard/analysis/${trade.analysisId}`
       : null;

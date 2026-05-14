@@ -6,7 +6,7 @@
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
       const botToken = process.env.TELEGRAM_BOT_TOKEN
       const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET
-      const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzhub.com'
+      const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzinghub.com'
   
       // Debug info (remove in production)
       const envCheck = {

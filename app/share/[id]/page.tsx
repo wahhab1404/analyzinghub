@@ -36,7 +36,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const title = analysis.title || `${symbol} ${analysis.direction || ''} ${typeLabel}`
   const description = analysis.summary || `${typeLabel} by ${analyzerName} on ${symbol} - View detailed analysis and predictions on AnalyzingHub`
 
-  const baseUrl = process.env.APP_BASE_URL || 'https://analyzhub.com'
+  const baseUrl = process.env.APP_BASE_URL || 'https://analyzinghub.com'
 
   return {
     title: `${title} - AnalyzingHub`,

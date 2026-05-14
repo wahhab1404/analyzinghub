@@ -266,7 +266,7 @@ async function dispatchPendingAlerts(
   const appBaseUrl =
     Deno.env.get("APP_BASE_URL") ??
     Deno.env.get("NEXT_PUBLIC_SITE_URL") ??
-    "https://analyzhub.com";
+    "https://analyzinghub.com";
 
   // ── WIN ALERT ────────────────────────────────────────────────────────
   const justWon = rpcResult?.newly_won === true || (
@@ -331,8 +331,8 @@ async function dispatchPendingAlerts(
     const lastPrice     = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
     const minsSinceLast = lastAlertedAt ? (Date.now() - lastAlertedAt.getTime()) / 60_000 : Infinity;
 
-    const meetsGain        = gainPct >= 0.10;
-    const meetsImprovement = lastPrice === 0 || newHigh >= lastPrice * 1.20;
+    const meetsGain        = gainPct >= 0.05;
+    const meetsImprovement = lastPrice === 0 || newHigh >= lastPrice * 1.10;
     const meetsCooldown    = minsSinceLast >= 5;
 
     if (meetsGain && meetsImprovement && meetsCooldown && newHigh > 0) {

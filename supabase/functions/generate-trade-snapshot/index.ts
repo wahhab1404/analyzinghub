@@ -61,7 +61,7 @@ Deno.serve(async (req: Request) => {
       entryUnderlying: trade.entry_underlying_snapshot,
     });
 
-    const appBaseUrl = payload.appBaseUrl || Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_APP_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://analyzhub.com";
+    const appBaseUrl = payload.appBaseUrl || Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_APP_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://analyzinghub.com";
     console.log("[generate-trade-snapshot] appBaseUrl resolved to:", appBaseUrl, "(from payload:", !!payload.appBaseUrl, "/ env:", !!Deno.env.get("APP_BASE_URL"), ")");
     const isNewHighParam = payload.isNewHigh ? 'isNewHigh=true' : '';
     const newHighPriceParam = payload.newHighPrice ? `newHighPrice=${payload.newHighPrice}` : '';

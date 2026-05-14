@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    const appUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzhub.com'
+    const appUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzinghub.com'
     const webhookUrl = `${appUrl}/api/telegram/webhook`
 
     console.log('Setting up webhook:', webhookUrl)

@@ -531,7 +531,7 @@ export async function POST(request: NextRequest) {
     let snapshotUrl: string | null = null;
     const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzhub.com';
+    const appBaseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL || 'https://analyzinghub.com';
     const isLocalDev = appBaseUrl.includes('localhost');
 
     if (isLocalDev) {
@@ -660,7 +660,7 @@ export async function POST(request: NextRequest) {
                 channel_id: actualChannelId,
                 status: "pending",
                 priority: 5,
-                next_retry_at: new Date(Date.now() + 12_000).toISOString(),
+                next_retry_at: new Date().toISOString(),
               })
               .select('id')
               .single();
