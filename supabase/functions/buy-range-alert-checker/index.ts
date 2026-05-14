@@ -17,7 +17,7 @@
  * Required Supabase secrets:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  *   TELEGRAM_BOT_TOKEN (or stored in admin_settings)
- *   APP_BASE_URL  — your production Next.js URL (e.g. https://analyzhub.com)
+ *   APP_BASE_URL  — your production Next.js URL (e.g. https://analyzinghub.com)
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -25,7 +25,7 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 
 const SUPABASE_URL             = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const BASE_URL = Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://analyzhub.com";
+const BASE_URL = Deno.env.get("APP_BASE_URL") || Deno.env.get("NEXT_PUBLIC_SITE_URL") || "https://analyzinghub.com";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

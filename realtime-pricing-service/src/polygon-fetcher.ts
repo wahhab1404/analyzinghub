@@ -62,7 +62,7 @@ export class PolygonQuoteFetcher {
 
     // Build TelegramAlertsService if bot token + base URL are available
     const botToken   = process.env.TELEGRAM_BOT_TOKEN ?? '';
-    const appBaseUrl = process.env.APP_BASE_URL ?? 'https://analyzhub.com';
+    const appBaseUrl = process.env.APP_BASE_URL ?? 'https://analyzinghub.com';
     const telegramAlerts = botToken
       ? new TelegramAlertsService(botToken, appBaseUrl, supabase)
       : null;
