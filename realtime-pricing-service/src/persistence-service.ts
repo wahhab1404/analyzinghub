@@ -26,9 +26,9 @@ import { SubscriptionManager } from './subscription-manager';
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 
-const PERSIST_INTERVAL_MS         = 10_000;  // 10 s — underlying price flush
+const PERSIST_INTERVAL_MS         = 1_000;   // 1 s — underlying price flush
 const FRESHNESS_CHECK_INTERVAL_MS = 60_000;  // 60 s — mark degraded/stale in DB
-const REST_FALLBACK_INTERVAL_MS   = 30_000;  // 30 s — REST snapshots for stale trades
+const REST_FALLBACK_INTERVAL_MS   = 5_000;   // 5 s — REST snapshots for stale trades
 const STALE_THRESHOLD_SECONDS     = 300;     // 5 min without streaming → stale
 const DEGRADED_THRESHOLD_SECONDS  = 60;      // 60 s without streaming → degraded
 
