@@ -123,7 +123,7 @@ export class PolygonOptionsWebSocket {
   // Rate-limit guard: how many RPC calls made in the last second
   private rpcCallsThisSecond = 0;
   private rpcRateLimitTimer: NodeJS.Timeout | null = null;
-  private readonly MAX_RPC_PER_SECOND = 20;
+  private readonly MAX_RPC_PER_SECOND = 60;
 
   constructor(apiKey: string, supabase: SupabaseClient, telegramAlerts: TelegramAlertsService | null = null) {
     this.apiKey         = apiKey;
