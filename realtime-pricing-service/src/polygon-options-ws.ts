@@ -494,9 +494,14 @@ export class PolygonOptionsWebSocket {
       }
 
       if (result?.is_new_high) {
+        const newHigh = result.new_high as number;
         console.log(
           `[OptionsWS] 📈 NEW HIGH — trade ${tradeId} (${ticker}): ` +
-          `$${(result.new_high as number).toFixed(4)} | MFE: $${(result.mfe as number).toFixed(2)}`
+          `$${newHigh.toFixed(4)} | MFE: $${(result.mfe as number).toFixed(2)}`
+        );
+        // Fire-and-forget: queue Telegram alert if throttle conditions are met
+        this.maybeSendNewHighAlert(tradeId, newHigh).catch(err =>
+          console.error(`[OptionsWS] New-high alert error for trade ${tradeId}:`, err.message)
         );
       }
 
@@ -568,6 +573,96 @@ export class PolygonOptionsWebSocket {
     } catch (err: any) {
       console.error(`[OptionsWS] Exception calling RPC for trade ${tradeId}:`, err.message);
     }
+  }
+
+  /**
+   * When streaming detects a new contract high, immediately queue a Telegram
+   * alert if the same throttle conditions used by the cron are satisfied:
+   *   - gain from entry >= 5%
+   *   - new high >= last alerted price * 1.10
+   *   - at least 5 minutes since last alert
+   *
+   * Updating last_peak_alert_price/at in the DB before inserting into the outbox
+   * ensures the minute-cron won't fire a duplicate alert.
+   */
+  private async maybeSendNewHighAlert(tradeId: string, newHigh: number): Promise<void> {
+    const { data: trade } = await this.supabase
+      .from('index_trades')
+      .select(`
+        id, entry_contract_snapshot, last_peak_alert_at, last_peak_alert_price,
+        telegram_channel_id, telegram_send_enabled,
+        analysis:index_analyses!analysis_id(id, title, index_symbol, telegram_channel_id),
+        author:profiles!author_id(id, full_name, avatar_url)
+      `)
+      .eq('id', tradeId)
+      .single();
+
+    if (!trade) return;
+
+    // Evaluate throttle conditions
+    const entryPrice = parseFloat(
+      (trade as any).entry_contract_snapshot?.mid ??
+      (trade as any).entry_contract_snapshot?.price ??
+      (trade as any).entry_contract_snapshot?.last ??
+      '0'
+    ) || 0;
+    const gainPct       = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
+    const lastAlertedAt = (trade as any).last_peak_alert_at
+      ? new Date((trade as any).last_peak_alert_at)
+      : null;
+    const lastPrice     = parseFloat((trade as any).last_peak_alert_price ?? '0') || 0;
+    const minsSinceLast = lastAlertedAt
+      ? (Date.now() - lastAlertedAt.getTime()) / 60_000
+      : Infinity;
+
+    const meetsGain        = gainPct >= 0.05;
+    const meetsImprovement = lastPrice === 0 || newHigh >= lastPrice * 1.10;
+    const meetsCooldown    = minsSinceLast >= 5;
+
+    if (!meetsGain || !meetsImprovement || !meetsCooldown) {
+      return; // Throttle conditions not met — cron will pick it up when they are
+    }
+
+    // Resolve channel ID (may be a UUID → look up the real Telegram channel_id)
+    let channelId: string | null =
+      (trade as any).telegram_channel_id ??
+      (trade as any).analysis?.telegram_channel_id ??
+      null;
+
+    if (!channelId || (trade as any).telegram_send_enabled === false) return;
+
+    if (/^[0-9a-f-]{36}$/i.test(channelId)) {
+      const { data: ch } = await this.supabase
+        .from('telegram_channels')
+        .select('channel_id')
+        .eq('id', channelId)
+        .single();
+      if (ch?.channel_id) channelId = ch.channel_id;
+      else return; // Can't resolve channel
+    }
+
+    // Stamp the alert BEFORE inserting into outbox to prevent cron duplicates
+    await this.supabase
+      .from('index_trades')
+      .update({
+        last_peak_alert_price: newHigh,
+        last_peak_alert_at:    new Date().toISOString(),
+      })
+      .eq('id', tradeId);
+
+    await this.supabase.from('telegram_outbox').insert({
+      message_type:  'new_high',
+      payload:       { tradeId, highPrice: newHigh, trade },
+      channel_id:    channelId,
+      status:        'pending',
+      priority:      5,
+      next_retry_at: new Date().toISOString(),
+    });
+
+    console.log(
+      `[OptionsWS] 📤 Queued new_high Telegram alert — trade ${tradeId} ` +
+      `channel=${channelId} high=$${newHigh.toFixed(4)} gain=${(gainPct * 100).toFixed(1)}%`
+    );
   }
 
   /** Resolve the Telegram channel_id string for a trade's buy-range alert */
