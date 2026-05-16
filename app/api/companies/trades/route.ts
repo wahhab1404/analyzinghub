@@ -1,11 +1,11 @@
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { createClient } from '@/lib/supabase/server'
+import { createServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { calculateCanonicalPnL, calculateAverageEntry } from '@/services/trades/canonical-pnl.service'
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createClient()
+    const supabase = createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient()
+    const supabase = createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
