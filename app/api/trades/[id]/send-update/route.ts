@@ -79,11 +79,11 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (trade.telegram_channel_id) {
       const { data: ch } = await supabase
-        .from('analyzer_telegram_channels')
-        .select('id, telegram_channel_id')
+        .from('telegram_channels')
+        .select('id, channel_id')
         .eq('id', trade.telegram_channel_id)
         .maybeSingle()
-      if (ch) { chatId = ch.telegram_channel_id; channelDbId = ch.id }
+      if (ch) { chatId = ch.channel_id; channelDbId = ch.id }
     }
 
     let telegramMsgId: string | null = null

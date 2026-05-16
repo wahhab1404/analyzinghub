@@ -127,7 +127,7 @@ export function CreateTradeDialog({
     setLoadingData(true)
 
     Promise.all([
-      supabase.from('analyzer_telegram_channels')
+      supabase.from('telegram_channels')
         .select('id, channel_name')
         .order('channel_name'),
       supabase.from('analyzer_plans')
