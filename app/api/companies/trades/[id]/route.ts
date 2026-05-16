@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
 export async function GET(
@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = await createClient()
+    const supabase = createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -37,7 +37,7 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = await createClient()
+    const supabase = createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
@@ -93,7 +93,7 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = await createClient()
+    const supabase = createServerClient()
     const { data: { user } } = await supabase.auth.getUser()
 
     if (!user) {
