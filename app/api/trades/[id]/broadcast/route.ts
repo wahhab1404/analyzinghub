@@ -67,15 +67,14 @@ export async function POST(req: NextRequest, { params }: Params) {
     let chatId: string | null = null
 
     if (channelId) {
-      // Try analyzer_telegram_channels first
       const { data: ch } = await supabase
-        .from('analyzer_telegram_channels')
-        .select('id, telegram_channel_id')
+        .from('telegram_channels')
+        .select('id, channel_id')
         .eq('id', channelId)
         .maybeSingle()
       if (ch) {
         telegramChannelDbId = ch.id
-        chatId = ch.telegram_channel_id
+        chatId = ch.channel_id
       }
     }
 
