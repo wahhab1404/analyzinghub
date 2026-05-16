@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { Search, TrendingUp, Building2, BarChart3, Activity } from 'lucide-react'
+import { Search, TrendingUp, Building2, BarChart3, Activity, Briefcase } from 'lucide-react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -86,7 +86,7 @@ export default async function CompaniesPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 mb-8">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -139,6 +139,25 @@ export default async function CompaniesPage() {
             <Link href={`/dashboard/profile/${user.id}`}>
               <Button className="w-full" variant="outline">
                 View My Profile
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Briefcase className="h-5 w-5 text-orange-500" />
+              Deals &amp; Contracts
+            </CardTitle>
+            <CardDescription>
+              View all your stock option trades
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/dashboard/companies/deals">
+              <Button className="w-full" variant="outline">
+                View All Deals
               </Button>
             </Link>
           </CardContent>

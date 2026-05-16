@@ -68,6 +68,7 @@ export const en = {
     exploreCompanies: 'Explore Stocks',
     companyAnalyses: 'Stock Analyses',
     createCompanyAnalysis: 'Create Analysis',
+    companyDeals: 'Deals & Contracts',
     indicesHub: 'Indices Hub',
     indicesFeed: 'Indices Analyses',
     createIndexAnalysis: 'Create Index Trade',

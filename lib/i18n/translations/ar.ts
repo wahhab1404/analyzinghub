@@ -70,6 +70,7 @@ export const ar: TranslationKeys = {
     exploreCompanies: 'استكشاف الأسهم',
     companyAnalyses: 'تحليلات الأسهم',
     createCompanyAnalysis: 'إنشاء تحليل',
+    companyDeals: 'الصفقات والعقود',
     indicesHub: 'مركز المؤشرات',
     indicesFeed: 'تحليلات المؤشرات',
     createIndexAnalysis: 'إنشاء صفقة مؤشر',
