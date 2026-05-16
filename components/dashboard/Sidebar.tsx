@@ -67,6 +67,12 @@ const navItems: NavItem[] = [
         roles: ['SuperAdmin', 'Analyzer'],
         tutorialTarget: 'create',
       },
+      {
+        titleKey: 'nav.companyDeals',
+        href: '/dashboard/companies/deals',
+        icon: Briefcase,
+        roles: ['SuperAdmin', 'Analyzer', 'Trader'],
+      },
     ],
   },
   {
