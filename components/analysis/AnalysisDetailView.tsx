@@ -721,7 +721,7 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
 
       <RelatedTrades
         analysisId={analysis.id}
-        isOwner={isOwnAnalysis}
+        isOwner={analysis.is_own_post || false}
         symbol={symbol}
       />
 
