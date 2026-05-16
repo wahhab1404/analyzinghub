@@ -14,10 +14,10 @@ export async function GET(
     }
 
     const { data: trade, error } = await supabase
-      .from('contract_trades')
-      .select('*')
+      .from('trades')
+      .select('*, option_trade_details(*)')
       .eq('id', params.id)
-      .eq('author_id', user.id)
+      .eq('user_id', user.id)
       .single()
 
     if (error) throw error
@@ -45,34 +45,30 @@ export async function PATCH(
     }
 
     const body = await request.json()
-    const updates: any = {}
+    const updates: any = { updated_at: new Date().toISOString() }
 
+    // Map legacy uppercase status → new lowercase enum values
     if (body.status) {
-      updates.status = body.status
-      if (body.status !== 'ACTIVE') {
-        updates.close_time = new Date().toISOString()
+      const statusMap: Record<string, string> = {
+        CLOSED: 'completed',
+        ACTIVE: 'active',
+        EXPIRED: 'expired',
       }
-    }
-
-    if (body.close_reason) {
-      updates.close_reason = body.close_reason
-    }
-
-    if (body.max_price_since_entry !== undefined) {
-      updates.max_price_since_entry = body.max_price_since_entry
+      updates.status = statusMap[body.status] ?? body.status.toLowerCase()
+      if (updates.status !== 'active') {
+        updates.completed_at = new Date().toISOString()
+      }
     }
 
     if (body.notes !== undefined) {
       updates.notes = body.notes
     }
 
-    updates.updated_at = new Date().toISOString()
-
     const { data: trade, error } = await supabase
-      .from('contract_trades')
+      .from('trades')
       .update(updates)
       .eq('id', params.id)
-      .eq('author_id', user.id)
+      .eq('user_id', user.id)
       .select()
       .single()
 
@@ -101,10 +97,10 @@ export async function DELETE(
     }
 
     const { error } = await supabase
-      .from('contract_trades')
+      .from('trades')
       .delete()
       .eq('id', params.id)
-      .eq('author_id', user.id)
+      .eq('user_id', user.id)
 
     if (error) throw error
 

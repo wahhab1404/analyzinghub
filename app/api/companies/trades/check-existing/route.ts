@@ -11,9 +11,9 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url)
-    const symbol = searchParams.get('symbol')
-    const strike = searchParams.get('strike')
-    const expiry = searchParams.get('expiry')
+    const symbol    = searchParams.get('symbol')
+    const strike    = searchParams.get('strike')
+    const expiry    = searchParams.get('expiry')
     const direction = searchParams.get('direction')
 
     if (!symbol || !strike || !expiry || !direction) {
@@ -23,21 +23,29 @@ export async function GET(request: Request) {
       )
     }
 
-    const { data: existingTrade, error } = await supabase
-      .from('contract_trades')
-      .select('*')
-      .eq('scope', 'company')
-      .eq('author_id', user.id)
+    // Look for an active option trade matching symbol + direction in trades table,
+    // then join option_trade_details to match strike + expiry
+    const { data: rows, error } = await supabase
+      .from('trades')
+      .select('*, option_trade_details(*)')
+      .eq('user_id', user.id)
       .eq('symbol', symbol.toUpperCase())
-      .eq('strike', parseFloat(strike))
-      .eq('expiry_date', expiry)
-      .eq('direction', direction.toUpperCase())
-      .eq('status', 'ACTIVE')
-      .maybeSingle()
+      .eq('direction', direction.toLowerCase())
+      .eq('trade_type', 'option')
+      .in('status', ['active', 'published'])
 
     if (error) throw error
 
-    return NextResponse.json({ existing_trade: existingTrade })
+    // Filter by strike + expiry from option_trade_details
+    const strikeNum = parseFloat(strike)
+    const match = (rows ?? []).find((t: any) => {
+      const od = Array.isArray(t.option_trade_details)
+        ? t.option_trade_details[0]
+        : t.option_trade_details
+      return od?.strike_price === strikeNum && od?.expiration_date === expiry
+    })
+
+    return NextResponse.json({ existing_trade: match ?? null })
   } catch (error) {
     console.error('Error checking existing trade:', error)
     return NextResponse.json(

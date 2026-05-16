@@ -3,6 +3,13 @@ import { createServerClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { calculateCanonicalPnL, calculateAverageEntry } from '@/services/trades/canonical-pnl.service'
 
+// Map trades.status (lowercase) → uppercase legacy shape expected by the UI
+function mapStatus(status: string): string {
+  if (status === 'active' || status === 'published') return 'ACTIVE'
+  if (status === 'expired') return 'EXPIRED'
+  return 'CLOSED'
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = createServerClient()
@@ -15,17 +22,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const analysisId = searchParams.get('analysis_id')
     const symbol = searchParams.get('symbol')
-    const status = searchParams.get('status')
+    const statusFilter = searchParams.get('status')
     const includeTesting = searchParams.get('include_testing') === 'true'
 
     let query = supabase
-      .from('contract_trades')
-      .select('*')
-      .eq('scope', 'company')
-      .eq('author_id', user.id)
+      .from('trades')
+      .select(`*, option_trade_details(*)`)
+      .eq('user_id', user.id)
+      .eq('trade_type', 'option')
       .order('created_at', { ascending: false })
 
-    // Exclude testing trades by default (only owner can see them via include_testing=true)
     if (!includeTesting) {
       query = query.eq('is_testing', false)
     }
@@ -35,16 +41,56 @@ export async function GET(request: Request) {
     }
 
     if (symbol) {
-      query = query.eq('symbol', symbol)
+      query = query.eq('symbol', symbol.toUpperCase())
     }
 
-    if (status) {
-      query = query.eq('status', status)
-    }
-
-    const { data: trades, error } = await query
-
+    const { data: rows, error } = await query
     if (error) throw error
+
+    // Normalize to the shape the deals page expects
+    const trades = (rows ?? []).map((t: any) => {
+      const od = Array.isArray(t.option_trade_details)
+        ? t.option_trade_details[0]
+        : t.option_trade_details
+
+      const entryPremium  = od?.entry_premium ?? t.entry_price ?? 0
+      const currentPremium = od?.current_premium ?? entryPremium
+      const qty            = od?.quantity ?? 1
+      const multiplier     = od?.contract_multiplier ?? 100
+      const entryTotal     = od?.entry_cost_total ?? entryPremium * qty * multiplier
+      const maxProfit      = od?.max_profit_value ?? 0
+      const maxPrice       = od?.highest_premium_since_entry ?? entryPremium
+      const pnlValue       = (currentPremium - entryPremium) * qty * multiplier
+      const mappedStatus   = mapStatus(t.status)
+
+      const normalized: any = {
+        id:                   t.id,
+        symbol:               t.symbol,
+        direction:            (t.direction ?? '').toUpperCase(),
+        strike:               od?.strike_price ?? 0,
+        expiry_date:          od?.expiration_date ?? '',
+        entry_price:          entryPremium,
+        contracts_qty:        qty,
+        contract_multiplier:  multiplier,
+        status:               mappedStatus,
+        max_price_since_entry: maxPrice,
+        pnl_value:            pnlValue,
+        is_win:               pnlValue >= 0,
+        entry_cost_total:     entryTotal,
+        max_profit_value:     maxProfit,
+        created_at:           t.created_at,
+        notes:                t.notes ?? null,
+        close_reason:         t.stop_status === 'hit' ? 'STOP_HIT' : null,
+        avg_adjustments_count: 0,
+        analysis_id:          t.analysis_id ?? null,
+      }
+
+      // Apply status filter after mapping (caller passes uppercase like 'ACTIVE')
+      return normalized
+    }).filter((t: any) => {
+      if (!statusFilter || statusFilter === 'all') return true
+      return t.status === statusFilter.toUpperCase()
+    })
 
     return NextResponse.json({ trades })
   } catch (error) {
