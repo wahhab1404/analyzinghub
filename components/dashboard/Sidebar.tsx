@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import {
   Home, Settings, Bell, Shield, User, Package, Trophy, DollarSign, UserCheck,
   LineChart, TrendingUp, Building2, Search, Plus, FileText, BarChart3,
-  ChevronDown, ChevronRight, BookOpen, Activity, Briefcase
+  ChevronDown, ChevronRight, BookOpen, Activity, Briefcase, Brain
 } from 'lucide-react'
 import { RoleName } from '@/lib/types/database'
 import { useTranslation } from '@/lib/i18n/language-context'
@@ -97,6 +97,12 @@ const navItems: NavItem[] = [
         href: '/dashboard/reports',
         icon: FileText,
         roles: ['SuperAdmin', 'Analyzer'],
+      },
+      {
+        titleKey: 'nav.neuralAnalysis',
+        href: '/dashboard/neural-analysis',
+        icon: Brain,
+        roles: ['SuperAdmin', 'Analyzer', 'Trader'],
       },
     ],
   },
