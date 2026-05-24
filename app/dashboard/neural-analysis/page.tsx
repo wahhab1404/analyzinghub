@@ -21,8 +21,12 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 import { STATES, STATE_CONFIG, type MarketState, type NeuralAnalysisResult } from '@/lib/neural-analysis/computations'
-import { useTranslation } from '@/lib/i18n/language-context'
-import { useLanguage } from '@/lib/i18n/language-context'
+import { useTranslation, useLanguage } from '@/lib/i18n/language-context'
+
+function stateLabel(state: MarketState, language: string) {
+  const cfg = STATE_CONFIG[state]
+  return language === 'ar' ? cfg.labelAr : cfg.label
+}
 
 // ─────────────────────────────────────────────
 // Constants
@@ -62,6 +66,7 @@ function StateIcon({ state }: { state: MarketState }) {
 
 function StateBadge({ state, size = 'md' }: { state: MarketState; size?: 'sm' | 'md' | 'lg' }) {
   const cfg = STATE_CONFIG[state]
+  const { language } = useLanguage()
   const sizes = { sm: 'text-[10px] px-1.5 py-0.5', md: 'text-xs px-2 py-1', lg: 'text-sm px-3 py-1.5' }
   return (
     <span
@@ -69,18 +74,19 @@ function StateBadge({ state, size = 'md' }: { state: MarketState; size?: 'sm' | 
       style={{ color: cfg.color, borderColor: cfg.color + '40', backgroundColor: cfg.bgColor }}
     >
       <StateIcon state={state} />
-      {cfg.label}
+      {stateLabel(state, language)}
     </span>
   )
 }
 
 function ProbBar({ value, state, highlight = false }: { value: number; state: MarketState; highlight?: boolean }) {
   const cfg = STATE_CONFIG[state]
+  const { language } = useLanguage()
   const pct = Math.round(value * 100)
   return (
     <div className={cn('group flex items-center gap-3 p-2.5 rounded-lg transition-all', highlight && 'bg-white/5')}>
       <div className="w-24 text-right">
-        <span className="text-xs font-medium" style={{ color: cfg.color }}>{cfg.label}</span>
+        <span className="text-xs font-medium" style={{ color: cfg.color }}>{stateLabel(state, language)}</span>
       </div>
       <div className="flex-1 h-5 bg-white/5 rounded-full overflow-hidden">
         <div
@@ -97,6 +103,7 @@ function ProbBar({ value, state, highlight = false }: { value: number; state: Ma
 
 function TransitionMatrix({ matrix }: { matrix: number[][] }) {
   const { t } = useTranslation()
+  const { language } = useLanguage()
   const na = t.neuralAnalysis
   const maxVal = Math.max(...matrix.flat())
 
@@ -108,7 +115,7 @@ function TransitionMatrix({ matrix }: { matrix: number[][] }) {
             <th className="p-2 text-muted-foreground font-normal text-left">{na.matrix.fromTo}</th>
             {STATES.map(s => (
               <th key={s} className="p-2 text-center font-semibold" style={{ color: STATE_CONFIG[s].color }}>
-                {STATE_CONFIG[s].label}
+                {stateLabel(s, language)}
               </th>
             ))}
           </tr>
@@ -117,7 +124,7 @@ function TransitionMatrix({ matrix }: { matrix: number[][] }) {
           {STATES.map((fromState, i) => (
             <tr key={fromState} className="border-t border-white/5">
               <td className="p-2 font-semibold whitespace-nowrap" style={{ color: STATE_CONFIG[fromState].color }}>
-                {STATE_CONFIG[fromState].label}
+                {stateLabel(fromState, language)}
               </td>
               {STATES.map((toState, j) => {
                 const val = matrix[i]?.[j] ?? 0
@@ -216,6 +223,7 @@ function FeatureCard({ featureKey, result }: { featureKey: string; result: { val
 }
 
 function HistoricalTimeline({ points }: { points: NeuralAnalysisResult['historicalStates'] }) {
+  const { language } = useLanguage()
   const recent = points.slice(-120)
   if (recent.length === 0) return null
 
@@ -268,7 +276,7 @@ function HistoricalTimeline({ points }: { points: NeuralAnalysisResult['historic
         {STATES.map(s => (
           <div key={s} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATE_CONFIG[s].color }} />
-            <span className="text-[10px] text-muted-foreground">{STATE_CONFIG[s].label}</span>
+            <span className="text-[10px] text-muted-foreground">{stateLabel(s, language)}</span>
           </div>
         ))}
       </div>
@@ -302,6 +310,7 @@ function TheoryPanel() {
 // ─────────────────────────────────────────────
 export default function NeuralAnalysisPage() {
   const { t } = useTranslation()
+  const { language } = useLanguage()
   const na = t.neuralAnalysis
 
   const [selectedSymbol, setSelectedSymbol] = useState('SPX')
@@ -373,7 +382,7 @@ export default function NeuralAnalysisPage() {
 
   const steadyStateData = result
     ? STATES.map((s, i) => ({
-        name: STATE_CONFIG[s].label,
+        name: stateLabel(s, language),
         value: Math.round((result.steadyState[i] ?? 0) * 100),
         color: STATE_CONFIG[s].color,
       }))
@@ -381,7 +390,7 @@ export default function NeuralAnalysisPage() {
 
   const nextStateData = result
     ? STATES.map((s, i) => ({
-        name: STATE_CONFIG[s].label,
+        name: stateLabel(s, language),
         prediction: Math.round((result.nextStateProbabilities[i] ?? 0) * 100),
         monteCarlo: Math.round((result.monteCarloDistribution[i] ?? 0) * 100),
         color: STATE_CONFIG[s].color,
@@ -523,7 +532,7 @@ export default function NeuralAnalysisPage() {
                   <p className="text-xs text-muted-foreground uppercase tracking-widest">{na.banner.currentState}</p>
                   <div className="flex items-center gap-2 mt-0.5">
                     <span className="text-2xl font-black" style={{ color: statInfo!.color }}>
-                      {statInfo!.label}
+                      {stateLabel(result.currentState, language)}
                     </span>
                     <span className="text-xs px-2 py-0.5 rounded-full border" style={{ color: statInfo!.color, borderColor: statInfo!.color + '40' }}>
                       {statInfo!.threshold}
@@ -761,7 +770,7 @@ export default function NeuralAnalysisPage() {
                       <CardContent className="space-y-1.5">
                         {STATES.map((s, i) => (
                           <div key={s} className="flex items-center gap-2">
-                            <span className="text-xs w-24" style={{ color: STATE_CONFIG[s].color }}>{STATE_CONFIG[s].label}</span>
+                            <span className="text-xs w-24" style={{ color: STATE_CONFIG[s].color }}>{stateLabel(s, language)}</span>
                             <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
                               <div
                                 className="h-full rounded-full"
