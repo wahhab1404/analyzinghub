@@ -941,7 +941,7 @@ export default function NeuralAnalysisPage() {
                       </div>
                       <div>
                         <p className="text-violet-400 mb-1">// ADF Test Regression</p>
-                        <p className="text-slate-300">Δy_t = α + β·y_{'{'}{t-1}{'}'} + ε_t</p>
+                        <p className="text-slate-300">{'Δy_t = α + β·y_{t-1} + ε_t'}</p>
                         <p className="text-slate-300">t-stat = β̂ / SE(β̂)</p>
                         <p className="text-slate-300">reject H₀ if t &lt; -2.86 (5% level)</p>
                       </div>
