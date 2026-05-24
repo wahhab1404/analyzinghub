@@ -1,14 +1,7 @@
 'use client'
 
-/**
- * components/spx/SignalFeedPanel.tsx
- *
- * Signal Feed tab: chronological feed of all generated signal events,
- * loaded from the spx_signal_events table.
- */
-
 import { useState, useEffect } from 'react'
-import { Activity, RefreshCw, AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react'
+import { Activity, RefreshCw, AlertTriangle, CheckCircle, Clock, XCircle, Radio } from 'lucide-react'
 import { SignalCard } from './SignalCard'
 import type { SignalOutput, SignalType, ConfidenceClass } from '@/services/spx/types'
 import { formatDistanceToNow } from 'date-fns'
@@ -32,43 +25,50 @@ interface SignalEvent {
   resolution_outcome: string | null
 }
 
-const SIGNAL_TYPE_COLORS: Record<string, string> = {
-  BUY_CALL:           'text-emerald-400',
-  BUY_PUT:            'text-red-400',
-  WATCH_CALL:         'text-blue-400',
-  WATCH_PUT:          'text-blue-400',
-  NO_TRADE:           'text-slate-600',
-  MARKET_UNCLEAR:     'text-slate-500',
-  WALL_SHIFT_WARNING: 'text-amber-400',
-  FLOW_SURGE_WARNING: 'text-violet-400',
-  SHOCK_WARNING:      'text-orange-400',
-  REVERSAL_WATCH:     'text-amber-400',
+const SIGNAL_TYPE_CONFIG: Record<string, { text: string; dot: string }> = {
+  BUY_CALL:           { text: 'text-emerald-400', dot: 'bg-emerald-400' },
+  BUY_PUT:            { text: 'text-red-400',     dot: 'bg-red-400' },
+  WATCH_CALL:         { text: 'text-blue-400',    dot: 'bg-blue-400' },
+  WATCH_PUT:          { text: 'text-blue-400',    dot: 'bg-blue-400' },
+  NO_TRADE:           { text: 'text-slate-500',   dot: 'bg-slate-500' },
+  MARKET_UNCLEAR:     { text: 'text-slate-400',   dot: 'bg-slate-400' },
+  WALL_SHIFT_WARNING: { text: 'text-amber-400',   dot: 'bg-amber-400' },
+  FLOW_SURGE_WARNING: { text: 'text-violet-400',  dot: 'bg-violet-400' },
+  SHOCK_WARNING:      { text: 'text-orange-400',  dot: 'bg-orange-400' },
+  REVERSAL_WATCH:     { text: 'text-amber-400',   dot: 'bg-amber-400' },
+}
+
+const CONFIDENCE_COLORS: Record<ConfidenceClass, string> = {
+  A: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
+  B: 'text-blue-400   bg-blue-500/10   border-blue-500/25',
+  C: 'text-amber-400  bg-amber-500/10  border-amber-500/25',
+  D: 'text-orange-400 bg-orange-500/10 border-orange-500/25',
+  E: 'text-red-400    bg-red-500/10    border-red-500/25',
 }
 
 function ResolutionBadge({ outcome }: { outcome: string | null }) {
   if (!outcome) return null
   const cfg = {
-    tp_hit:    { color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'TP Hit', icon: CheckCircle },
-    sl_hit:    { color: 'text-red-400',     bg: 'bg-red-500/10',     border: 'border-red-500/20',     label: 'SL Hit', icon: XCircle },
-    expired:   { color: 'text-slate-500',   bg: 'bg-slate-500/5',    border: 'border-slate-500/15',   label: 'Expired', icon: Clock },
-    cancelled: { color: 'text-slate-600',   bg: 'bg-slate-500/5',    border: 'border-slate-500/15',   label: 'Cancelled', icon: XCircle },
-  }[outcome] ?? { color: 'text-slate-500', bg: 'bg-slate-500/5', border: 'border-slate-500/15', label: outcome, icon: Clock }
+    tp_hit:    { cls: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20', label: 'TP Hit',     icon: CheckCircle },
+    sl_hit:    { cls: 'text-red-400     bg-red-500/10     border-red-500/20',     label: 'SL Hit',     icon: XCircle },
+    expired:   { cls: 'text-slate-500   bg-white/5        border-white/10',       label: 'Expired',    icon: Clock },
+    cancelled: { cls: 'text-slate-500   bg-white/5        border-white/10',       label: 'Cancelled',  icon: XCircle },
+  }[outcome] ?? { cls: 'text-slate-500 bg-white/5 border-white/10', label: outcome, icon: Clock }
   const Icon = cfg.icon
   return (
-    <span className={`flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded border ${cfg.bg} ${cfg.border} ${cfg.color}`}>
-      <Icon className="w-2.5 h-2.5" />
+    <span className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${cfg.cls}`}>
+      <Icon className="w-3 h-3" />
       {cfg.label}
     </span>
   )
 }
 
 export function SignalFeedPanel({ className = '' }: { className?: string }) {
-  const [events, setEvents] = useState<SignalEvent[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [events, setEvents]         = useState<SignalEvent[]>([])
+  const [loading, setLoading]       = useState(true)
+  const [error, setError]           = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [fullSignal, setFullSignal] = useState<SignalOutput | null>(null)
-  const [loadingFull, setLoadingFull] = useState(false)
+  const [activeTab, setActiveTab]   = useState('all')
 
   async function loadFeed() {
     setLoading(true)
@@ -85,31 +85,20 @@ export function SignalFeedPanel({ className = '' }: { className?: string }) {
     }
   }
 
-  async function loadFullSignal(id: string) {
-    if (expandedId === id) {
-      setExpandedId(null)
-      setFullSignal(null)
-      return
-    }
-    setExpandedId(id)
-    setLoadingFull(true)
-    // We don't have a per-signal endpoint — reconstruct from current result's signal
-    // For historical signals we'll use the minimal data we have
-    setLoadingFull(false)
+  function toggleExpand(id: string) {
+    setExpandedId(prev => prev === id ? null : id)
   }
 
   useEffect(() => { loadFeed() }, [])
 
   const tradeSignals = events.filter(e => ['BUY_CALL', 'BUY_PUT', 'WATCH_CALL', 'WATCH_PUT'].includes(e.signal_type))
   const warnSignals  = events.filter(e => ['SHOCK_WARNING', 'WALL_SHIFT_WARNING', 'FLOW_SURGE_WARNING', 'REVERSAL_WATCH'].includes(e.signal_type))
-  const otherSignals = events.filter(e => !tradeSignals.includes(e) && !warnSignals.includes(e))
 
   const tabs = [
-    { key: 'all',    label: 'All',      count: events.length },
-    { key: 'trade',  label: 'Signals',  count: tradeSignals.length },
-    { key: 'warn',   label: 'Warnings', count: warnSignals.length },
+    { key: 'all',   label: 'All',      count: events.length },
+    { key: 'trade', label: 'Signals',  count: tradeSignals.length },
+    { key: 'warn',  label: 'Warnings', count: warnSignals.length },
   ]
-  const [activeTab, setActiveTab] = useState('all')
 
   const displayEvents =
     activeTab === 'trade' ? tradeSignals :
@@ -117,134 +106,159 @@ export function SignalFeedPanel({ className = '' }: { className?: string }) {
     events
 
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={`space-y-4 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Activity className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">Signal Feed</span>
+          <Radio className="w-4 h-4 text-amber-400" />
+          <span className="text-sm font-bold text-white">Signal Feed</span>
+          {!loading && (
+            <span className="text-xs text-slate-500 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full">
+              {events.length} events
+            </span>
+          )}
         </div>
         <button
           onClick={loadFeed}
-          className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-200 transition-colors"
+          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-all"
         >
-          <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           Refresh
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-[#1a2840] pb-2">
+      {/* Filter tabs */}
+      <div className="flex gap-1">
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`text-[10px] px-3 py-1 rounded transition-colors ${
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all font-medium ${
               activeTab === tab.key
-                ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                : 'text-slate-600 hover:text-slate-300'
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-400/30'
+                : 'text-slate-500 hover:text-slate-300 hover:bg-white/5'
             }`}
           >
             {tab.label}
             {tab.count > 0 && (
-              <span className="ml-1 text-[9px] text-slate-600">({tab.count})</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+                activeTab === tab.key ? 'bg-amber-500/20 text-amber-400' : 'bg-white/10 text-slate-500'
+              }`}>
+                {tab.count}
+              </span>
             )}
           </button>
         ))}
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="flex items-center gap-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2">
-          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
+        <div className="flex items-center gap-2 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           {error}
         </div>
       )}
 
+      {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-10">
-          <Activity className="w-5 h-5 text-blue-400 animate-spin" />
+        <div className="flex items-center justify-center py-14">
+          <div className="space-y-3 text-center">
+            <Activity className="w-6 h-6 text-amber-400 animate-spin mx-auto" />
+            <div className="text-sm text-slate-500">Loading signals…</div>
+          </div>
         </div>
       )}
 
+      {/* Empty */}
       {!loading && displayEvents.length === 0 && (
-        <div className="text-[11px] text-slate-600 text-center py-10">
+        <div className="text-sm text-slate-500 text-center py-14 bg-white/[0.02] rounded-2xl border border-white/[0.06]">
           No signal events yet. Run the engine to generate signals.
         </div>
       )}
 
-      <div className="space-y-2">
-        {displayEvents.map(event => {
-          const color = SIGNAL_TYPE_COLORS[event.signal_type] ?? 'text-slate-400'
-          const isExpired = event.expires_at ? new Date(event.expires_at) < new Date() : false
+      {/* Feed list */}
+      {!loading && (
+        <div className="space-y-2">
+          {displayEvents.map(event => {
+            const cfg = SIGNAL_TYPE_CONFIG[event.signal_type] ?? { text: 'text-slate-400', dot: 'bg-slate-400' }
+            const confidenceCls = CONFIDENCE_COLORS[event.confidence_class] ?? 'text-slate-500 bg-white/5 border-white/10'
+            const isExpired = event.expires_at ? new Date(event.expires_at) < new Date() : false
+            const isExpanded = expandedId === event.id
 
-          return (
-            <div key={event.id}>
-              <button
-                onClick={() => loadFullSignal(event.id)}
-                className="w-full text-left"
-              >
-                <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-colors cursor-pointer ${
-                  expandedId === event.id
-                    ? 'border-blue-500/30 bg-blue-500/5'
-                    : 'border-[#1a2840] bg-[#0d1726] hover:border-[#243554]'
-                }`}>
-                  {/* Signal type */}
-                  <div className="flex-shrink-0 w-32">
-                    <div className={`text-[10px] font-bold ${color}`}>
-                      {event.signal_type.replace(/_/g, ' ')}
-                    </div>
-                    <div className="text-[9px] text-slate-600">{event.signal_mode.replace(/_/g, ' ')}</div>
-                  </div>
-
-                  {/* Price + score */}
-                  <div className="flex-shrink-0">
-                    <div className="text-[11px] text-white tabular-nums font-semibold">
-                      {event.underlying_price.toFixed(0)}
-                    </div>
-                    <div className="text-[9px] text-slate-600 tabular-nums">
-                      Score: <span className="text-slate-400">{event.composite_score}</span>
-                    </div>
-                  </div>
-
-                  {/* Recommendation */}
-                  {event.recommended_strike && (
-                    <div className="flex-shrink-0">
-                      <div className={`text-[10px] font-semibold tabular-nums ${color}`}>
-                        {event.recommended_option_type?.toUpperCase()} {event.recommended_strike}
+            return (
+              <div key={event.id} className="rounded-xl overflow-hidden">
+                <button
+                  onClick={() => toggleExpand(event.id)}
+                  className="w-full text-left"
+                >
+                  <div className={`flex items-center gap-3 px-4 py-3.5 border transition-all ${
+                    isExpanded
+                      ? 'border-amber-500/25 bg-amber-500/5 rounded-t-xl'
+                      : 'border-white/[0.07] bg-[#0b1525] rounded-xl hover:border-white/15 hover:bg-[#0d1830]'
+                  }`}>
+                    {/* Dot + type */}
+                    <div className="flex-shrink-0 min-w-[130px]">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+                        <span className={`text-xs font-bold ${cfg.text}`}>
+                          {event.signal_type.replace(/_/g, ' ')}
+                        </span>
                       </div>
-                      <div className="text-[9px] text-slate-600">{event.recommended_expiry}</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5 pl-4">
+                        {event.signal_mode.replace(/_/g, ' ')}
+                      </div>
                     </div>
-                  )}
 
-                  {/* Badges */}
-                  <div className="flex items-center gap-1 ml-auto flex-shrink-0 flex-wrap justify-end">
-                    <span className={`text-[9px] font-bold px-1 py-0.5 rounded bg-[#1a2840] text-slate-400`}>
-                      {event.confidence_class}
-                    </span>
-                    {isExpired && !event.resolved_at && (
-                      <span className="text-[9px] text-slate-600 flex items-center gap-0.5">
-                        <Clock className="w-2.5 h-2.5" />
-                        Exp
-                      </span>
+                    {/* Price + score */}
+                    <div className="flex-shrink-0">
+                      <div className="text-sm font-bold text-white tabular-nums">
+                        {event.underlying_price.toFixed(0)}
+                      </div>
+                      <div className="text-[10px] text-slate-600 tabular-nums">
+                        Score <span className="text-slate-400 font-semibold">{event.composite_score}</span>
+                      </div>
+                    </div>
+
+                    {/* Recommendation */}
+                    {event.recommended_strike && (
+                      <div className="flex-shrink-0 hidden sm:block">
+                        <div className={`text-xs font-bold tabular-nums ${cfg.text}`}>
+                          {event.recommended_option_type?.toUpperCase()} {event.recommended_strike}
+                        </div>
+                        <div className="text-[10px] text-slate-600">{event.recommended_expiry}</div>
+                      </div>
                     )}
-                    <ResolutionBadge outcome={event.resolution_outcome} />
-                    <span className="text-[9px] text-slate-600">
-                      {formatDistanceToNow(new Date(event.created_at), { addSuffix: true })}
-                    </span>
-                  </div>
-                </div>
-              </button>
 
-              {/* Expanded rationale */}
-              {expandedId === event.id && event.rationale && (
-                <div className="mx-3 mb-1 text-[10px] text-slate-500 bg-[#070e1a] border border-[#1a2840] border-t-0 rounded-b-lg px-3 py-2">
-                  {event.rationale}
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+                    {/* Badges */}
+                    <div className="flex items-center gap-1.5 ml-auto flex-shrink-0 flex-wrap justify-end">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${confidenceCls}`}>
+                        {event.confidence_class}
+                      </span>
+                      {isExpired && !event.resolved_at && (
+                        <span className="text-[10px] text-slate-600 flex items-center gap-0.5">
+                          <Clock className="w-3 h-3" />
+                          Exp
+                        </span>
+                      )}
+                      <ResolutionBadge outcome={event.resolution_outcome} />
+                      <span className="text-[10px] text-slate-600 hidden sm:inline">
+                        {formatDistanceToNow(new Date(event.created_at), { addSuffix: true })}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Expanded rationale */}
+                {isExpanded && event.rationale && (
+                  <div className="px-4 py-3 text-xs text-slate-400 leading-relaxed bg-[#070f1c] border border-t-0 border-amber-500/15 rounded-b-xl">
+                    {event.rationale}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
