@@ -344,9 +344,15 @@ export default function NeuralAnalysisPage() {
 
     try {
       const resp = await fetch(`/api/neural-analysis?symbol=${symbol}&timeframe=${frame}`)
-      const data = await resp.json()
 
-      if (!resp.ok || data.error) throw new Error(data.error || 'Analysis failed')
+      if (!resp.ok) {
+        let msg = `Request failed (${resp.status})`
+        try { const d = await resp.json(); msg = d.error || msg } catch {}
+        throw new Error(msg)
+      }
+
+      const data = await resp.json()
+      if (data.error) throw new Error(data.error)
 
       setResult(data)
       setLastUpdated(new Date())
@@ -925,26 +931,41 @@ export default function NeuralAnalysisPage() {
                       Implementation Details
                     </h3>
                     <div className="p-4 rounded-xl bg-black/20 border border-white/8 font-mono text-xs space-y-3">
-                      <div>
-                        <p className="text-violet-400 mb-1">// Markov Chain State Definition</p>
-                        <p className="text-green-400">Strong_Up   <span className="text-slate-400">→ return &gt; +2.0%</span></p>
-                        <p className="text-emerald-400">Up          <span className="text-slate-400">→ return +0.8% to +2.0%</span></p>
-                        <p className="text-slate-400">Sideways    → return -0.8% to +0.8%</p>
-                        <p className="text-orange-400">Down        <span className="text-slate-400">→ return -0.8% to -2.0%</span></p>
-                        <p className="text-red-400">Strong_Down <span className="text-slate-400">→ return &lt; -2.0%</span></p>
-                      </div>
-                      <div>
-                        <p className="text-violet-400 mb-1">// Steady State via Power Iteration</p>
-                        <p className="text-slate-300">π₀ = [0.2, 0.2, 0.2, 0.2, 0.2]</p>
-                        <p className="text-slate-300">π_{'{n+1}'} = π_n × P</p>
-                        <p className="text-slate-300">repeat until ‖π_{'{n+1}'} − π_n‖ &lt; 1e-10</p>
-                      </div>
-                      <div>
-                        <p className="text-violet-400 mb-1">// ADF Test Regression</p>
-                        <p className="text-slate-300">{'Δy_t = α + β·y_{t-1} + ε_t'}</p>
-                        <p className="text-slate-300">t-stat = β̂ / SE(β̂)</p>
-                        <p className="text-slate-300">reject H₀ if t &lt; -2.86 (5% level)</p>
-                      </div>
+                      {[
+                        {
+                          label: '// Markov Chain State Definition',
+                          lines: [
+                            { text: 'Strong_Up   → return > +2.0%',  color: 'text-green-400' },
+                            { text: 'Up          → return +0.8% to +2.0%', color: 'text-emerald-400' },
+                            { text: 'Sideways    → return -0.8% to +0.8%', color: 'text-slate-400' },
+                            { text: 'Down        → return -0.8% to -2.0%', color: 'text-orange-400' },
+                            { text: 'Strong_Down → return < -2.0%',  color: 'text-red-400' },
+                          ],
+                        },
+                        {
+                          label: '// Steady State via Power Iteration',
+                          lines: [
+                            { text: 'pi_0 = [0.2, 0.2, 0.2, 0.2, 0.2]', color: 'text-slate-300' },
+                            { text: 'pi_(n+1) = pi_n × P', color: 'text-slate-300' },
+                            { text: 'repeat until |pi_(n+1) - pi_n| < 1e-10', color: 'text-slate-300' },
+                          ],
+                        },
+                        {
+                          label: '// ADF Test Regression',
+                          lines: [
+                            { text: 'delta_y(t) = alpha + beta * y(t-1) + eps', color: 'text-slate-300' },
+                            { text: 't-stat = beta_hat / SE(beta_hat)', color: 'text-slate-300' },
+                            { text: 'stationary if t-stat < -2.86 (5% level)', color: 'text-slate-300' },
+                          ],
+                        },
+                      ].map(section => (
+                        <div key={section.label}>
+                          <p className="text-violet-400 mb-1">{section.label}</p>
+                          {section.lines.map(line => (
+                            <p key={line.text} className={line.color}>{line.text}</p>
+                          ))}
+                        </div>
+                      ))}
                     </div>
 
                     <Card className="bg-card border-border">
