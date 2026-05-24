@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyzeMarket, CandleData } from '@/lib/neural-analysis/computations'
-import { createServerClient } from '@/lib/supabase/server'
+import { createRouteHandlerClient } from '@/lib/api-helpers'
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY
 const POLYGON_BASE = 'https://api.polygon.io'
@@ -60,7 +60,7 @@ async function fetchCandles(ticker: string, multiplier: number, timespan: string
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createServerClient()
+    const supabase = createRouteHandlerClient(req)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
