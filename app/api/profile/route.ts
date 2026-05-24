@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest) {
 
     if (error) {
       console.error('UPDATE_PROFILE_ERROR:', error)
-      return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ profile: data }, { status: 200 })
@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest) {
 
     if (error) {
       console.error('PATCH_PROFILE_ERROR:', error)
-      return NextResponse.json({ error: error.message }, { status: 400 })
+      return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
     return NextResponse.json({ profile: data }, { status: 200 })
