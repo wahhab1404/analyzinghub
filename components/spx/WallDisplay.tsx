@@ -1,12 +1,5 @@
 'use client'
 
-/**
- * components/spx/WallDisplay.tsx
- *
- * Visualises the SPX wall engine output as a price-level bar chart
- * with call wall (red/resistance) above and put wall (green/support) below.
- */
-
 import { Shield, AlertTriangle, TrendingUp, TrendingDown, Zap } from 'lucide-react'
 import type { WallEngineOutput, WallLevel } from '@/services/spx/types'
 
@@ -16,19 +9,27 @@ interface WallDisplayProps {
 }
 
 const STATE_COLORS: Record<string, string> = {
-  holding:   'text-slate-400',
-  approached:'text-amber-400',
-  rejected:  'text-blue-400',
-  broken:    'text-red-400',
-  unknown:   'text-slate-600',
+  holding:    'text-slate-400',
+  approached: 'text-amber-400',
+  rejected:   'text-blue-400',
+  broken:     'text-red-400',
+  unknown:    'text-slate-600',
 }
 
 const STATE_LABELS: Record<string, string> = {
-  holding:   'Holding',
-  approached:'Approached',
-  rejected:  'Rejected',
-  broken:    'Broken',
-  unknown:   '—',
+  holding:    'Holding',
+  approached: 'Approached',
+  rejected:   'Rejected',
+  broken:     'Broken',
+  unknown:    '—',
+}
+
+const STATE_BADGES: Record<string, string> = {
+  holding:    'text-slate-400 bg-slate-500/10 border-slate-500/20',
+  approached: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+  rejected:   'text-blue-400  bg-blue-500/10  border-blue-500/20',
+  broken:     'text-red-400   bg-red-500/10   border-red-500/20',
+  unknown:    'text-slate-600 bg-white/5      border-white/10',
 }
 
 function WallRow({
@@ -41,61 +42,65 @@ function WallRow({
   currentPrice: number
 }) {
   const isCall = side === 'call'
-  const stateColor = STATE_COLORS[wall.state] ?? STATE_COLORS.unknown
   const pctFromPrice = ((wall.strike - currentPrice) / currentPrice * 100)
+  const stateKey = wall.state in STATE_BADGES ? wall.state : 'unknown'
 
   return (
-    <div className={`rounded-lg border p-3 ${
+    <div className={`rounded-xl border p-4 space-y-3 ${
       isCall
-        ? 'border-red-500/20 bg-red-500/5'
-        : 'border-emerald-500/20 bg-emerald-500/5'
+        ? 'border-red-500/20 bg-red-500/[0.04]'
+        : 'border-emerald-500/20 bg-emerald-500/[0.04]'
     }`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          {isCall ? (
-            <TrendingDown className="w-3 h-3 text-red-400 flex-shrink-0" />
-          ) : (
-            <TrendingUp className="w-3 h-3 text-emerald-400 flex-shrink-0" />
-          )}
-          <span className={`text-[10px] font-bold uppercase tracking-widest ${isCall ? 'text-red-400' : 'text-emerald-400'}`}>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
+            isCall ? 'bg-red-500/15' : 'bg-emerald-500/15'
+          }`}>
+            {isCall
+              ? <TrendingDown className="w-4 h-4 text-red-400" />
+              : <TrendingUp className="w-4 h-4 text-emerald-400" />
+            }
+          </div>
+          <span className={`text-xs font-bold uppercase tracking-widest ${isCall ? 'text-red-400' : 'text-emerald-400'}`}>
             {isCall ? 'Call Wall' : 'Put Wall'}
           </span>
         </div>
-        <span className={`text-[9px] font-medium ${stateColor}`}>
-          {STATE_LABELS[wall.state]}
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${STATE_BADGES[stateKey]}`}>
+          {STATE_LABELS[stateKey]}
         </span>
       </div>
 
+      {/* Strike + distance */}
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-xl font-bold text-white tabular-nums">{wall.strike.toFixed(0)}</div>
-          <div className="text-[10px] text-slate-500 mt-0.5">
-            {Math.abs(pctFromPrice).toFixed(2)}% {pctFromPrice > 0 ? 'above' : 'below'} price
-            &nbsp;·&nbsp;{wall.distanceFromPrice.toFixed(0)} pts
+          <div className="text-2xl font-bold text-white tabular-nums tracking-tight">{wall.strike.toFixed(0)}</div>
+          <div className="text-xs text-slate-500 mt-1">
+            {Math.abs(pctFromPrice).toFixed(2)}% {pctFromPrice > 0 ? 'above' : 'below'} · {wall.distanceFromPrice.toFixed(0)} pts
           </div>
         </div>
         <div className="text-right">
-          <div className={`text-sm font-bold ${isCall ? 'text-red-400' : 'text-emerald-400'}`}>
+          <div className={`text-xl font-bold tabular-nums ${isCall ? 'text-red-400' : 'text-emerald-400'}`}>
             {wall.strength.toFixed(0)}
-            <span className="text-[10px] font-normal text-slate-500"> /100</span>
+            <span className="text-xs font-normal text-slate-500"> /100</span>
           </div>
-          <div className="text-[9px] text-slate-600">strength</div>
+          <div className="text-[10px] text-slate-600 uppercase tracking-widest">strength</div>
         </div>
       </div>
 
       {/* Strength bar */}
-      <div className="mt-2 h-1 bg-[#1e293b] rounded-full overflow-hidden">
+      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full ${isCall ? 'bg-red-500' : 'bg-emerald-500'}`}
+          className={`h-full rounded-full transition-all ${isCall ? 'bg-red-500' : 'bg-emerald-500'}`}
           style={{ width: `${wall.strength}%` }}
         />
       </div>
 
-      {/* Meta row */}
-      <div className="mt-2 flex gap-3 text-[9px] text-slate-600">
-        <span>OI: <span className="text-slate-400">{wall.openInterest.toLocaleString()}</span></span>
-        <span>Vol: <span className="text-slate-400">{wall.volume.toLocaleString()}</span></span>
-        <span>Persist: <span className="text-slate-400">{wall.persistenceScore.toFixed(0)}</span></span>
+      {/* Meta */}
+      <div className="flex gap-4 text-xs text-slate-600">
+        <span>OI: <span className="text-slate-400 font-medium">{wall.openInterest.toLocaleString()}</span></span>
+        <span>Vol: <span className="text-slate-400 font-medium">{wall.volume.toLocaleString()}</span></span>
+        <span>Persist: <span className="text-slate-400 font-medium">{wall.persistenceScore.toFixed(0)}</span></span>
       </div>
     </div>
   )
@@ -105,53 +110,49 @@ export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
   const hasData = walls.callWall || walls.putWall
 
   return (
-    <div className={`space-y-3 ${className}`}>
+    <div className={`space-y-4 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
-          <Shield className="w-3.5 h-3.5 text-blue-400" />
-          <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
-            Strike Walls
-          </span>
+          <Shield className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-bold text-white">Strike Walls</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {walls.wallMigration && (
-            <span className="flex items-center gap-1 text-[9px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5">
-              <Zap className="w-2.5 h-2.5" />
+            <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1">
+              <Zap className="w-3 h-3" />
               Migration {walls.migrationDirection}
             </span>
           )}
           {walls.wallCompression && (
-            <span className="text-[9px] text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded px-1.5 py-0.5">
+            <span className="text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-full px-2.5 py-1">
               Compressed
             </span>
           )}
-          <span className="text-[9px] text-slate-600">
-            Score: <span className="text-slate-300">{walls.wallScore}</span>
+          <span className="text-xs text-slate-500">
+            Wall score: <span className="text-slate-300 font-semibold">{walls.wallScore}</span>
           </span>
         </div>
       </div>
 
       {!hasData ? (
-        <div className="flex items-center gap-2 text-[11px] text-slate-600 py-4">
-          <AlertTriangle className="w-4 h-4" />
+        <div className="flex items-center gap-2 text-sm text-slate-500 py-6 bg-white/[0.02] rounded-xl px-4 border border-white/[0.06]">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           Wall data unavailable — options chain may be empty outside market hours
         </div>
       ) : (
         <>
-          {/* Nearest wall indicator */}
+          {/* Nearest wall banner */}
           {walls.nearestWall && (
-            <div className="flex items-center gap-2 text-[10px] px-2 py-1.5 bg-[#0d1726] rounded border border-[#1a2840]">
-              <span className="text-slate-600">Nearest wall:</span>
-              <span className="text-white font-semibold">{walls.nearestWall.strike}</span>
-              <span className={walls.nearestWall.side === 'call' ? 'text-red-400' : 'text-emerald-400'}>
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-white/[0.03] border border-white/[0.06] rounded-xl text-sm flex-wrap gap-y-1">
+              <span className="text-slate-500 text-xs">Nearest wall</span>
+              <span className="text-white font-bold">{walls.nearestWall.strike}</span>
+              <span className={`font-semibold ${walls.nearestWall.side === 'call' ? 'text-red-400' : 'text-emerald-400'}`}>
                 ({walls.nearestWall.side})
               </span>
-              <span className="text-slate-600">
-                {walls.nearestWallDistance?.toFixed(0)} pts away
-              </span>
+              <span className="text-slate-500 text-xs">{walls.nearestWallDistance?.toFixed(0)} pts away</span>
               {walls.wallCompression && walls.wallCompressionWidth && (
-                <span className="ml-auto text-violet-400">
+                <span className="ml-auto text-violet-400 text-xs">
                   {walls.wallCompressionWidth.toFixed(0)} pt range
                 </span>
               )}
@@ -171,18 +172,16 @@ export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
           {/* Secondary walls */}
           {(walls.secondaryCallWalls.length > 0 || walls.secondaryPutWalls.length > 0) && (
             <div>
-              <div className="text-[9px] text-slate-700 uppercase tracking-wider mb-1.5">
-                Secondary Walls
-              </div>
+              <div className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2">Secondary Walls</div>
               <div className="flex flex-wrap gap-1.5">
                 {walls.secondaryCallWalls.map(w => (
-                  <span key={`c-${w.strike}`} className="text-[9px] text-red-400 bg-red-500/5 border border-red-500/20 rounded px-1.5 py-0.5">
-                    C {w.strike} ({w.strength.toFixed(0)})
+                  <span key={`c-${w.strike}`} className="text-xs text-red-400 bg-red-500/5 border border-red-500/20 rounded-lg px-2.5 py-1">
+                    C {w.strike} <span className="opacity-60">({w.strength.toFixed(0)})</span>
                   </span>
                 ))}
                 {walls.secondaryPutWalls.map(w => (
-                  <span key={`p-${w.strike}`} className="text-[9px] text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded px-1.5 py-0.5">
-                    P {w.strike} ({w.strength.toFixed(0)})
+                  <span key={`p-${w.strike}`} className="text-xs text-emerald-400 bg-emerald-500/5 border border-emerald-500/20 rounded-lg px-2.5 py-1">
+                    P {w.strike} <span className="opacity-60">({w.strength.toFixed(0)})</span>
                   </span>
                 ))}
               </div>
@@ -192,10 +191,10 @@ export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
       )}
 
       {walls.warnings.length > 0 && (
-        <div className="space-y-1">
+        <div className="space-y-2">
           {walls.warnings.map((w, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-[9px] text-amber-500/70">
-              <AlertTriangle className="w-2.5 h-2.5 flex-shrink-0" />
+            <div key={i} className="flex items-center gap-2 text-xs text-amber-500/70">
+              <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
               {w}
             </div>
           ))}
