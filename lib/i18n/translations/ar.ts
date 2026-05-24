@@ -89,6 +89,7 @@ export const ar: TranslationKeys = {
     notifications: 'الإشعارات',
     profile: 'ملفي الشخصي',
     indices: 'مركز المؤشرات',
+    neuralAnalysis: 'مختبر التحليل العصبي',
   },
   landing: {
     hero: {

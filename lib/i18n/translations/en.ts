@@ -87,6 +87,7 @@ export const en = {
     notifications: 'Notifications',
     profile: 'My Profile',
     indices: 'Indices Hub',
+    neuralAnalysis: 'Neural Analysis Lab',
   },
   landing: {
     hero: {
