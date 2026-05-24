@@ -5,7 +5,7 @@ import {
   Brain, RefreshCw, TrendingUp, TrendingDown, Minus,
   AlertTriangle, CheckCircle2, XCircle, Info, ChevronRight,
   BarChart3, Activity, Zap, Clock, Database, ArrowUpRight,
-  ArrowDownRight, Loader2, BookOpen,
+  ArrowDownRight, Loader2, BookOpen, Search, Building2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,27 @@ import { useTranslation, useLanguage } from '@/lib/i18n/language-context'
 function stateLabel(state: MarketState, language: string) {
   const cfg = STATE_CONFIG[state]
   return language === 'ar' ? cfg.labelAr : cfg.label
+}
+
+// ─────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────
+interface SearchResult {
+  symbol: string
+  name: string
+  type: string
+  exchange: string
+}
+
+interface QuoteData {
+  symbol: string
+  price: number
+  change?: number
+  changePercent?: number
+  high?: number
+  low?: number
+  volume?: number
+  marketStatus?: string
 }
 
 // ─────────────────────────────────────────────
@@ -305,6 +326,102 @@ function TheoryPanel() {
   )
 }
 
+function SymbolInfoCard({ info, quote }: { info: SearchResult; quote: QuoteData | null }) {
+  const { t } = useTranslation()
+  const { language } = useLanguage()
+  const na = t.neuralAnalysis
+  const sc = na.symbolCard
+  const isAr = language === 'ar'
+
+  const typeLabel: Record<string, string> = {
+    Stock: sc.typeStock,
+    ETF: sc.typeETF,
+    Crypto: sc.typeCrypto,
+    Forex: sc.typeForex,
+    Index: sc.typeIndex,
+  }
+
+  const typeColors: Record<string, string> = {
+    Stock: 'text-blue-400 bg-blue-400/10 border-blue-400/20',
+    ETF: 'text-purple-400 bg-purple-400/10 border-purple-400/20',
+    Crypto: 'text-amber-400 bg-amber-400/10 border-amber-400/20',
+    Forex: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20',
+    Index: 'text-violet-400 bg-violet-400/10 border-violet-400/20',
+  }
+
+  const marketStatusLabel: Record<string, string> = {
+    open: sc.marketOpen,
+    closed: sc.marketClosed,
+    'pre-market': sc.preMarket,
+    'after-hours': sc.afterHours,
+  }
+
+  const typeClass = typeColors[info.type] ?? 'text-muted-foreground bg-white/5 border-white/10'
+  const isPositive = (quote?.changePercent ?? 0) >= 0
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-xl border border-white/8 bg-white/2">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="p-2.5 rounded-xl bg-violet-500/10 border border-violet-500/20 flex-shrink-0">
+          <Building2 className="h-5 w-5 text-violet-400" />
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-black text-foreground">{info.symbol}</span>
+            <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full border', typeClass)}>
+              {typeLabel[info.type] ?? info.type}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground truncate mt-0.5">{info.name}</p>
+          {info.exchange && info.exchange !== info.type && (
+            <p className="text-[10px] text-muted-foreground/60">{info.exchange}</p>
+          )}
+        </div>
+      </div>
+
+      {quote && (
+        <div className={cn('flex items-center gap-4 flex-shrink-0', isAr && 'flex-row-reverse')}>
+          <div className="text-center">
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{sc.price}</p>
+            <p className="text-base font-black text-foreground tabular-nums">
+              {quote.price.toLocaleString(isAr ? 'ar-SA' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+          </div>
+          {quote.changePercent !== undefined && (
+            <div className="text-center">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{sc.change}</p>
+              <p className={cn('text-base font-black tabular-nums flex items-center gap-0.5', isPositive ? 'text-emerald-400' : 'text-red-400')}>
+                {isPositive ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+                {isPositive ? '+' : ''}{quote.changePercent.toFixed(2)}%
+              </p>
+            </div>
+          )}
+          {quote.high !== undefined && (
+            <div className="text-center hidden sm:block">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{sc.high}</p>
+              <p className="text-sm font-bold text-emerald-400 tabular-nums">{quote.high.toLocaleString()}</p>
+            </div>
+          )}
+          {quote.low !== undefined && (
+            <div className="text-center hidden sm:block">
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{sc.low}</p>
+              <p className="text-sm font-bold text-red-400 tabular-nums">{quote.low.toLocaleString()}</p>
+            </div>
+          )}
+          {quote.marketStatus && (
+            <div className={cn(
+              'text-[10px] font-semibold px-2 py-1 rounded-full border',
+              quote.marketStatus === 'open' ? 'text-emerald-400 bg-emerald-400/10 border-emerald-400/20' : 'text-muted-foreground bg-white/5 border-white/10'
+            )}>
+              {marketStatusLabel[quote.marketStatus] ?? quote.marketStatus}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─────────────────────────────────────────────
 // Main Page
 // ─────────────────────────────────────────────
@@ -322,6 +439,15 @@ export default function NeuralAnalysisPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState('prediction')
   const inputRef = useRef<HTMLInputElement>(null)
+
+  // Autocomplete state
+  const [autocompleteResults, setAutocompleteResults] = useState<SearchResult[]>([])
+  const [showAutocomplete, setShowAutocomplete] = useState(false)
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false)
+  const [selectedInfo, setSelectedInfo] = useState<SearchResult | null>(null)
+  const [quote, setQuote] = useState<QuoteData | null>(null)
+  const autocompleteRef = useRef<HTMLDivElement>(null)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>()
 
   const runAnalysis = useCallback(async (sym?: string, tf?: string) => {
     const symbol = (sym ?? (customSymbol.trim() || selectedSymbol)).toUpperCase()
@@ -351,6 +477,55 @@ export default function NeuralAnalysisPage() {
     }
   }, [selectedSymbol, customSymbol, timeframe])
 
+  const fetchQuote = useCallback(async (sym: string) => {
+    try {
+      const res = await fetch(`/api/stock-price?symbol=${encodeURIComponent(sym)}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.price) setQuote(data)
+      }
+    } catch {}
+  }, [])
+
+  const searchSymbols = useCallback(async (q: string) => {
+    if (q.length < 1) {
+      setAutocompleteResults([])
+      setShowAutocomplete(false)
+      return
+    }
+    setAutocompleteLoading(true)
+    try {
+      const res = await fetch(`/api/search-symbols?q=${encodeURIComponent(q)}`)
+      if (res.ok) {
+        const data = await res.json()
+        setAutocompleteResults(data.results?.slice(0, 8) || [])
+        setShowAutocomplete(true)
+      }
+    } catch {}
+    setAutocompleteLoading(false)
+  }, [])
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current)
+    if (customSymbol.trim().length > 0) {
+      searchDebounceRef.current = setTimeout(() => searchSymbols(customSymbol.trim()), 300)
+    } else {
+      setAutocompleteResults([])
+      setShowAutocomplete(false)
+    }
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current) }
+  }, [customSymbol, searchSymbols])
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(e.target as Node)) {
+        setShowAutocomplete(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   useEffect(() => {
     runAnalysis('SPX', '1d')
   }, [])
@@ -358,6 +533,9 @@ export default function NeuralAnalysisPage() {
   const handleSymbolClick = (sym: string) => {
     setSelectedSymbol(sym)
     setCustomSymbol('')
+    setSelectedInfo(null)
+    setQuote(null)
+    setShowAutocomplete(false)
     runAnalysis(sym, timeframe)
   }
 
@@ -367,10 +545,25 @@ export default function NeuralAnalysisPage() {
     runAnalysis(sym, tf)
   }
 
+  const handleAutocompleteSelect = (item: SearchResult) => {
+    setCustomSymbol(item.symbol)
+    setSelectedSymbol('')
+    setSelectedInfo(item)
+    setShowAutocomplete(false)
+    setQuote(null)
+    fetchQuote(item.symbol)
+    runAnalysis(item.symbol, timeframe)
+  }
+
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!customSymbol.trim()) return
     setSelectedSymbol('')
+    setShowAutocomplete(false)
+    if (!selectedInfo || selectedInfo.symbol !== customSymbol.trim().toUpperCase()) {
+      setSelectedInfo(null)
+      setQuote(null)
+    }
     runAnalysis(customSymbol.trim(), timeframe)
   }
 
@@ -453,13 +646,79 @@ export default function NeuralAnalysisPage() {
           </div>
 
           <form onSubmit={handleCustomSubmit} className="flex gap-2 flex-1">
-            <Input
-              ref={inputRef}
-              value={customSymbol}
-              onChange={e => setCustomSymbol(e.target.value.toUpperCase())}
-              placeholder={na.customSymbolPlaceholder}
-              className="text-sm h-full min-h-[56px] bg-card border-border placeholder:text-muted-foreground/50"
-            />
+            <div ref={autocompleteRef} className="relative flex-1">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50 pointer-events-none" />
+                <Input
+                  ref={inputRef}
+                  value={customSymbol}
+                  onChange={e => {
+                    setCustomSymbol(e.target.value.toUpperCase())
+                    if (selectedInfo && selectedInfo.symbol !== e.target.value.toUpperCase()) {
+                      setSelectedInfo(null)
+                      setQuote(null)
+                    }
+                  }}
+                  onFocus={() => { if (autocompleteResults.length > 0) setShowAutocomplete(true) }}
+                  placeholder={na.customSymbolPlaceholder}
+                  className="text-sm h-full min-h-[56px] bg-card border-border placeholder:text-muted-foreground/50 pl-9"
+                  autoComplete="off"
+                />
+                {autocompleteLoading && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+
+              {showAutocomplete && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1.5 rounded-xl border border-border bg-card shadow-xl overflow-hidden">
+                  {autocompleteResults.length === 0 ? (
+                    <div className="px-4 py-3 text-xs text-muted-foreground text-center">{na.noResults}</div>
+                  ) : (
+                    <ul className="py-1 max-h-64 overflow-y-auto">
+                      {autocompleteResults.map((item, idx) => {
+                        const typeColors: Record<string, string> = {
+                          Stock: 'text-blue-400 bg-blue-400/10',
+                          ETF: 'text-purple-400 bg-purple-400/10',
+                          Crypto: 'text-amber-400 bg-amber-400/10',
+                          Forex: 'text-cyan-400 bg-cyan-400/10',
+                          Index: 'text-violet-400 bg-violet-400/10',
+                        }
+                        const typeLabel: Record<string, string> = {
+                          Stock: na.symbolCard.typeStock,
+                          ETF: na.symbolCard.typeETF,
+                          Crypto: na.symbolCard.typeCrypto,
+                          Forex: na.symbolCard.typeForex,
+                          Index: na.symbolCard.typeIndex,
+                        }
+                        return (
+                          <li key={idx}>
+                            <button
+                              type="button"
+                              className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors text-left"
+                              onClick={() => handleAutocompleteSelect(item)}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-bold text-foreground">{item.symbol}</span>
+                                  <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded-full', typeColors[item.type] ?? 'text-muted-foreground bg-white/5')}>
+                                    {typeLabel[item.type] ?? item.type}
+                                  </span>
+                                </div>
+                                <p className="text-xs text-muted-foreground truncate">{item.name}</p>
+                              </div>
+                              {item.exchange && (
+                                <span className="text-[10px] text-muted-foreground/60 flex-shrink-0">{item.exchange}</span>
+                              )}
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
             <Button type="submit" variant="outline" className="h-full min-h-[56px] px-4 whitespace-nowrap" disabled={!customSymbol.trim() || loading}>
               <Zap className="h-3.5 w-3.5 mr-1.5" />
               {na.analyze}
@@ -498,6 +757,11 @@ export default function NeuralAnalysisPage() {
               <p className="text-xs mt-0.5 opacity-80">{error}</p>
             </div>
           </div>
+        )}
+
+        {/* ── Symbol Info Card ── */}
+        {selectedInfo && (
+          <SymbolInfoCard info={selectedInfo} quote={quote} />
         )}
 
         {/* ── Loading skeleton ── */}
