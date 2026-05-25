@@ -56,6 +56,7 @@ const DEFAULT_SYMBOLS = [
   { key: 'SPX', label: 'S&P 500', sublabel: 'SPX500' },
   { key: 'NDX', label: 'NASDAQ', sublabel: 'NDX100' },
   { key: 'DJI', label: 'Dow Jones', sublabel: 'DJI30' },
+  { key: 'VIX', label: 'VIX', sublabel: 'Volatility' },
 ]
 
 const TIMEFRAME_KEYS = [

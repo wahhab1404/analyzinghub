@@ -14,6 +14,7 @@ const SYMBOL_MAP: Record<string, string> = {
   NASDAQ: 'I:NDX',
   DJI: 'I:DJI',
   DOW: 'I:DJI',
+  VIX: 'I:VIX',
 }
 
 const TIMEFRAME_CONFIG: Record<string, { multiplier: number; timespan: string; lookbackDays: number }> = {
