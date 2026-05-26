@@ -34,6 +34,15 @@ export interface FeatureResult {
   pValue: number
 }
 
+export interface AdaptiveThresholds {
+  mean: number
+  std: number
+  upStrong: number
+  up: number
+  down: number
+  downStrong: number
+}
+
 export interface NeuralAnalysisResult {
   symbol: string
   timeframe: string
@@ -48,6 +57,7 @@ export interface NeuralAnalysisResult {
   historicalStates: HistoricalPoint[]
   features: Record<string, FeatureResult>
   stateDistribution: number[]
+  adaptiveThresholds: AdaptiveThresholds
   error?: string
 }
 
@@ -56,6 +66,26 @@ export function getState(ret: number): MarketState {
   if (ret > 0.008) return 'Up'
   if (ret > -0.008) return 'Sideways'
   if (ret > -0.02) return 'Down'
+  return 'Strong_Down'
+}
+
+export function computeReturnStats(returns: number[]): { mean: number; std: number } {
+  const n = returns.length
+  if (n === 0) return { mean: 0, std: 0.001 }
+  const mean = returns.reduce((a, b) => a + b, 0) / n
+  const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / n
+  return { mean, std: Math.sqrt(variance) || 0.001 }
+}
+
+// Classifies a return using z-score thresholds so state distribution is
+// meaningful regardless of timeframe (1H, 4H, 1D all produce ~38% Sideways,
+// ~24% Up/Down, ~7% Strong states instead of 96% Sideways on sub-daily frames).
+export function classifyReturn(ret: number, mean: number, std: number): MarketState {
+  const z = (ret - mean) / std
+  if (z > 1.5) return 'Strong_Up'
+  if (z > 0.5) return 'Up'
+  if (z > -0.5) return 'Sideways'
+  if (z > -1.5) return 'Down'
   return 'Strong_Down'
 }
 
@@ -246,6 +276,8 @@ export function computeFeatures(candles: CandleData[]): Record<string, (number |
 }
 
 export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: string): NeuralAnalysisResult {
+  const defaultThresholds: AdaptiveThresholds = { mean: 0, std: 0.001, upStrong: 0.02, up: 0.008, down: -0.008, downStrong: -0.02 }
+
   if (candles.length < 30) {
     return {
       symbol, timeframe, dataPoints: candles.length,
@@ -256,6 +288,7 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
       nextStateProbabilities: Array(5).fill(0.2),
       monteCarloDistribution: Array(5).fill(0.2),
       historicalStates: [], features: {}, stateDistribution: Array(5).fill(0.2),
+      adaptiveThresholds: defaultThresholds,
       error: 'Insufficient data (minimum 30 candles required)',
     }
   }
@@ -266,7 +299,20 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
     returns.push((closes[i] - closes[i - 1]) / closes[i - 1])
   }
 
-  const stateSequence = returns.slice(1).map(r => getState(r))
+  // Compute adaptive thresholds from the actual return distribution so that
+  // classification is meaningful for any timeframe (hourly, 4H, daily, etc.)
+  const cleanReturns = returns.slice(1).filter(r => isFinite(r))
+  const { mean: retMean, std: retStd } = computeReturnStats(cleanReturns)
+  const adaptiveThresholds: AdaptiveThresholds = {
+    mean: retMean,
+    std: retStd,
+    upStrong: retMean + 1.5 * retStd,
+    up: retMean + 0.5 * retStd,
+    down: retMean - 0.5 * retStd,
+    downStrong: retMean - 1.5 * retStd,
+  }
+
+  const stateSequence = returns.slice(1).map(r => classifyReturn(r, retMean, retStd))
   const historicalStates: HistoricalPoint[] = candles.slice(1).map((c, i) => ({
     date: new Date(c.timestamp).toISOString().split('T')[0],
     close: c.close,
@@ -333,5 +379,6 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
     historicalStates,
     features,
     stateDistribution,
+    adaptiveThresholds,
   }
 }
