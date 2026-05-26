@@ -18,9 +18,10 @@ const SYMBOL_MAP: Record<string, string> = {
 }
 
 const TIMEFRAME_CONFIG: Record<string, { multiplier: number; timespan: string; lookbackDays: number }> = {
-  '1d':  { multiplier: 1, timespan: 'day',  lookbackDays: 365 * 5 },
-  '4h':  { multiplier: 4, timespan: 'hour', lookbackDays: 180 },
-  '1h':  { multiplier: 1, timespan: 'hour', lookbackDays: 90 },
+  '1d':  { multiplier: 1,  timespan: 'day',    lookbackDays: 365 * 5 },
+  '4h':  { multiplier: 4,  timespan: 'hour',   lookbackDays: 180 },
+  '1h':  { multiplier: 1,  timespan: 'hour',   lookbackDays: 90 },
+  '15m': { multiplier: 15, timespan: 'minute', lookbackDays: 30 },
 }
 
 async function fetchCandles(ticker: string, multiplier: number, timespan: string, lookbackDays: number): Promise<CandleData[]> {
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
 
     const tfConfig = TIMEFRAME_CONFIG[timeframe]
     if (!tfConfig) {
-      return NextResponse.json({ error: 'Invalid timeframe. Use: 1d, 4h, 1h' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid timeframe. Use: 1d, 4h, 1h, 15m' }, { status: 400 })
     }
 
     const polygonTicker = SYMBOL_MAP[rawSymbol] || rawSymbol

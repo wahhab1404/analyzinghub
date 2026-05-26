@@ -1408,9 +1408,11 @@ export const ar: TranslationKeys = {
       daily: 'يومي',
       fourHour: '4 ساعات',
       oneHour: 'ساعة',
+      fifteenMin: '15 دقيقة',
       dailyDesc: '5 سنوات من البيانات اليومية',
       fourHourDesc: '6 أشهر من شمعات 4 ساعات',
       oneHourDesc: '3 أشهر من شمعات ساعة',
+      fifteenMinDesc: '30 يومًا من شمعات 15 دقيقة',
     },
     banner: {
       currentState: 'حالة السوق الحالية',
