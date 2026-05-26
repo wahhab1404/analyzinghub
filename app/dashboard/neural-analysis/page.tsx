@@ -824,10 +824,17 @@ export default function NeuralAnalysisPage() {
                   <p className="text-lg font-black text-foreground">{result.symbol}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{na.banner.lastReturn}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    {na.banner.lastReturn} ({result.currentStateWindow}{language === 'ar' ? ' شمعة' : ' bars'})
+                  </p>
                   <p className={cn('text-lg font-black', result.currentReturn >= 0 ? 'text-emerald-400' : 'text-red-400')}>
                     {result.currentReturn >= 0 ? '+' : ''}{(result.currentReturn * 100).toFixed(2)}%
                   </p>
+                  {result.lastBarReturn !== undefined && (
+                    <p className={cn('text-[10px]', result.lastBarReturn >= 0 ? 'text-emerald-400/60' : 'text-red-400/60')}>
+                      {language === 'ar' ? 'آخر شمعة:' : 'last bar:'} {result.lastBarReturn >= 0 ? '+' : ''}{(result.lastBarReturn * 100).toFixed(3)}%
+                    </p>
+                  )}
                 </div>
                 <div className="text-center">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{na.banner.dataPoints}</p>

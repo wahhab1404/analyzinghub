@@ -43,13 +43,24 @@ export interface AdaptiveThresholds {
   downStrong: number
 }
 
+// Number of bars used to compute the rolling return for current-state regime detection.
+// Single-bar returns are too noisy; a rolling window captures actual market direction.
+export const REGIME_WINDOW: Record<string, number> = {
+  '1d':  5,   // 1 week
+  '4h':  5,   // ~3 trading days
+  '1h':  7,   // 1 trading day
+  '15m': 16,  // half a trading day
+}
+
 export interface NeuralAnalysisResult {
   symbol: string
   timeframe: string
   dataPoints: number
   dateRange: { start: string; end: string }
   currentState: MarketState
-  currentReturn: number
+  currentReturn: number       // rolling N-bar return used for state classification
+  lastBarReturn: number       // single last-bar return (raw signal)
+  currentStateWindow: number  // how many bars were used for rolling return
   transitionMatrix: number[][]
   steadyState: number[]
   nextStateProbabilities: number[]
@@ -277,12 +288,13 @@ export function computeFeatures(candles: CandleData[]): Record<string, (number |
 
 export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: string): NeuralAnalysisResult {
   const defaultThresholds: AdaptiveThresholds = { mean: 0, std: 0.001, upStrong: 0.02, up: 0.008, down: -0.008, downStrong: -0.02 }
+  const regimeWindow = REGIME_WINDOW[timeframe] ?? 5
 
   if (candles.length < 30) {
     return {
       symbol, timeframe, dataPoints: candles.length,
       dateRange: { start: '', end: '' },
-      currentState: 'Sideways', currentReturn: 0,
+      currentState: 'Sideways', currentReturn: 0, lastBarReturn: 0, currentStateWindow: regimeWindow,
       transitionMatrix: Array(5).fill(Array(5).fill(0.2)),
       steadyState: Array(5).fill(0.2),
       nextStateProbabilities: Array(5).fill(0.2),
@@ -294,15 +306,17 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
   }
 
   const closes = candles.map(c => c.close)
-  const returns: number[] = [0]
-  for (let i = 1; i < candles.length; i++) {
-    returns.push((closes[i] - closes[i - 1]) / closes[i - 1])
-  }
 
-  // Compute adaptive thresholds from the actual return distribution so that
-  // classification is meaningful for any timeframe (hourly, 4H, daily, etc.)
-  const cleanReturns = returns.slice(1).filter(r => isFinite(r))
-  const { mean: retMean, std: retStd } = computeReturnStats(cleanReturns)
+  // ── Single-bar returns: used to build the Markov transition matrix ──
+  const barReturns: number[] = [0]
+  for (let i = 1; i < candles.length; i++) {
+    barReturns.push((closes[i] - closes[i - 1]) / closes[i - 1])
+  }
+  const lastBarReturn = barReturns[barReturns.length - 1]
+
+  // ── Adaptive thresholds from single-bar return distribution ──
+  const cleanBarReturns = barReturns.slice(1).filter(r => isFinite(r))
+  const { mean: retMean, std: retStd } = computeReturnStats(cleanBarReturns)
   const adaptiveThresholds: AdaptiveThresholds = {
     mean: retMean,
     std: retStd,
@@ -312,11 +326,12 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
     downStrong: retMean - 1.5 * retStd,
   }
 
-  const stateSequence = returns.slice(1).map(r => classifyReturn(r, retMean, retStd))
+  // ── Transition matrix: built from individual bar states (z-score) ──
+  const stateSequence = barReturns.slice(1).map(r => classifyReturn(r, retMean, retStd))
   const historicalStates: HistoricalPoint[] = candles.slice(1).map((c, i) => ({
     date: new Date(c.timestamp).toISOString().split('T')[0],
     close: c.close,
-    return: returns[i + 1],
+    return: barReturns[i + 1],
     state: stateSequence[i],
     stateIndex: STATES.indexOf(stateSequence[i]),
   }))
@@ -324,7 +339,19 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
   const transitionMatrix = buildTransitionMatrix(stateSequence)
   const steadyState = computeSteadyState(transitionMatrix)
 
-  const currentState = stateSequence[stateSequence.length - 1]
+  // ── Current state: rolling N-bar return for regime detection ──
+  // A single bar's return (e.g. -0.02% in 1H) is noise; a rolling window
+  // (e.g. last 7 hours = 1 trading day) captures actual market direction.
+  const rollingReturns: number[] = []
+  for (let i = regimeWindow; i < closes.length; i++) {
+    rollingReturns.push((closes[i] - closes[i - regimeWindow]) / closes[i - regimeWindow])
+  }
+  const { mean: rollingMean, std: rollingStd } = computeReturnStats(
+    rollingReturns.filter(r => isFinite(r))
+  )
+  const currentRollingReturn = rollingReturns[rollingReturns.length - 1] ?? lastBarReturn
+  const currentState = classifyReturn(currentRollingReturn, rollingMean, rollingStd)
+
   const currentStateIdx = STATES.indexOf(currentState)
   const nextStateProbabilities = transitionMatrix[currentStateIdx]
   const monteCarloDistribution = monteCarloSimulation(transitionMatrix, currentStateIdx)
@@ -371,7 +398,9 @@ export function analyzeMarket(candles: CandleData[], symbol: string, timeframe: 
       end: dateFormat(candles[candles.length - 1].timestamp),
     },
     currentState,
-    currentReturn: returns[returns.length - 1],
+    currentReturn: currentRollingReturn,
+    lastBarReturn,
+    currentStateWindow: regimeWindow,
     transitionMatrix,
     steadyState,
     nextStateProbabilities,

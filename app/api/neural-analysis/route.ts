@@ -38,7 +38,7 @@ async function fetchCandles(ticker: string, multiplier: number, timespan: string
 
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${POLYGON_API_KEY}` },
-    next: { revalidate: 300 },
+    cache: 'no-store',
   })
 
   if (!resp.ok) {
