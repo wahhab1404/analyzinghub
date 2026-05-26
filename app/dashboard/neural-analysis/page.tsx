@@ -20,12 +20,23 @@ import {
   ResponsiveContainer, Cell, LineChart, Line, ReferenceLine,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { STATES, STATE_CONFIG, type MarketState, type NeuralAnalysisResult } from '@/lib/neural-analysis/computations'
+import { STATES, STATE_CONFIG, type MarketState, type NeuralAnalysisResult, type AdaptiveThresholds } from '@/lib/neural-analysis/computations'
 import { useTranslation, useLanguage } from '@/lib/i18n/language-context'
 
 function stateLabel(state: MarketState, language: string) {
   const cfg = STATE_CONFIG[state]
   return language === 'ar' ? cfg.labelAr : cfg.label
+}
+
+function adaptiveThresholdLabel(state: MarketState, t: AdaptiveThresholds): string {
+  const fmt = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(2)}%`
+  switch (state) {
+    case 'Strong_Up':   return `> ${fmt(t.upStrong)}`
+    case 'Up':          return `${fmt(t.up)} → ${fmt(t.upStrong)}`
+    case 'Sideways':    return `${fmt(t.down)} → ${fmt(t.up)}`
+    case 'Down':        return `${fmt(t.downStrong)} → ${fmt(t.down)}`
+    case 'Strong_Down': return `< ${fmt(t.downStrong)}`
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -799,8 +810,8 @@ export default function NeuralAnalysisPage() {
                     <span className="text-2xl font-black" style={{ color: statInfo!.color }}>
                       {stateLabel(result.currentState, language)}
                     </span>
-                    <span className="text-xs px-2 py-0.5 rounded-full border" style={{ color: statInfo!.color, borderColor: statInfo!.color + '40' }}>
-                      {statInfo!.threshold}
+                    <span className="text-xs px-2 py-0.5 rounded-full border font-mono" style={{ color: statInfo!.color, borderColor: statInfo!.color + '40' }}>
+                      {adaptiveThresholdLabel(result.currentState, result.adaptiveThresholds)}
                     </span>
                   </div>
                 </div>
