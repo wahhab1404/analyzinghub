@@ -71,9 +71,10 @@ const DEFAULT_SYMBOLS = [
 ]
 
 const TIMEFRAME_KEYS = [
-  { key: '1d', sublabel: '1D', tfKey: 'daily' as const, descKey: 'dailyDesc' as const },
-  { key: '4h', sublabel: '4H', tfKey: 'fourHour' as const, descKey: 'fourHourDesc' as const },
-  { key: '1h', sublabel: '1H', tfKey: 'oneHour' as const, descKey: 'oneHourDesc' as const },
+  { key: '1d',  sublabel: '1D',  tfKey: 'daily'      as const, descKey: 'dailyDesc'      as const },
+  { key: '4h',  sublabel: '4H',  tfKey: 'fourHour'   as const, descKey: 'fourHourDesc'   as const },
+  { key: '1h',  sublabel: '1H',  tfKey: 'oneHour'    as const, descKey: 'oneHourDesc'    as const },
+  { key: '15m', sublabel: '15M', tfKey: 'fifteenMin' as const, descKey: 'fifteenMinDesc' as const },
 ]
 
 const FEATURE_META: Record<string, { label: string; labelAr: string; description: string; descriptionAr: string; icon: string }> = {

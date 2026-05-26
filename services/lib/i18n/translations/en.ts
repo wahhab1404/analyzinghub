@@ -1393,9 +1393,11 @@ export const en = {
       daily: 'Daily',
       fourHour: '4-Hour',
       oneHour: '1-Hour',
+      fifteenMin: '15-Min',
       dailyDesc: '5 years of daily data',
       fourHourDesc: '6 months of 4H bars',
       oneHourDesc: '3 months of 1H bars',
+      fifteenMinDesc: '30 days of 15-min bars',
     },
     banner: {
       currentState: 'Current Market State',
