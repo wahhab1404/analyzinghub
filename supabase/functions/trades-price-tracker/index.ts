@@ -54,6 +54,37 @@ async function fetchStockPrices(
   }
 }
 
+// ── Polygon option premium ──────────────────────────────────────────────────
+
+async function fetchOptionPremium(
+  underlying: string,
+  contract: string,
+  polygonKey: string
+): Promise<number | null> {
+  try {
+    const u = underlying.replace(/^O:/, "").toUpperCase();
+    const c = contract.startsWith("O:") ? contract : `O:${contract}`;
+    const url = `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(u)}/${encodeURIComponent(c)}?apiKey=${polygonKey}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const json = await res.json();
+    const r = json?.results;
+    if (!r) return null;
+
+    const bid = Number(r.last_quote?.bid ?? 0);
+    const ask = Number(r.last_quote?.ask ?? 0);
+    const mid =
+      bid > 0 && ask > 0 ? (bid + ask) / 2 : Number(r.last_quote?.midpoint ?? 0) || 0;
+    const last  = Number(r.last_trade?.price ?? 0);
+    const close = Number(r.day?.close ?? r.session?.close ?? 0);
+
+    const premium = mid > 0 ? mid : last > 0 ? last : close > 0 ? close : 0;
+    return premium > 0 ? parseFloat(premium.toFixed(4)) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Telegram sender ─────────────────────────────────────────────────────────
 
 async function sendTelegram(
@@ -174,23 +205,50 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ updated: 0, expired: expiredOptionIds.length }), { status: 200, headers: CORS_HEADERS });
   }
 
-  // 3. Fetch prices
-  const symbols = [...new Set(activeTrades.map((t: any) => t.symbol as string))];
-  const prices  = isMarketOpen() ? await fetchStockPrices(symbols, polygonKey) : {};
+  // 3. Fetch prices.
+  //    - Stock trades  → underlying stock snapshot (fed to update_trade_price).
+  //    - Option trades → the OPTION contract premium via its own snapshot
+  //      (fed to update_option_trade_price). Using the stock price for an
+  //      option premium is wrong; the contract is what the analyst tracks.
+  const marketOpen = isMarketOpen();
+  const stockSymbols = [
+    ...new Set(
+      activeTrades
+        .filter((t: any) => t.trade_type !== "option")
+        .map((t: any) => t.symbol as string)
+    ),
+  ];
+  const stockPrices = marketOpen ? await fetchStockPrices(stockSymbols, polygonKey) : {};
 
   let updated = 0;
 
   for (const trade of activeTrades) {
-    const price = prices[trade.symbol];
+    const isOption = trade.trade_type === "option";
+
+    // Resolve the price relevant to this trade.
+    let price: number | null = null;
+    if (isOption) {
+      const contract   = trade.option_details?.contract_symbol as string | undefined;
+      const underlying = (trade.option_details?.underlying_symbol ?? trade.symbol) as string;
+      if (marketOpen && contract) {
+        price = await fetchOptionPremium(underlying, contract, polygonKey);
+      }
+    } else {
+      const p = stockPrices[trade.symbol];
+      price = p && p > 0 ? p : null;
+    }
+
     if (!price || price <= 0) continue;
 
-    const isOption = trade.trade_type === "option";
-    const rpc = isOption ? "update_option_trade_price" : "update_trade_price";
-
-    const { data: result, error: rpcErr } = await supabase.rpc(rpc, {
-      p_trade_id:      trade.id,
-      p_current_price: price,
-    });
+    const { data: result, error: rpcErr } = isOption
+      ? await supabase.rpc("update_option_trade_price", {
+          p_trade_id:       trade.id,
+          p_current_premium: price,
+        })
+      : await supabase.rpc("update_trade_price", {
+          p_trade_id:      trade.id,
+          p_current_price: price,
+        });
 
     if (rpcErr) {
       console.error(`[trades-tracker] RPC error for ${trade.id}:`, rpcErr);
