@@ -83,6 +83,12 @@ export interface TradeImageOpts {
   isNewHigh?: boolean;
   isWinning?: boolean;
   isTesting?: boolean;
+  /**
+   * Advertisement card for a successful deal ("من صفقاتنا الخاصة").
+   * Like the new-high card it showcases the peak performance (entry → high),
+   * so the headline gain is always positive, but it is branded "WINNING TRADE".
+   */
+  isAd?: boolean;
   highPrice?: number;
 }
 
@@ -98,6 +104,7 @@ export async function generateTradeImage(
     const isNewHigh = !!opts.isNewHigh;
     const isWinning = !!opts.isWinning;
     const isTesting = !!opts.isTesting;
+    const isAd = !!opts.isAd;
 
     // ── Derived values ────────────────────────────────────────────────────────
     const snap = trade?.entry_contract_snapshot ?? {};
@@ -109,7 +116,7 @@ export async function generateTradeImage(
 
     const optionType = (trade?.option_type ?? trade?.direction ?? "call").toLowerCase();
     const isCall = optionType === "call";
-    const accent = isNewHigh ? C.gold : isWinning ? C.call : isCall ? C.call : C.put;
+    const accent = isAd ? C.call : isNewHigh ? C.gold : isWinning ? C.call : isCall ? C.call : C.put;
     const dirAccent = isCall ? C.call : C.put;
     const dirAccentBg = isCall ? C.callBg : C.putBg;
     const dirAccentBd = isCall ? C.callBd : C.putBd;
@@ -150,7 +157,15 @@ export async function generateTradeImage(
     let subText: string;
     let subColor: string;
 
-    if (isNewHigh) {
+    if (isAd) {
+      badgeText = `${testPrefix}WINNING TRADE`;
+      badgeColor = C.call; badgeBg = C.callBg; badgeBd = C.callBd;
+      bigLabel = "Contract High";
+      bigValue = `$${fmt(dispHigh)}`;
+      bigColor = C.call;
+      subText = `+${gainPct.toFixed(1)}%  ·  +$${gainUsd.toFixed(0)} per lot`;
+      subColor = C.call;
+    } else if (isNewHigh) {
       badgeText = `${testPrefix}NEW HIGH`;
       badgeColor = C.gold; badgeBg = C.goldBg; badgeBd = C.goldBd;
       bigLabel = "Contract High";
@@ -178,7 +193,12 @@ export async function generateTradeImage(
 
     // ── Right-side stat cards per mode ───────────────────────────────────────────
     const cards: any[] = [];
-    if (isNewHigh) {
+    if (isAd) {
+      cards.push(statCard("Entry", `$${fmt(entryPrice)}`, C.textSub, C.card, C.border));
+      cards.push(statCard("High", `$${fmt(dispHigh)}`, C.call, C.callBg, C.callBd));
+      cards.push(statCard("Max Gain", `+${gainPct.toFixed(2)}%`, C.call, C.callBg, C.callBd));
+      cards.push(statCard("P/L (1 lot)", `+$${gainUsd.toFixed(0)}`, C.call, C.callBg, C.callBd));
+    } else if (isNewHigh) {
       cards.push(statCard("Entry", `$${fmt(entryPrice)}`, C.textSub, C.card, C.border));
       cards.push(statCard("Max Gain", `+${gainPct.toFixed(2)}%`, C.gold, C.goldBg, C.goldBd));
       cards.push(statCard("P/L (1 lot)", `+$${gainUsd.toFixed(0)}`, C.call, C.callBg, C.callBd));
@@ -312,7 +332,7 @@ export async function generateTradeImage(
       console.warn(`[trade-image] Generated PNG too small (${buf.byteLength} bytes) — discarding`);
       return null;
     }
-    console.log(`[trade-image] ✅ Native PNG generated — ${buf.byteLength} bytes (mode=${isNewHigh ? "new_high" : isWinning ? "winning" : "new_trade"})`);
+    console.log(`[trade-image] ✅ Native PNG generated — ${buf.byteLength} bytes (mode=${isAd ? "ad" : isNewHigh ? "new_high" : isWinning ? "winning" : "new_trade"})`);
     return buf;
   } catch (err: any) {
     console.error("[trade-image] ❌ Native image generation failed:", err?.message);
