@@ -20,13 +20,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // The profiles table stores the role as a foreign key (role_id) to the
+    // roles table — it has no plain `role` text column. Read the role name via
+    // the join, otherwise this check silently fails and an admin is never
+    // recognised (blocking them from editing another analyst's trade).
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role:roles(name)')
       .eq('id', user.id)
       .single();
 
-    const isAdmin = profile?.role === 'admin' || profile?.role === 'super_admin';
+    const roleName = (profile as any)?.role?.name;
+    const isAdmin = roleName === 'SuperAdmin';
 
     const { data: trade, error: fetchError } = await supabase
       .from('index_trades')
