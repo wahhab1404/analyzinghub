@@ -317,6 +317,11 @@ async function dispatchPendingAlerts(
   }
 
   // ── PEAK ALERT ───────────────────────────────────────────────────────
+  // The platform displays contract_high_since live, so its card updates on
+  // every new peak. Mirror that on Telegram: the FIRST qualifying high (gain
+  // ≥ 5 % from entry) posts a fresh "قمة جديدة" alert; every subsequent new
+  // high EDITS that same message in place so the channel always reflects the
+  // live peak — no +10 % / 5-min throttle, no duplicate messages.
   if (!justWon) {
     const newHigh    = parseFloat(trade.contract_high_since ?? trade.max_contract_price ?? "0") || 0;
     const entryPrice = parseFloat(
@@ -326,19 +331,31 @@ async function dispatchPendingAlerts(
       "0"
     ) || 0;
 
-    const gainPct       = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
-    const lastAlertedAt = trade.last_peak_alert_at ? new Date(trade.last_peak_alert_at) : null;
-    const lastPrice     = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
-    const minsSinceLast = lastAlertedAt ? (Date.now() - lastAlertedAt.getTime()) / 60_000 : Infinity;
+    const gainPct   = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
+    const lastPrice = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
+    const minsSinceLast = trade.last_peak_alert_at
+      ? (Date.now() - new Date(trade.last_peak_alert_at).getTime()) / 60_000
+      : Infinity;
 
-    const meetsGain        = gainPct >= 0.05;
-    const meetsImprovement = lastPrice === 0 || newHigh >= lastPrice * 1.10;
-    const meetsCooldown    = minsSinceLast >= 5;
+    // An existing message we can edit in place (set after the first alert).
+    const editMessageId = trade.peak_alert_message_id ?? null;
+    const editChatId    = trade.peak_alert_chat_id ?? null;
+    const canEdit       = !!editMessageId && !!editChatId;
 
-    if (meetsGain && meetsImprovement && meetsCooldown && newHigh > 0) {
+    const meetsGain  = gainPct >= 0.05;
+    // "Any new high": strictly above the last shown value by ≥ $0.01 (the
+    // 2-decimal display precision) so we never re-render an identical card.
+    const isNewPeak  = lastPrice === 0 || newHigh >= lastPrice + 0.01;
+    // Edits are unthrottled (live, spam-free). A *fresh* re-post — used only
+    // when there is no editable message yet (first alert still in flight, the
+    // prior message is too old to edit, or message tracking is unavailable) —
+    // keeps a 5-min cooldown so the channel is never flooded with new cards.
+    const sendAllowed = canEdit || lastPrice === 0 || minsSinceLast >= 5;
+
+    if (meetsGain && isNewPeak && newHigh > 0 && sendAllowed) {
       console.log(
         `🚀 [alerts] PEAK — trade ${trade.id}: $${newHigh.toFixed(4)} ` +
-        `(+${(gainPct * 100).toFixed(1)}%)`
+        `(+${(gainPct * 100).toFixed(1)}%) ${canEdit ? "→ edit in place" : "→ fresh alert"}`
       );
       results.alertsSent++;
 
@@ -359,15 +376,19 @@ async function dispatchPendingAlerts(
         })
         .eq("id", trade.id);
 
-      const snapshotUrl = await tryGenerateSnapshot(
-        supabase, supabaseUrl, supabaseKey, trade.id, true, appBaseUrl
-      );
       const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
       if (channelId && trade.telegram_send_enabled !== false) {
+        // Edits re-render the image natively in the outbox processor, so we
+        // only regenerate the stored platform snapshot for fresh alerts.
+        const snapshotUrl = canEdit
+          ? null
+          : await tryGenerateSnapshot(supabase, supabaseUrl, supabaseKey, trade.id, true, appBaseUrl);
         await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
-          tradeId:    trade.id,
-          highPrice:  newHigh,
+          tradeId:       trade.id,
+          highPrice:     newHigh,
           snapshotUrl,
+          editMessageId: canEdit ? editMessageId : undefined,
+          editChatId:    canEdit ? editChatId    : undefined,
         });
       }
     }
