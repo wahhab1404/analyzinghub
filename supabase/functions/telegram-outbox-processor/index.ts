@@ -200,6 +200,11 @@ async function processTradeMessage(
   const highPrice: number | undefined =
     isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;
 
+  // When the tracker detects a higher peak it asks us to EDIT the existing
+  // new-high message in place (live update) rather than post a new one.
+  const editMessageId: string | null = isNewHigh ? (payload?.editMessageId ?? null) : null;
+  const editChatId: string = String(payload?.editChatId ?? chatId);
+
   console.log(`[outbox:processTradeMessage] ──────────────────────────────────────────`);
   console.log(`[outbox:processTradeMessage] TELEGRAM SENDING STARTED`);
   console.log(`[outbox:processTradeMessage]   msgType:      ${msgType}`);
@@ -209,6 +214,7 @@ async function processTradeMessage(
   console.log(`[outbox:processTradeMessage]   isWinning:    ${isWinning}`);
   console.log(`[outbox:processTradeMessage]   isTesting:    ${isTesting}`);
   console.log(`[outbox:processTradeMessage]   highPrice:    ${highPrice ?? 'n/a'}`);
+  console.log(`[outbox:processTradeMessage]   editMsgId:    ${editMessageId ?? 'none (fresh send)'}`);
   console.log(`[outbox:processTradeMessage]   symbol:       ${trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol ?? 'unknown'}`);
   console.log(`[outbox:processTradeMessage]   direction:    ${trade?.direction ?? 'unknown'}`);
   console.log(`[outbox:processTradeMessage]   contractUrl:  ${trade?.contract_url ?? 'none (will generate fresh)'}`);
@@ -217,6 +223,53 @@ async function processTradeMessage(
   const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
   console.log(`[outbox:processTradeMessage] Caption built (${caption.length} chars)`);
 
+  const opts = { isNewHigh, isWinning, isTesting, highPrice };
+
+  // ── EDIT-IN-PLACE: live-update the existing new-high message ────────────────
+  // Mirrors the platform card, which refreshes contract_high_since on every
+  // peak. On any edit failure (message too old, was text-only, etc.) we fall
+  // through to a fresh send below so the update still reaches subscribers.
+  if (editMessageId) {
+    const edited = await editTradeMessage(botToken, editChatId, editMessageId, trade, opts, caption);
+    if (edited) {
+      console.log(`[outbox:processTradeMessage] ✅ TELEGRAM EDIT COMPLETED — message_id: ${edited?.result?.message_id}`);
+      return edited;
+    }
+    console.warn(`[outbox:processTradeMessage] ⚠️ Edit of message ${editMessageId} failed — posting a fresh alert instead`);
+  }
+
+  const result = await deliverTradePhoto(botToken, chatId, trade, opts, caption);
+
+  // Remember the message we just posted so the next higher peak edits it in
+  // place instead of spamming the channel with another card.
+  if (isNewHigh && trade?.id && result?.result?.message_id) {
+    const { error: persistErr } = await supabase
+      .from('index_trades')
+      .update({
+        peak_alert_message_id: String(result.result.message_id),
+        peak_alert_chat_id:    String(chatId),
+      })
+      .eq('id', trade.id);
+    if (persistErr) {
+      console.warn(`[outbox:processTradeMessage] ⚠️ Could not persist peak_alert_message_id: ${persistErr.message}`);
+    }
+  }
+
+  return result;
+}
+
+// ─── Trade photo delivery (fresh send, multi-strategy) ────────────────────────
+// Renders/sends a brand-new trade card to Telegram, trying the native in-edge
+// image first and falling back through Storage URL → bytes → Next.js API →
+// text-only so an alert is never silently dropped.
+async function deliverTradePhoto(
+  botToken: string,
+  chatId: string,
+  trade: any,
+  opts: { isNewHigh: boolean; isWinning: boolean; isTesting: boolean; highPrice?: number },
+  caption: string,
+): Promise<any> {
+  const { isNewHigh, isWinning, isTesting, highPrice } = opts;
   const hasStorageUrl = !!(trade?.contract_url && !trade.contract_url.includes('localhost'));
 
   // ── Strategy 0: Native in-edge image generation (PRIMARY) ───────────────────
@@ -234,77 +287,117 @@ async function processTradeMessage(
         ) as ArrayBuffer;
         try {
           const result = await sendTelegramPhotoBytes(botToken, chatId, ab, caption);
-          console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (native image) — message_id: ${result?.result?.message_id}`);
+          console.log(`[outbox:deliverTradePhoto] ✅ TELEGRAM SENDING COMPLETED (native image) — message_id: ${result?.result?.message_id}`);
           return result;
         } catch (photoErr: any) {
-          console.error(`[outbox:processTradeMessage] ❌ Strategy 0 sendPhoto failed: ${photoErr.message}`);
+          console.error(`[outbox:deliverTradePhoto] ❌ Strategy 0 sendPhoto failed: ${photoErr.message}`);
         }
       }
     } catch (nativeErr: any) {
-      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 0 (native) threw: ${nativeErr.message}`);
+      console.warn(`[outbox:deliverTradePhoto] ⚠️ Strategy 0 (native) threw: ${nativeErr.message}`);
     }
   }
 
   // ── Strategy 1: Pass Storage URL directly to Telegram (no bytes download) ──
   // Telegram's servers download the image from the public chart-images bucket.
   if (hasStorageUrl) {
-    console.log(`[outbox:processTradeMessage] 🔗 Strategy 1: URL-based sendPhoto → ${trade.contract_url}`);
+    console.log(`[outbox:deliverTradePhoto] 🔗 Strategy 1: URL-based sendPhoto → ${trade.contract_url}`);
     try {
       const result = await sendTelegramPhotoUrl(botToken, chatId, trade.contract_url, caption);
-      console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image via URL) — message_id: ${result?.result?.message_id}`);
+      console.log(`[outbox:deliverTradePhoto] ✅ TELEGRAM SENDING COMPLETED (image via URL) — message_id: ${result?.result?.message_id}`);
       return result;
     } catch (urlErr: any) {
-      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 1 failed: ${urlErr.message}`);
+      console.warn(`[outbox:deliverTradePhoto] ⚠️ Strategy 1 failed: ${urlErr.message}`);
     }
   }
 
   // ── Strategy 2: Download bytes from Storage, upload via multipart ───────────
   if (hasStorageUrl) {
-    console.log(`[outbox:processTradeMessage] 📦 Strategy 2: download bytes from Storage...`);
+    console.log(`[outbox:deliverTradePhoto] 📦 Strategy 2: download bytes from Storage...`);
     try {
       const storageRes = await fetch(trade.contract_url, { signal: AbortSignal.timeout(10_000) });
-      console.log(`[outbox:processTradeMessage]    Storage HTTP ${storageRes.status}, ct: ${storageRes.headers.get('content-type')}`);
+      console.log(`[outbox:deliverTradePhoto]    Storage HTTP ${storageRes.status}, ct: ${storageRes.headers.get('content-type')}`);
       if (storageRes.ok) {
         const buf = await storageRes.arrayBuffer();
-        console.log(`[outbox:processTradeMessage]    Downloaded ${buf.byteLength} bytes`);
+        console.log(`[outbox:deliverTradePhoto]    Downloaded ${buf.byteLength} bytes`);
         if (buf.byteLength > 1024) {
           const result = await sendTelegramPhotoBytes(botToken, chatId, buf, caption);
-          console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image via bytes) — message_id: ${result?.result?.message_id}`);
+          console.log(`[outbox:deliverTradePhoto] ✅ TELEGRAM SENDING COMPLETED (image via bytes) — message_id: ${result?.result?.message_id}`);
           return result;
         } else {
-          console.warn(`[outbox:processTradeMessage] ⚠️ Storage image too small (${buf.byteLength} bytes)`);
+          console.warn(`[outbox:deliverTradePhoto] ⚠️ Storage image too small (${buf.byteLength} bytes)`);
         }
       } else {
-        console.warn(`[outbox:processTradeMessage] ⚠️ Storage returned HTTP ${storageRes.status}`);
+        console.warn(`[outbox:deliverTradePhoto] ⚠️ Storage returned HTTP ${storageRes.status}`);
       }
     } catch (bytesErr: any) {
-      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 2 failed: ${bytesErr.message}`);
+      console.warn(`[outbox:deliverTradePhoto] ⚠️ Strategy 2 failed: ${bytesErr.message}`);
     }
   }
 
   // ── Strategy 3: Generate fresh image via Next.js API ────────────────────────
   if (trade?.id) {
-    console.log(`[outbox:processTradeMessage] 🖼  Strategy 3: generate-image API for trade ${trade.id}...`);
+    console.log(`[outbox:deliverTradePhoto] 🖼  Strategy 3: generate-image API for trade ${trade.id}...`);
     const imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
     if (imgBytes && imgBytes.byteLength > 1024) {
-      console.log(`[outbox:processTradeMessage] ✅ Generated ${imgBytes.byteLength} bytes — calling Telegram sendPhoto`);
+      console.log(`[outbox:deliverTradePhoto] ✅ Generated ${imgBytes.byteLength} bytes — calling Telegram sendPhoto`);
       try {
         const result = await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
-        console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image generated fresh) — message_id: ${result?.result?.message_id}`);
+        console.log(`[outbox:deliverTradePhoto] ✅ TELEGRAM SENDING COMPLETED (image generated fresh) — message_id: ${result?.result?.message_id}`);
         return result;
       } catch (photoErr: any) {
-        console.error(`[outbox:processTradeMessage] ❌ Strategy 3 sendPhoto failed: ${photoErr.message}`);
+        console.error(`[outbox:deliverTradePhoto] ❌ Strategy 3 sendPhoto failed: ${photoErr.message}`);
       }
     } else {
-      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 3: image not available or too small`);
+      console.warn(`[outbox:deliverTradePhoto] ⚠️ Strategy 3: image not available or too small`);
     }
   }
 
   // ── Text-only fallback ───────────────────────────────────────────────────────
-  console.warn(`[outbox:processTradeMessage] ⚠️ All image strategies failed — sending text-only`);
+  console.warn(`[outbox:deliverTradePhoto] ⚠️ All image strategies failed — sending text-only`);
   const result = await sendTelegramMessage(botToken, chatId, caption, true);
-  console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (text-only) — message_id: ${result?.result?.message_id}`);
+  console.log(`[outbox:deliverTradePhoto] ✅ TELEGRAM SENDING COMPLETED (text-only) — message_id: ${result?.result?.message_id}`);
   return result;
+}
+
+// ─── Edit an existing trade card in place (live new-high update) ──────────────
+// Re-renders the card natively and replaces the photo + caption via
+// editMessageMedia. Falls back to editMessageCaption (numbers-only refresh) if
+// the image can't be regenerated. Returns null on any failure so the caller can
+// post a fresh message instead.
+async function editTradeMessage(
+  botToken: string,
+  chatId: string,
+  messageId: string,
+  trade: any,
+  opts: { isNewHigh: boolean; isWinning: boolean; isTesting: boolean; highPrice?: number },
+  caption: string,
+): Promise<any | null> {
+  // Preferred: replace the image so the big "$X.XX" peak on the card updates too.
+  try {
+    const nativeBytes = await generateTradeImage(trade, opts);
+    if (nativeBytes && nativeBytes.byteLength > 1024) {
+      const ab = nativeBytes.buffer.slice(
+        nativeBytes.byteOffset,
+        nativeBytes.byteOffset + nativeBytes.byteLength,
+      ) as ArrayBuffer;
+      try {
+        return await editTelegramPhotoBytes(botToken, chatId, messageId, ab, caption);
+      } catch (mediaErr: any) {
+        console.warn(`[outbox:editTradeMessage] ⚠️ editMessageMedia failed: ${mediaErr.message}`);
+      }
+    }
+  } catch (nativeErr: any) {
+    console.warn(`[outbox:editTradeMessage] ⚠️ Native render for edit threw: ${nativeErr.message}`);
+  }
+
+  // Fallback: at least refresh the caption numbers on the existing image.
+  try {
+    return await editTelegramCaption(botToken, chatId, messageId, caption);
+  } catch (capErr: any) {
+    console.warn(`[outbox:editTradeMessage] ⚠️ editMessageCaption failed: ${capErr.message}`);
+    return null;
+  }
 }
 
 // ─── Image byte generation ───────────────────────────────────────────────────
@@ -665,6 +758,62 @@ async function sendTelegramPhotoBytes(
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Telegram sendPhoto (bytes) error: ${err}`);
+  }
+  return res.json();
+}
+
+// Replace an existing message's photo + caption in one call (multipart upload).
+async function editTelegramPhotoBytes(
+  botToken: string,
+  chatId: string,
+  messageId: string,
+  pngBytes: ArrayBuffer,
+  caption: string
+) {
+  const form = new FormData();
+  form.append('chat_id', String(chatId));
+  form.append('message_id', String(messageId));
+  form.append('media', JSON.stringify({
+    type: 'photo',
+    media: 'attach://photo',
+    caption: caption.substring(0, 1024),
+    parse_mode: 'HTML',
+  }));
+  form.append('photo', new Blob([pngBytes], { type: 'image/png' }), 'trade.png');
+
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/editMessageMedia`, {
+    method: 'POST',
+    body: form,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram editMessageMedia error: ${err}`);
+  }
+  return res.json();
+}
+
+// Refresh only the caption of an existing message (image left unchanged).
+async function editTelegramCaption(
+  botToken: string,
+  chatId: string,
+  messageId: string,
+  caption: string
+) {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/editMessageCaption`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      caption: caption.substring(0, 1024),
+      parse_mode: 'HTML',
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Telegram editMessageCaption error: ${err}`);
   }
   return res.json();
 }
