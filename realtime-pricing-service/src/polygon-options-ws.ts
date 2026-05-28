@@ -73,6 +73,31 @@ const MAX_RECONNECT_MS      = 60_000;
 const MAX_RECONNECT_ATTEMPTS = 15;
 const FLUSH_INTERVAL_MS     = 250; // Batch events → flush to Supabase every 250 ms
 
+/**
+ * Normalise a Polygon event timestamp to epoch-milliseconds.
+ *
+ * Polygon's `t` field arrives in different units across feeds (s / ms / µs / ns).
+ * The options quote/trade feed sends Unix milliseconds, but the old code divided
+ * by 1e6 (assuming nanoseconds), corrupting every timestamp to ~1970. That made
+ * last_stream_event_at look ancient, so the freshness logic flagged live trades
+ * as "stale" and the edge tracker fell back to once-a-minute REST polling even
+ * though the WebSocket stream was healthy. Detect the unit by magnitude and fall
+ * back to the receive time when the value is missing or implausible.
+ */
+function normalizeEventMs(ts: number): number {
+  const now = Date.now();
+  if (!ts || ts <= 0) return now;
+  let ms: number;
+  if (ts >= 1e18)      ms = Math.floor(ts / 1e6); // nanoseconds
+  else if (ts >= 1e15) ms = Math.floor(ts / 1e3); // microseconds
+  else if (ts >= 1e12) ms = ts;                   // milliseconds
+  else if (ts >= 1e9)  ms = ts * 1e3;             // seconds
+  else                 return now;                // implausible → use receive time
+  // Reject values that are wildly off (clock skew / bad unit) to protect freshness.
+  if (ms < now - 86_400_000 || ms > now + 3_600_000) return now;
+  return ms;
+}
+
 // ── CLASS ─────────────────────────────────────────────────────────────────────
 
 /** Buy-range metadata stored per trade, populated from syncActiveTrades */
@@ -452,9 +477,7 @@ export class PolygonOptionsWebSocket {
 
       this.rpcCallsThisSecond++;
 
-      const eventTs = pending.latestTimestampNs > 0
-        ? new Date(Math.floor(pending.latestTimestampNs / 1_000_000)).toISOString()
-        : new Date().toISOString();
+      const eventTs = new Date(normalizeEventMs(pending.latestTimestampNs)).toISOString();
 
       promises.push(this.callPriceRpc(tradeId, ticker, priceResult, pending, eventTs));
     }
