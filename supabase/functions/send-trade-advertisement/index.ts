@@ -46,23 +46,13 @@ Deno.serve(async (req: Request) => {
       throw new Error('User ID is required');
     }
 
-    // Fetch trade details with related data. author + analysis are needed so the
-    // generated image card can show the analyst name and the index symbol.
-    // NOTE: ownership lives on author_id (both index_trades and index_analyses).
-    // Many trades are manual and have no linked analysis (analysis_id IS NULL),
-    // so ownership is verified against index_trades.author_id.
+    // Fetch the trade with only the author embed (proven to work in the
+    // generate-image route). We deliberately do NOT embed index_analyses: most
+    // trades are manual (analysis_id IS NULL), and that table lacks the columns
+    // an embed was selecting — the bad embed was what made every send 500.
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
-      .select(`
-        *,
-        author:profiles!author_id(id, full_name),
-        analysis:index_analyses(
-          id,
-          index_symbol,
-          direction,
-          author_id
-        )
-      `)
+      .select('*, author:profiles!author_id(id, full_name)')
       .eq('id', tradeId)
       .single();
 
@@ -71,9 +61,8 @@ Deno.serve(async (req: Request) => {
       throw new Error('Trade not found');
     }
 
-    // Verify the user owns this trade (trade author, or the linked analysis author)
-    const ownerId = trade.author_id ?? trade.analysis?.author_id;
-    if (ownerId !== userId) {
+    // Ownership lives on index_trades.author_id.
+    if (trade.author_id !== userId) {
       throw new Error('Unauthorized: You can only advertise your own trades');
     }
 
@@ -109,7 +98,7 @@ Deno.serve(async (req: Request) => {
       : '';
 
     const optionType = trade.option_type?.toUpperCase() || trade.direction?.toUpperCase() || '';
-    const indexSymbol = trade.analysis?.index_symbol || trade.underlying_index_symbol || '';
+    const indexSymbol = trade.underlying_index_symbol || '';
 
     // Build Arabic caption — headed "من صفقاتنا الخاصة" with entry + high highlighted.
     const caption = `
