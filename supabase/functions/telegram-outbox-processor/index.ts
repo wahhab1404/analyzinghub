@@ -217,89 +217,91 @@ async function processTradeMessage(
   const caption = buildTradeCaption(trade, isNewHigh, isWinning, isTesting, highPrice);
   console.log(`[outbox:processTradeMessage] Caption built (${caption.length} chars)`);
 
-  // Resolve image bytes. Order is reliability-first:
-  //   1. Native in-edge generation (@vercel/og) — no external dependency, so it
-  //      works even when the Next.js app / APP_BASE_URL is unreachable. This is
-  //      the durable fix for "alerts arrive without an image".
-  //   2. Supabase Storage URL (contract_url, if generate-trade-snapshot ran).
-  //   3. Next.js generate-image API (legacy HTTP path).
-  // Only if ALL of these fail do we send text-only.
-  if (trade?.id) {
-    let imgBytes: ArrayBuffer | null = null;
+  const hasStorageUrl = !!(trade?.contract_url && !trade.contract_url.includes('localhost'));
 
-    // 1. Native generation — self-contained, fastest, no network dependency.
+  // ── Strategy 0: Native in-edge image generation (PRIMARY) ───────────────────
+  // Renders the card in-process with @vercel/og — no dependency on the Next.js
+  // app / APP_BASE_URL being reachable, which is the durable fix for "alerts
+  // arrive without an image". Falls through to the URL/HTTP strategies on any
+  // failure so behaviour is never worse than before.
+  if (trade?.id) {
     try {
-      const nativeBytes = await generateTradeImage(trade, {
-        isNewHigh,
-        isWinning,
-        isTesting,
-        highPrice,
-      });
+      const nativeBytes = await generateTradeImage(trade, { isNewHigh, isWinning, isTesting, highPrice });
       if (nativeBytes && nativeBytes.byteLength > 1024) {
-        imgBytes = nativeBytes.buffer.slice(
+        const ab = nativeBytes.buffer.slice(
           nativeBytes.byteOffset,
           nativeBytes.byteOffset + nativeBytes.byteLength,
         ) as ArrayBuffer;
-        console.log(`[outbox:processTradeMessage] ✅ Native image: ${nativeBytes.byteLength} bytes`);
+        try {
+          const result = await sendTelegramPhotoBytes(botToken, chatId, ab, caption);
+          console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (native image) — message_id: ${result?.result?.message_id}`);
+          return result;
+        } catch (photoErr: any) {
+          console.error(`[outbox:processTradeMessage] ❌ Strategy 0 sendPhoto failed: ${photoErr.message}`);
+        }
       }
     } catch (nativeErr: any) {
-      console.warn(`[outbox:processTradeMessage] ⚠️ Native image generation threw: ${nativeErr.message}`);
+      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 0 (native) threw: ${nativeErr.message}`);
     }
-
-    // 2. Try Supabase Storage URL (contract_url set by generate-trade-snapshot)
-    if (!imgBytes && trade?.contract_url && !trade.contract_url.includes('localhost')) {
-      console.log(`[outbox:processTradeMessage] 📦 Trying Storage URL: ${trade.contract_url}`);
-      try {
-        const storageRes = await fetch(trade.contract_url, {
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (storageRes.ok) {
-          const ct = storageRes.headers.get('content-type') ?? '';
-          if (ct.startsWith('image/')) {
-            const buf = await storageRes.arrayBuffer();
-            if (buf.byteLength > 1024) {
-              imgBytes = buf;
-              console.log(`[outbox:processTradeMessage] ✅ Storage image: ${buf.byteLength} bytes`);
-            } else {
-              console.warn(`[outbox:processTradeMessage] ⚠️ Storage image too small (${buf.byteLength} bytes), skipping`);
-            }
-          } else {
-            console.warn(`[outbox:processTradeMessage] ⚠️ Storage URL returned non-image content-type: ${ct}`);
-          }
-        } else {
-          console.warn(`[outbox:processTradeMessage] ⚠️ Storage URL responded HTTP ${storageRes.status}, skipping`);
-        }
-      } catch (storageErr: any) {
-        console.warn(`[outbox:processTradeMessage] ⚠️ Storage URL fetch failed: ${storageErr.message}`);
-      }
-    }
-
-    // 3. Fall back to generating fresh from Next.js generate-image API
-    if (!imgBytes) {
-      console.log(`[outbox:processTradeMessage] 🖼  Falling back to generate-image API for trade ${trade.id}...`);
-      imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
-    }
-
-    if (imgBytes && imgBytes.byteLength > 1024) {
-      console.log(`[outbox:processTradeMessage] ✅ Image ready (${imgBytes.byteLength} bytes) — calling Telegram sendPhoto`);
-      try {
-        const photoResult = await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
-        console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (with image) — message_id: ${photoResult?.result?.message_id}`);
-        return photoResult;
-      } catch (photoErr: any) {
-        console.error(`[outbox:processTradeMessage] ❌ sendPhoto failed: ${photoErr.message}`);
-        console.error(`[outbox:processTradeMessage]    Falling back to text-only message.`);
-      }
-    } else {
-      console.warn(`[outbox:processTradeMessage] ⚠️  Image not available — falling back to text-only message`);
-      console.warn(`[outbox:processTradeMessage]    To fix: set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.`);
-    }
-  } else {
-    console.warn(`[outbox:processTradeMessage] ⚠️  No trade.id in payload — sending text-only fallback`);
   }
 
-  // Text fallback
-  console.log(`[outbox:processTradeMessage] 📝 Sending text-only Telegram message to ${chatId}`);
+  // ── Strategy 1: Pass Storage URL directly to Telegram (no bytes download) ──
+  // Telegram's servers download the image from the public chart-images bucket.
+  if (hasStorageUrl) {
+    console.log(`[outbox:processTradeMessage] 🔗 Strategy 1: URL-based sendPhoto → ${trade.contract_url}`);
+    try {
+      const result = await sendTelegramPhotoUrl(botToken, chatId, trade.contract_url, caption);
+      console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image via URL) — message_id: ${result?.result?.message_id}`);
+      return result;
+    } catch (urlErr: any) {
+      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 1 failed: ${urlErr.message}`);
+    }
+  }
+
+  // ── Strategy 2: Download bytes from Storage, upload via multipart ───────────
+  if (hasStorageUrl) {
+    console.log(`[outbox:processTradeMessage] 📦 Strategy 2: download bytes from Storage...`);
+    try {
+      const storageRes = await fetch(trade.contract_url, { signal: AbortSignal.timeout(10_000) });
+      console.log(`[outbox:processTradeMessage]    Storage HTTP ${storageRes.status}, ct: ${storageRes.headers.get('content-type')}`);
+      if (storageRes.ok) {
+        const buf = await storageRes.arrayBuffer();
+        console.log(`[outbox:processTradeMessage]    Downloaded ${buf.byteLength} bytes`);
+        if (buf.byteLength > 1024) {
+          const result = await sendTelegramPhotoBytes(botToken, chatId, buf, caption);
+          console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image via bytes) — message_id: ${result?.result?.message_id}`);
+          return result;
+        } else {
+          console.warn(`[outbox:processTradeMessage] ⚠️ Storage image too small (${buf.byteLength} bytes)`);
+        }
+      } else {
+        console.warn(`[outbox:processTradeMessage] ⚠️ Storage returned HTTP ${storageRes.status}`);
+      }
+    } catch (bytesErr: any) {
+      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 2 failed: ${bytesErr.message}`);
+    }
+  }
+
+  // ── Strategy 3: Generate fresh image via Next.js API ────────────────────────
+  if (trade?.id) {
+    console.log(`[outbox:processTradeMessage] 🖼  Strategy 3: generate-image API for trade ${trade.id}...`);
+    const imgBytes = await fetchImageBytes(trade.id, isNewHigh, highPrice);
+    if (imgBytes && imgBytes.byteLength > 1024) {
+      console.log(`[outbox:processTradeMessage] ✅ Generated ${imgBytes.byteLength} bytes — calling Telegram sendPhoto`);
+      try {
+        const result = await sendTelegramPhotoBytes(botToken, chatId, imgBytes, caption);
+        console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (image generated fresh) — message_id: ${result?.result?.message_id}`);
+        return result;
+      } catch (photoErr: any) {
+        console.error(`[outbox:processTradeMessage] ❌ Strategy 3 sendPhoto failed: ${photoErr.message}`);
+      }
+    } else {
+      console.warn(`[outbox:processTradeMessage] ⚠️ Strategy 3: image not available or too small`);
+    }
+  }
+
+  // ── Text-only fallback ───────────────────────────────────────────────────────
+  console.warn(`[outbox:processTradeMessage] ⚠️ All image strategies failed — sending text-only`);
   const result = await sendTelegramMessage(botToken, chatId, caption, true);
   console.log(`[outbox:processTradeMessage] ✅ TELEGRAM SENDING COMPLETED (text-only) — message_id: ${result?.result?.message_id}`);
   return result;
