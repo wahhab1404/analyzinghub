@@ -110,6 +110,9 @@ export async function generateTradeImage(
     const optionType = (trade?.option_type ?? trade?.direction ?? "call").toLowerCase();
     const isCall = optionType === "call";
     const accent = isNewHigh ? C.gold : isWinning ? C.call : isCall ? C.call : C.put;
+    const dirAccent = isCall ? C.call : C.put;
+    const dirAccentBg = isCall ? C.callBg : C.putBg;
+    const dirAccentBd = isCall ? C.callBd : C.putBd;
 
     let sym: string = trade?.analysis?.index_symbol ?? trade?.underlying_index_symbol ?? "SPX";
     if (trade?.polygon_option_ticker) {
@@ -198,7 +201,9 @@ export async function generateTradeImage(
     }
 
     // ── Header chips ────────────────────────────────────────────────────────────
-    const contractChip = `${sym}${strike > 0 ? ` $${strike.toLocaleString()}` : ""} ${isCall ? "C" : "P"}${expiry ? ` ${expiry}` : ""}`;
+    // Strike gets its own prominent, colour-coded pill so it reads clearly.
+    const symExpiry = `${sym}${expiry ? ` · ${expiry}` : ""}`;
+    const strikePill = `$${strike.toLocaleString()} ${isCall ? "CALL" : "PUT"}`;
 
     const vdom = el(
       "div",
@@ -234,8 +239,18 @@ export async function generateTradeImage(
                       background: C.card, border: `1px solid ${C.border}`, borderRadius: 6,
                       padding: "5px 14px", color: C.textSub, fontSize: 14, fontWeight: 600,
                     },
-                    contractChip,
+                    symExpiry,
                   ),
+                  ...(strike > 0
+                    ? [el(
+                        "div",
+                        {
+                          background: dirAccentBg, border: `1px solid ${dirAccentBd}`, borderRadius: 6,
+                          padding: "5px 14px", color: dirAccent, fontSize: 17, fontWeight: 800, letterSpacing: "0.02em",
+                        },
+                        strikePill,
+                      )]
+                    : []),
                 ]),
                 el(
                   "div",

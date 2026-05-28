@@ -386,8 +386,13 @@ function buildTradeCaption(
     ?? 0;
   const currentPrice = trade?.current_contract ?? entryPrice;
 
-  const analysisId = trade?.analysis?.id ?? trade?.analysis_id;
-  const analysisUrl = analysisId ? `${BASE_URL}/dashboard/analysis/${analysisId}` : BASE_URL;
+  // A trade is only "linked to an analysis" when it has a real analysis id that
+  // differs from its own id. Standalone trades synthesize analysis.id = trade.id.
+  const realAnalysisId =
+    trade?.analysis_id && trade.analysis_id !== trade?.id
+      ? trade.analysis_id
+      : (trade?.analysis?.id && trade.analysis.id !== trade?.id ? trade.analysis.id : null);
+  const analysisUrl = realAnalysisId ? `${BASE_URL}/dashboard/analysis/${realAnalysisId}` : BASE_URL;
 
   // ── New High ──
   if (isNewHigh) {
@@ -423,18 +428,11 @@ function buildTradeCaption(
   caption += `<b>Direction | الاتجاه:</b> ${(trade?.direction ?? '').toUpperCase()} | ${trade?.direction === 'call' ? 'شراء' : 'بيع'}\n`;
 
   if (trade?.strike) {
-    caption += `<b>Strike | السعر:</b> $${Number(trade.strike).toFixed(0)}\n`;
+    caption += `<b>Strike | سترايك:</b> $${Number(trade.strike).toFixed(0)}\n`;
   }
 
   caption += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
   caption += `<b>Current | الحالي:</b> $${currentPrice.toFixed(2)}\n`;
-
-  const snap = trade?.current_contract_snapshot ?? trade?.entry_contract_snapshot;
-  const bid  = snap?.bid ?? 0;
-  const ask  = snap?.ask ?? 0;
-  if (bid > 0 && ask > 0) {
-    caption += `<b>Bid/Ask | عرض/طلب:</b> $${bid.toFixed(2)} / $${ask.toFixed(2)}\n`;
-  }
 
   if (isWinning) {
     const pnl       = (currentPrice - entryPrice) * (trade?.qty ?? 1) * 100;
@@ -451,7 +449,10 @@ function buildTradeCaption(
     caption += `<b>Analyst | المحلل:</b> ${trade.author.full_name}\n`;
   }
 
-  caption += `\n<a href="${analysisUrl}">📊 View Analysis | عرض التحليل</a>`;
+  // Only link an analysis when the trade is actually attached to one.
+  if (realAnalysisId) {
+    caption += `\n<a href="${analysisUrl}">📊 View Analysis | عرض التحليل</a>`;
+  }
 
   // Telegram photo caption limit is 1024 chars
   return caption.length > 1020 ? caption.substring(0, 1020) + '…' : caption;
