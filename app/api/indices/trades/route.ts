@@ -133,6 +133,84 @@ export async function POST(request: NextRequest) {
 
     const polygonIndexTicker = indexRef.polygon_index_ticker;
 
+    // Generate idempotency key (used for both re-entry detection preview and
+    // the final insert / re-entry RPC calls).
+    const idempotencyKey = body.idempotency_key ||
+      `${user.id}_${body.polygon_option_ticker || `${body.strike}_${body.expiry}`}_${Date.now()}`;
+
+    // ── Re-entry detection (runs BEFORE live pricing) ──────────────────────────
+    // This MUST happen before the Polygon snapshot fetch and the "no valid entry
+    // price" guard below. Otherwise, re-entering an *active* contract whose live
+    // price can't be resolved (expiring/illiquid contract, or a closed market
+    // without a manual price) fails with "No valid entry price" / a Polygon error
+    // and the analyst never sees the re-entry decision dialog. The precise entry
+    // price for the new leg is resolved later, when the decision is confirmed.
+    if (body.instrument_type === 'options' && !body.reentry_decision) {
+      const { data: activeTradeCheck, error: checkError } = await supabase.rpc(
+        'check_active_trade_for_contract',
+        {
+          p_author_id: user.id,
+          p_polygon_option_ticker: body.polygon_option_ticker || null,
+          p_strike: body.strike || null,
+          p_expiry: body.expiry || null,
+          p_option_type: body.option_type || null,
+          p_underlying_symbol: body.underlying_index_symbol,
+        }
+      );
+
+      if (checkError) {
+        console.error('[trade-create] check_active_trade_for_contract failed:', checkError.message);
+      } else if (activeTradeCheck && activeTradeCheck.length > 0) {
+        const existingTrade = activeTradeCheck[0];
+
+        // Best-effort preview price for the new leg — never fatal. Prefer an
+        // analyst-supplied value (override / manual price), then a quick live
+        // quote, then fall back to the existing trade's last known price so the
+        // dialog always shows something sensible.
+        const manualBody = body as CreateTradeRequest & { current_price?: number; entry_price?: number };
+        let previewEntry = Number(
+          body.entry_override ?? manualBody.entry_price ?? manualBody.current_price ?? 0
+        );
+        if (!(previewEntry > 0) && body.polygon_option_ticker) {
+          try {
+            const snap = await polygonService.getOptionSnapshot(
+              body.underlying_index_symbol,
+              body.polygon_option_ticker
+            );
+            previewEntry = Number(snap.quote?.mid ?? 0);
+          } catch (e: any) {
+            console.warn('[trade-create] preview price fetch failed (non-fatal):', e?.message);
+          }
+        }
+        if (!(previewEntry > 0)) {
+          previewEntry = Number(existingTrade.max_contract_price) || Number(existingTrade.entry_price) || 0;
+        }
+
+        const previewQty = body.qty || 1;
+        return NextResponse.json(
+          {
+            action_required: 'REENTRY_DECISION',
+            message: 'An active trade already exists for this exact contract',
+            existing_trade: {
+              trade_id: existingTrade.trade_id,
+              entry_price: existingTrade.entry_price,
+              qty: existingTrade.qty,
+              entry_cost_usd: existingTrade.entry_cost_usd,
+              max_profit: existingTrade.max_profit,
+              max_contract_price: existingTrade.max_contract_price,
+            },
+            new_trade: {
+              entry_price: previewEntry,
+              qty: previewQty,
+              entry_cost_usd: previewEntry * previewQty * 100,
+            },
+            idempotency_key: idempotencyKey,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     let underlyingSnapshot;
     let contractSnapshot;
     let isManualPriceEntry = false;
@@ -251,51 +329,6 @@ export async function POST(request: NextRequest) {
 
     const initialHigh = Math.max(entryContract, currentContractPrice);
     const initialLow = Math.min(entryContract, currentContractPrice);
-
-    // Generate idempotency key
-    const idempotencyKey = body.idempotency_key ||
-      `${user.id}_${body.polygon_option_ticker || `${body.strike}_${body.expiry}`}_${Date.now()}`;
-
-    // Check for exact same contract re-entry
-    if (body.instrument_type === 'options' && !body.reentry_decision) {
-      const { data: activeTradeCheck, error: checkError } = await supabase.rpc(
-        'check_active_trade_for_contract',
-        {
-          p_author_id: user.id,
-          p_polygon_option_ticker: body.polygon_option_ticker || null,
-          p_strike: body.strike || null,
-          p_expiry: body.expiry || null,
-          p_option_type: body.option_type || null,
-          p_underlying_symbol: body.underlying_index_symbol
-        }
-      );
-
-      if (!checkError && activeTradeCheck && activeTradeCheck.length > 0) {
-        const existingTrade = activeTradeCheck[0];
-
-        return NextResponse.json(
-          {
-            action_required: 'REENTRY_DECISION',
-            message: 'An active trade already exists for this exact contract',
-            existing_trade: {
-              trade_id: existingTrade.trade_id,
-              entry_price: existingTrade.entry_price,
-              qty: existingTrade.qty,
-              entry_cost_usd: existingTrade.entry_cost_usd,
-              max_profit: existingTrade.max_profit,
-              max_contract_price: existingTrade.max_contract_price,
-            },
-            new_trade: {
-              entry_price: entryContract,
-              qty: body.qty || 1,
-              entry_cost_usd: entryContract * (body.qty || 1) * 100,
-            },
-            idempotency_key: idempotencyKey,
-          },
-          { status: 409 }
-        );
-      }
-    }
 
     // Handle re-entry decision
     if (body.reentry_decision) {
