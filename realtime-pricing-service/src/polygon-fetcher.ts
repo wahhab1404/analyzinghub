@@ -30,6 +30,10 @@ const INDICES_AUTH_TIMEOUT_MS = 15_000;
 
 const ACTIVE_TRADE_SYNC_INTERVAL_MS = 30_000; // Re-sync active trades every 30 s
 
+const UNDERLYING_DB_FLUSH_MS   = 1_000; // Persist current_underlying to DB at most 1×/s per index
+const UNDERLYING_REST_POLL_MS  = 3_000; // REST safety poll for the underlying index value
+const UNDERLYING_WS_STALE_MS   = 8_000; // If no V tick within this window, REST takes over
+
 // ── MAIN CLASS ────────────────────────────────────────────────────────────────
 
 export class PolygonQuoteFetcher {
@@ -48,6 +52,15 @@ export class PolygonQuoteFetcher {
 
   // Periodic job to re-sync active trades with the options WS
   private tradeSyncTimer: NodeJS.Timeout | null = null;
+
+  // Underlying index streaming, driven by active trades (not by SSE viewers) so
+  // current_underlying stays live in the DB even when no dashboard is open.
+  private activeUnderlyings = new Map<string, Set<string>>(); // I:SPX -> {tradeId,...}
+  private indicesSubscribed = new Set<string>();              // V.<ticker> currently subscribed
+  private lastUnderlyingWsMs = new Map<string, number>();     // I:SPX -> last V event (ms)
+  private underlyingFlush = new Map<string, number>();        // I:SPX -> latest price pending DB write
+  private underlyingDbTimer: NodeJS.Timeout | null = null;
+  private underlyingRestTimer: NodeJS.Timeout | null = null;
 
   constructor(
     redis: Redis,
@@ -81,12 +94,17 @@ export class PolygonQuoteFetcher {
     this.connectIndicesWebSocket();
     this.optionsWs.connect();
     this.startTradeSyncLoop();
+    this.startUnderlyingDbFlush();
+    this.startUnderlyingRestLoop();
   }
 
   stop(): void {
     streamHealth.stop();
     this.stopTradeSyncLoop();
     this.optionsWs.destroy();
+
+    if (this.underlyingDbTimer)   clearInterval(this.underlyingDbTimer);
+    if (this.underlyingRestTimer) clearInterval(this.underlyingRestTimer);
 
     if (this.indicesWs) {
       this.indicesWs.close();
@@ -169,16 +187,10 @@ export class PolygonQuoteFetcher {
         this.indicesWsConnected = true;
         streamHealth.setAuthenticated('indices', true);
 
-        // Subscribe to active index symbols
-        const activeSymbols = this.subscriptionManager.getActiveSymbols();
-        const indexSymbols = activeSymbols.filter((s: string) => s.startsWith('I:'));
-
-        if (indexSymbols.length > 0) {
-          const params = indexSymbols.join(',');
-          this.indicesWs!.send(JSON.stringify({ action: 'subscribe', params }));
-          console.log(`[IndicesWS] Subscribed to ${indexSymbols.length} index symbol(s):`, indexSymbols);
-          streamHealth.setSubscribedCount('indices', indexSymbols.length);
-        }
+        // Subscribe to the underlying index of every active trade (independent of
+        // whether a dashboard viewer is connected). reconcile handles the diff.
+        this.indicesSubscribed.clear();
+        this.reconcileIndicesSubscriptions();
       }
       return;
     }
@@ -192,6 +204,13 @@ export class PolygonQuoteFetcher {
         price:     msg.val as number,
         timestamp: new Date(msg.t as number).toISOString(),
       };
+
+      // Queue a debounced DB write so current_underlying stays live for the
+      // active trades on this index, regardless of SSE viewers.
+      if (quote.price > 0) {
+        this.lastUnderlyingWsMs.set(quote.symbol, Date.now());
+        this.underlyingFlush.set(quote.symbol, quote.price);
+      }
 
       // Store in Redis for SSE broadcasts
       await this.redis.setex(
@@ -335,5 +354,112 @@ export class PolygonQuoteFetcher {
     const withBuyRange = activeTrades.filter(t => t.buyRange !== null).length;
     console.log(`[FetcherSync] Synced ${activeTrades.length} active trade(s) — ${withBuyRange} with pending buy-range alerts`);
     this.optionsWs.setActiveTrades(activeTrades);
+
+    // Build the underlying-index → tradeIds map and (re)subscribe the indices WS.
+    const nextUnderlyings = new Map<string, Set<string>>();
+    for (const t of trades ?? []) {
+      let ticker = (t as any).polygon_underlying_index_ticker as string | null;
+      if (!ticker) {
+        const sym = ((t as any).underlying_index_symbol ?? (t.analysis as any)?.index_symbol) as string | undefined;
+        ticker = sym ? `I:${sym}` : null;
+      }
+      if (!ticker) continue;
+      if (!ticker.startsWith('I:')) ticker = `I:${ticker}`;
+      if (!nextUnderlyings.has(ticker)) nextUnderlyings.set(ticker, new Set());
+      nextUnderlyings.get(ticker)!.add(t.id as string);
+    }
+    this.activeUnderlyings = nextUnderlyings;
+    this.reconcileIndicesSubscriptions();
+  }
+
+  // ── UNDERLYING INDEX STREAMING (DB-backed, viewer-independent) ───────────────
+
+  /** Diff the desired underlying subscriptions against the live ones. */
+  private reconcileIndicesSubscriptions(): void {
+    if (!this.indicesWs || !this.indicesWsConnected) return;
+
+    const desired = new Set(this.activeUnderlyings.keys());
+    const toAdd    = [...desired].filter(s => !this.indicesSubscribed.has(s));
+    const toRemove = [...this.indicesSubscribed].filter(s => !desired.has(s));
+
+    if (toAdd.length > 0) {
+      this.indicesWs.send(JSON.stringify({ action: 'subscribe', params: toAdd.map(s => `V.${s}`).join(',') }));
+      toAdd.forEach(s => this.indicesSubscribed.add(s));
+      console.log(`[IndicesWS] Subscribed to ${toAdd.length} index value channel(s):`, toAdd);
+    }
+    if (toRemove.length > 0) {
+      this.indicesWs.send(JSON.stringify({ action: 'unsubscribe', params: toRemove.map(s => `V.${s}`).join(',') }));
+      toRemove.forEach(s => this.indicesSubscribed.delete(s));
+    }
+    streamHealth.setSubscribedCount('indices', this.indicesSubscribed.size);
+  }
+
+  private startUnderlyingDbFlush(): void {
+    this.underlyingDbTimer = setInterval(() => {
+      this.flushUnderlyingToDb().catch(err =>
+        console.error('[IndicesWS] Underlying DB flush failed:', err.message)
+      );
+    }, UNDERLYING_DB_FLUSH_MS);
+  }
+
+  private async flushUnderlyingToDb(): Promise<void> {
+    if (this.underlyingFlush.size === 0) return;
+    const batch = this.underlyingFlush;
+    this.underlyingFlush = new Map();
+    for (const [symbol, price] of batch) {
+      const tradeIds = this.activeUnderlyings.get(symbol);
+      if (tradeIds && tradeIds.size > 0) {
+        await this.writeUnderlyingPrice([...tradeIds], price);
+      }
+    }
+  }
+
+  private async writeUnderlyingPrice(tradeIds: string[], price: number): Promise<void> {
+    if (!(price > 0) || tradeIds.length === 0) return;
+    const { error } = await this.supabase
+      .from('index_trades')
+      .update({ current_underlying: price })
+      .in('id', tradeIds)
+      .eq('status', 'active');
+    if (error) console.error('[IndicesWS] current_underlying update failed:', error.message);
+  }
+
+  /**
+   * REST safety poll: keeps current_underlying live even when the Polygon
+   * indices WebSocket delivers no events (e.g. the plan lacks the indices
+   * entitlement). Only polls indexes whose WS feed is stale.
+   */
+  private startUnderlyingRestLoop(): void {
+    this.underlyingRestTimer = setInterval(() => {
+      this.pollUnderlyingRest().catch(err =>
+        console.error('[IndicesWS] Underlying REST poll failed:', err.message)
+      );
+    }, UNDERLYING_REST_POLL_MS);
+  }
+
+  private async pollUnderlyingRest(): Promise<void> {
+    const now = Date.now();
+    const symbols = [...this.activeUnderlyings.keys()].filter(
+      s => now - (this.lastUnderlyingWsMs.get(s) ?? 0) > UNDERLYING_WS_STALE_MS
+    );
+    if (symbols.length === 0) return;
+
+    const url =
+      `https://api.polygon.io/v3/snapshot/indices` +
+      `?ticker.any_of=${encodeURIComponent(symbols.join(','))}&apiKey=${this.apiKey}`;
+
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data: any = await res.json();
+    if (data.status !== 'OK' || !Array.isArray(data.results)) return;
+
+    for (const r of data.results) {
+      const symbol = r.ticker as string;
+      const price  = Number(r.value ?? r.session?.close ?? 0);
+      const tradeIds = this.activeUnderlyings.get(symbol);
+      if (price > 0 && tradeIds && tradeIds.size > 0) {
+        await this.writeUnderlyingPrice([...tradeIds], price);
+      }
+    }
   }
 }
