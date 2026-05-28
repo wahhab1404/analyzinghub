@@ -6,6 +6,148 @@ import { CreateTradeRequest } from '@/services/indices/types';
 import { tradeOutcomeService } from '@/services/indices/trade-outcome.service';
 
 /**
+ * Queue a `new_trade` Telegram announcement for a freshly created trade and
+ * (best-effort) flush the outbox immediately. Used by both the normal
+ * standalone-create path and the NEW_ENTRY re-entry path so a re-entered
+ * trade is broadcast exactly like a brand-new one. No-op when
+ * auto_publish_telegram is false. Never throws.
+ */
+async function publishNewTradeToTelegram(
+  trade: any,
+  body: CreateTradeRequest,
+  snapshotUrl: string | null
+): Promise<void> {
+  if (!body.auto_publish_telegram) return;
+
+  const supabaseUrlEnv = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrlEnv || !serviceRoleKey) {
+    console.warn('[trade-publish] ⚠️  Supabase service credentials missing — cannot publish to Telegram');
+    return;
+  }
+
+  console.log(`[trade-publish] 📨 auto_publish_telegram=true — resolving channels for trade ${trade.id}...`);
+  try {
+    const channelsToPublish: string[] = [];
+
+    if (body.is_testing && body.testing_channel_ids && body.testing_channel_ids.length > 0) {
+      channelsToPublish.push(...body.testing_channel_ids);
+      console.log(`[trade-publish] [Testing] Will publish to ${body.testing_channel_ids.length} testing channel(s)`);
+    } else if (body.telegram_channel_id) {
+      channelsToPublish.push(body.telegram_channel_id);
+      console.log(`[trade-publish] [Production] Will publish to channel ${body.telegram_channel_id}`);
+    }
+
+    if (channelsToPublish.length === 0) {
+      console.warn('[trade-publish] ⚠️  auto_publish_telegram=true but no channels resolved — nothing to send');
+      return;
+    }
+
+    const adminClient = createClient(supabaseUrlEnv, serviceRoleKey);
+
+    const tradeWithSnapshot = {
+      ...trade,
+      contract_url: snapshotUrl ?? trade.contract_url ?? null,
+      analysis: {
+        id: trade.id,
+        title: 'Standalone Trade',
+        index_symbol: trade.underlying_index_symbol,
+      },
+    };
+
+    const outboxIds: string[] = [];
+
+    for (const channelId of channelsToPublish) {
+      let actualChannelId = channelId;
+
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
+        if (body.is_testing) {
+          const { data: testChannel } = await adminClient
+            .from("analyzer_testing_channels")
+            .select("telegram_channel_id")
+            .eq("id", channelId)
+            .eq("is_enabled", true)
+            .single();
+
+          if (testChannel?.telegram_channel_id) {
+            actualChannelId = testChannel.telegram_channel_id;
+            console.log(`[trade-publish] [Testing] Resolved UUID ${channelId} → Telegram ID ${actualChannelId}`);
+          } else {
+            console.warn(`[trade-publish] [Testing] Could not resolve testing channel UUID ${channelId} — skipping`);
+            continue;
+          }
+        } else {
+          const { data: channel } = await adminClient
+            .from("telegram_channels")
+            .select("channel_id")
+            .eq("id", channelId)
+            .single();
+
+          if (channel?.channel_id) {
+            actualChannelId = channel.channel_id;
+            console.log(`[trade-publish] [Production] Resolved UUID ${channelId} → Telegram ID ${actualChannelId}`);
+          } else {
+            console.warn(`[trade-publish] [Production] Could not resolve channel UUID ${channelId} — skipping`);
+            continue;
+          }
+        }
+      }
+
+      const { data: outboxRow, error: outboxErr } = await adminClient
+        .from("telegram_outbox")
+        .insert({
+          message_type: "new_trade",
+          payload: {
+            trade: tradeWithSnapshot,
+            isTestingMode: body.is_testing || false,
+          },
+          channel_id: actualChannelId,
+          status: "pending",
+          priority: 5,
+          next_retry_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (outboxErr) {
+        console.error(`[trade-publish] ❌ Failed to insert outbox message for channel ${actualChannelId}:`, outboxErr.message);
+      } else {
+        outboxIds.push(outboxRow?.id);
+        console.log(`[trade-publish] ✅ Queued outbox message ${outboxRow?.id} for channel ${actualChannelId} (isTestingMode=${body.is_testing || false})`);
+      }
+    }
+
+    // Immediately trigger the outbox processor (fire-and-forget) so the message
+    // is sent without waiting for a cron cycle.
+    if (outboxIds.length > 0) {
+      console.log(`[trade-publish] 🚀 Triggering telegram-outbox-processor to flush ${outboxIds.length} queued message(s)...`);
+      (async () => {
+        try {
+          const processorRes = await fetch(`${supabaseUrlEnv}/functions/v1/telegram-outbox-processor`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${serviceRoleKey}`,
+            },
+            body: JSON.stringify({ triggered_by: 'trade_create', trade_id: trade.id }),
+          });
+          const processorBody = await processorRes.json().catch(() => ({}));
+          if (processorRes.ok) {
+            console.log(`[trade-publish] ✅ Outbox processor completed:`, processorBody);
+          } else {
+            console.error(`[trade-publish] ❌ Outbox processor returned ${processorRes.status}:`, processorBody);
+          }
+        } catch (processorErr: any) {
+          console.error('[trade-publish] ❌ Outbox processor trigger failed:', processorErr?.message);
+        }
+      })();
+    }
+  } catch (telegramError: any) {
+    console.error('[trade-publish] ❌ Telegram publish error:', telegramError?.message);
+  }
+}
+
+/**
  * GET /api/indices/trades
  * Fetch all standalone trades (trades without analysis) or all trades for admin
  */
@@ -419,6 +561,12 @@ export async function POST(request: NextRequest) {
           .eq('id', result.new_trade_id)
           .single();
 
+        // Announce the re-entered trade on Telegram exactly like a fresh entry.
+        // The outbox processor generates the alert image at send time.
+        if (newTrade) {
+          await publishNewTradeToTelegram(newTrade, body, newTrade.contract_url ?? null);
+        }
+
         return NextResponse.json({
           trade: newTrade,
           reentry_result: result
@@ -614,128 +762,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ── Telegram publishing ────────────────────────────────────────────────────
-    if (body.auto_publish_telegram) {
-      console.log(`[trade-create] 📨 auto_publish_telegram=true — resolving channels for trade ${trade.id}...`);
-      try {
-        const channelsToPublish: string[] = [];
-
-        if (body.is_testing && body.testing_channel_ids && body.testing_channel_ids.length > 0) {
-          channelsToPublish.push(...body.testing_channel_ids);
-          console.log(`[trade-create] [Testing] Will publish to ${body.testing_channel_ids.length} testing channel(s)`);
-        } else if (body.telegram_channel_id) {
-          channelsToPublish.push(body.telegram_channel_id);
-          console.log(`[trade-create] [Production] Will publish to channel ${body.telegram_channel_id}`);
-        }
-
-        if (channelsToPublish.length === 0) {
-          console.warn('[trade-create] ⚠️  auto_publish_telegram=true but no channels resolved — nothing to send');
-        }
-
-        if (channelsToPublish.length > 0 && supabaseUrlEnv && serviceRoleKey) {
-          const adminClient = createClient(supabaseUrlEnv, serviceRoleKey);
-
-          const tradeWithSnapshot = {
-            ...trade,
-            contract_url: snapshotUrl,
-            analysis: {
-              id: trade.id,
-              title: 'Standalone Trade',
-              index_symbol: trade.underlying_index_symbol,
-            },
-          };
-
-          const outboxIds: string[] = [];
-
-          for (const channelId of channelsToPublish) {
-            let actualChannelId = channelId;
-
-            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(channelId)) {
-              if (body.is_testing) {
-                const { data: testChannel } = await adminClient
-                  .from("analyzer_testing_channels")
-                  .select("telegram_channel_id")
-                  .eq("id", channelId)
-                  .eq("is_enabled", true)
-                  .single();
-
-                if (testChannel?.telegram_channel_id) {
-                  actualChannelId = testChannel.telegram_channel_id;
-                  console.log(`[trade-create] [Testing] Resolved UUID ${channelId} → Telegram ID ${actualChannelId}`);
-                } else {
-                  console.warn(`[trade-create] [Testing] Could not resolve testing channel UUID ${channelId} — skipping`);
-                  continue;
-                }
-              } else {
-                const { data: channel } = await adminClient
-                  .from("telegram_channels")
-                  .select("channel_id")
-                  .eq("id", channelId)
-                  .single();
-
-                if (channel?.channel_id) {
-                  actualChannelId = channel.channel_id;
-                  console.log(`[trade-create] [Production] Resolved UUID ${channelId} → Telegram ID ${actualChannelId}`);
-                } else {
-                  console.warn(`[trade-create] [Production] Could not resolve channel UUID ${channelId} — skipping`);
-                  continue;
-                }
-              }
-            }
-
-            const { data: outboxRow, error: outboxErr } = await adminClient
-              .from("telegram_outbox")
-              .insert({
-                message_type: "new_trade",
-                payload: {
-                  trade: tradeWithSnapshot,
-                  isTestingMode: body.is_testing || false,
-                },
-                channel_id: actualChannelId,
-                status: "pending",
-                priority: 5,
-                next_retry_at: new Date().toISOString(),
-              })
-              .select('id')
-              .single();
-
-            if (outboxErr) {
-              console.error(`[trade-create] ❌ Failed to insert outbox message for channel ${actualChannelId}:`, outboxErr.message);
-            } else {
-              outboxIds.push(outboxRow?.id);
-              console.log(`[trade-create] ✅ Queued outbox message ${outboxRow?.id} for channel ${actualChannelId} (isTestingMode=${body.is_testing || false})`);
-            }
-          }
-
-          // ── Immediately trigger the outbox processor so the message is sent
-          // without waiting for a cron cycle. Fire-and-forget (non-blocking).
-          if (outboxIds.length > 0 && supabaseUrlEnv && serviceRoleKey) {
-            console.log(`[trade-create] 🚀 Triggering telegram-outbox-processor to flush ${outboxIds.length} queued message(s)...`);
-            (async () => {
-              try {
-                const processorRes = await fetch(`${supabaseUrlEnv}/functions/v1/telegram-outbox-processor`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${serviceRoleKey}`,
-                  },
-                  body: JSON.stringify({ triggered_by: 'trade_create', trade_id: trade.id }),
-                });
-                const processorBody = await processorRes.json().catch(() => ({}));
-                if (processorRes.ok) {
-                  console.log(`[trade-create] ✅ Outbox processor completed:`, processorBody);
-                } else {
-                  console.error(`[trade-create] ❌ Outbox processor returned ${processorRes.status}:`, processorBody);
-                }
-              } catch (processorErr: any) {
-                console.error('[trade-create] ❌ Outbox processor trigger failed:', processorErr?.message);
-              }
-            })();
-          }
-        }
-      } catch (telegramError: any) {
-        console.error('[trade-create] ❌ Telegram publish error:', telegramError?.message);
-      }
-    }
+    await publishNewTradeToTelegram(trade, body, snapshotUrl);
 
     return NextResponse.json({ trade }, { status: 201 });
   } catch (error: any) {
