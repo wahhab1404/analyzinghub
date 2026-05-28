@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
+import { generateTradeImage } from '../telegram-outbox-processor/trade-image.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -9,6 +10,11 @@ const corsHeaders = {
 interface TradeAdData {
   tradeId: string;
   channelIds?: string[];
+}
+
+function safeNum(v: any, fallback = 0): number {
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 Deno.serve(async (req: Request) => {
@@ -40,11 +46,13 @@ Deno.serve(async (req: Request) => {
       throw new Error('User ID is required');
     }
 
-    // Fetch trade details with related data
+    // Fetch trade details with related data. author + analysis are needed so the
+    // generated image card can show the analyst name and the index symbol.
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
       .select(`
         *,
+        author:profiles!author_id(id, full_name),
         analysis:index_analyses(
           id,
           index_symbol,
@@ -84,9 +92,11 @@ Deno.serve(async (req: Request) => {
       throw new Error('No active ad channels found');
     }
 
-    // Calculate profit
-    const entryPrice = trade.entry_contract_price || 0;
-    const highPrice = trade.contract_high_since || entryPrice;
+    // Calculate profit. Entry price comes from the entry snapshot (same source the
+    // image uses) and falls back to the legacy entry_contract_price column.
+    const snap = trade.entry_contract_snapshot ?? {};
+    const entryPrice = safeNum(snap.mid ?? snap.price ?? snap.last, safeNum(trade.entry_contract_price));
+    const highPrice = safeNum(trade.contract_high_since, entryPrice);
     const profitPoints = highPrice - entryPrice;
     const profitDollars = profitPoints * (trade.qty || 1) * 100;
     const profitPercent = entryPrice > 0 ? ((profitPoints / entryPrice) * 100).toFixed(1) : '0.0';
@@ -97,43 +107,53 @@ Deno.serve(async (req: Request) => {
       : '';
 
     const optionType = trade.option_type?.toUpperCase() || trade.direction?.toUpperCase() || '';
+    const indexSymbol = trade.analysis?.index_symbol || trade.underlying_index_symbol || '';
 
-    // Generate advertisement HTML
-    const html = generateAdHTML({
-      indexSymbol: trade.analysis?.index_symbol || trade.underlying_index_symbol || '',
-      strike: trade.strike || 0,
-      expiry: expiryDate,
-      optionType,
-      entryPrice,
-      highPrice,
-      profitDollars,
-      profitPercent,
-      contractUrl: trade.contract_url,
-    });
-
-    // Build caption in Arabic
+    // Build Arabic caption — headed "من صفقاتنا الخاصة" with entry + high highlighted.
     const caption = `
-🎯 <b>تحليل ناجح</b>
+🎯 <b>من صفقاتنا الخاصة</b>
 
-<b>المؤشر:</b> ${trade.analysis?.index_symbol || trade.underlying_index_symbol}
-<b>العقد:</b> ${trade.strike?.toFixed(0)} - ${expiryDate} - ${optionType}
+<b>المؤشر:</b> ${indexSymbol}
+<b>العقد:</b> ${trade.strike?.toFixed(0)} · ${expiryDate} · ${optionType}
 
-💰 <b>النتائج:</b>
-<b>سعر الدخول:</b> $${entryPrice.toFixed(2)}
-<b>أعلى سعر:</b> $${highPrice.toFixed(2)}
-<b>المكسب:</b> $${profitDollars.toFixed(2)} (+${profitPercent}%)
+📈 <b>سعر الدخول:</b> $${entryPrice.toFixed(2)}
+🚀 <b>أعلى سعر:</b> $${highPrice.toFixed(2)}
+💰 <b>المكسب:</b> +$${profitDollars.toFixed(2)} (+${profitPercent}%)
 
 ✅ <b>انضم لقناتنا للحصول على التحليلات الفائزة!</b>
     `.trim();
+
+    // Generate a fresh "winning trade" image card (shows Entry + High + P/L).
+    // The previous implementation built HTML that was never rendered, so the ad
+    // only ever carried an image when a stale contract_url happened to exist.
+    // Generating here guarantees an organized image every time.
+    let imageBytes: Uint8Array | null = null;
+    try {
+      imageBytes = await generateTradeImage(trade, { isAd: true, highPrice });
+    } catch (imgError) {
+      console.error('Trade ad image generation failed, will fall back:', imgError);
+    }
 
     // Send to each channel
     const results = [];
     for (const channel of channels) {
       try {
-        let response;
+        let response: Response;
 
-        if (trade.contract_url) {
-          // Send as photo with caption
+        if (imageBytes) {
+          // Preferred: upload the freshly generated PNG as a photo (multipart).
+          const form = new FormData();
+          form.append('chat_id', channel.channel_id);
+          form.append('photo', new Blob([imageBytes], { type: 'image/png' }), 'trade.png');
+          form.append('caption', caption.substring(0, 1024));
+          form.append('parse_mode', 'HTML');
+
+          response = await fetch(
+            `https://api.telegram.org/bot${botToken}/sendPhoto`,
+            { method: 'POST', body: form }
+          );
+        } else if (trade.contract_url) {
+          // Fallback: a previously stored snapshot image by URL.
           response = await fetch(
             `https://api.telegram.org/bot${botToken}/sendPhoto`,
             {
@@ -148,7 +168,7 @@ Deno.serve(async (req: Request) => {
             }
           );
         } else {
-          // Send as message
+          // Last resort: text-only message.
           response = await fetch(
             `https://api.telegram.org/bot${botToken}/sendMessage`,
             {
@@ -170,6 +190,7 @@ Deno.serve(async (req: Request) => {
           channelName: channel.channel_name,
           success: result.ok,
           messageId: result.result?.message_id,
+          error: result.ok ? undefined : result.description,
         });
       } catch (error) {
         results.push({
@@ -203,134 +224,3 @@ Deno.serve(async (req: Request) => {
     );
   }
 });
-
-function generateAdHTML(data: {
-  indexSymbol: string;
-  strike: number;
-  expiry: string;
-  optionType: string;
-  entryPrice: number;
-  highPrice: number;
-  profitDollars: number;
-  profitPercent: string;
-  contractUrl?: string;
-}): string {
-  return `
-<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-  <meta charset="UTF-8">
-  <style>
-    body {
-      font-family: 'Arial', sans-serif;
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      margin: 0;
-      padding: 20px;
-      direction: rtl;
-    }
-    .card {
-      background: white;
-      border-radius: 15px;
-      padding: 30px;
-      max-width: 500px;
-      margin: 0 auto;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 20px;
-    }
-    .header h1 {
-      color: #10b981;
-      margin: 0;
-      font-size: 28px;
-    }
-    .contract-info {
-      background: #f3f4f6;
-      padding: 15px;
-      border-radius: 10px;
-      margin-bottom: 20px;
-    }
-    .contract-info .label {
-      color: #6b7280;
-      font-size: 14px;
-    }
-    .contract-info .value {
-      color: #111827;
-      font-size: 18px;
-      font-weight: bold;
-      margin-top: 5px;
-    }
-    .results {
-      background: #ecfdf5;
-      padding: 20px;
-      border-radius: 10px;
-      margin-bottom: 20px;
-    }
-    .results .profit {
-      color: #10b981;
-      font-size: 32px;
-      font-weight: bold;
-      text-align: center;
-      margin-bottom: 15px;
-    }
-    .price-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 10px;
-    }
-    .price-row .label {
-      color: #6b7280;
-    }
-    .price-row .value {
-      color: #111827;
-      font-weight: bold;
-    }
-    .cta {
-      background: #8b5cf6;
-      color: white;
-      text-align: center;
-      padding: 15px;
-      border-radius: 10px;
-      font-weight: bold;
-      font-size: 16px;
-    }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="header">
-      <h1>🎯 تحليل ناجح</h1>
-    </div>
-
-    <div class="contract-info">
-      <div class="label">المؤشر</div>
-      <div class="value">${data.indexSymbol}</div>
-      <div class="label" style="margin-top: 10px;">العقد</div>
-      <div class="value">${data.strike.toFixed(0)} - ${data.expiry} - ${data.optionType}</div>
-    </div>
-
-    <div class="results">
-      <div class="profit">$${data.profitDollars.toFixed(2)}</div>
-      <div class="price-row">
-        <span class="label">سعر الدخول:</span>
-        <span class="value">$${data.entryPrice.toFixed(2)}</span>
-      </div>
-      <div class="price-row">
-        <span class="label">أعلى سعر:</span>
-        <span class="value">$${data.highPrice.toFixed(2)}</span>
-      </div>
-      <div class="price-row">
-        <span class="label">نسبة المكسب:</span>
-        <span class="value">+${data.profitPercent}%</span>
-      </div>
-    </div>
-
-    <div class="cta">
-      ✅ انضم لقناتنا للحصول على التحليلات الفائزة!
-    </div>
-  </div>
-</body>
-</html>
-  `.trim();
-}
