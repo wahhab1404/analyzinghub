@@ -4,7 +4,7 @@ import { generateTradeImage } from "./trade-image.ts";
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const BASE_URL = Deno.env.get('APP_BASE_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL') || 'https://analyzinghub.com';
+const BASE_URL = Deno.env.get('APP_BASE_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL') || 'https://analyzhub.com';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -292,7 +292,7 @@ async function processTradeMessage(
       }
     } else {
       console.warn(`[outbox:processTradeMessage] ⚠️  Image not available — falling back to text-only message`);
-      console.warn(`[outbox:processTradeMessage]    To fix: set APP_BASE_URL=https://analyzinghub.com in Supabase edge function secrets.`);
+      console.warn(`[outbox:processTradeMessage]    To fix: set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.`);
     }
   } else {
     console.warn(`[outbox:processTradeMessage] ⚠️  No trade.id in payload — sending text-only fallback`);
@@ -315,7 +315,7 @@ async function fetchImageBytes(
   // ── Config check ─────────────────────────────────────────────────────────
   if (!BASE_URL || BASE_URL.includes('localhost')) {
     console.error('[outbox:fetchImageBytes] ❌ APP_BASE_URL points to localhost — image generation skipped.');
-    console.error('[outbox:fetchImageBytes]    Set APP_BASE_URL=https://analyzinghub.com in Supabase edge function secrets.');
+    console.error('[outbox:fetchImageBytes]    Set APP_BASE_URL=https://analyzhub.com in Supabase edge function secrets.');
     return null;
   }
 

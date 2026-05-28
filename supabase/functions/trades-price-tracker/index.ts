@@ -126,7 +126,7 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const polygonKey  = Deno.env.get("POLYGON_API_KEY") ?? "";
-  const appUrl      = Deno.env.get("NEXT_PUBLIC_APP_URL") ?? "https://analyzinghub.com";
+  const appUrl      = Deno.env.get("NEXT_PUBLIC_APP_URL") ?? "https://analyzhub.com";
 
   const supabase = createClient(supabaseUrl, serviceKey);
 

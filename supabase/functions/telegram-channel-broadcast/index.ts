@@ -260,7 +260,7 @@ Deno.serve(async (req: Request) => {
 
 async function processBroadcast(req: Request, supabase: any, supabaseUrl: string) {
   try {
-    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzinghub.com";
+    const appBaseUrl = Deno.env.get("APP_BASE_URL") || "https://analyzhub.com";
 
     console.log('[Broadcast] Fetching bot token from database');
     const { data: botTokenSetting, error: tokenError } = await supabase

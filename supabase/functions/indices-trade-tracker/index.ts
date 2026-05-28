@@ -266,7 +266,7 @@ async function dispatchPendingAlerts(
   const appBaseUrl =
     Deno.env.get("APP_BASE_URL") ??
     Deno.env.get("NEXT_PUBLIC_SITE_URL") ??
-    "https://analyzinghub.com";
+    "https://analyzhub.com";
 
   // ── WIN ALERT ────────────────────────────────────────────────────────
   const justWon = rpcResult?.newly_won === true || (
