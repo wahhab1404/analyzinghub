@@ -1,5 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.58.0';
-import { generateTradeImage } from '../telegram-outbox-processor/trade-image.ts';
+import { generateTradeImage } from './trade-image.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,6 +48,9 @@ Deno.serve(async (req: Request) => {
 
     // Fetch trade details with related data. author + analysis are needed so the
     // generated image card can show the analyst name and the index symbol.
+    // NOTE: ownership lives on author_id (both index_trades and index_analyses).
+    // Many trades are manual and have no linked analysis (analysis_id IS NULL),
+    // so ownership is verified against index_trades.author_id.
     const { data: trade, error: tradeError } = await supabase
       .from('index_trades')
       .select(`
@@ -57,21 +60,20 @@ Deno.serve(async (req: Request) => {
           id,
           index_symbol,
           direction,
-          entry_point,
-          take_profit,
-          stop_loss,
-          user_id
+          author_id
         )
       `)
       .eq('id', tradeId)
       .single();
 
     if (tradeError || !trade) {
+      console.error('Trade fetch failed:', tradeError);
       throw new Error('Trade not found');
     }
 
-    // Verify the user owns this trade
-    if (trade.analysis?.user_id !== userId) {
+    // Verify the user owns this trade (trade author, or the linked analysis author)
+    const ownerId = trade.author_id ?? trade.analysis?.author_id;
+    if (ownerId !== userId) {
       throw new Error('Unauthorized: You can only advertise your own trades');
     }
 
@@ -93,9 +95,9 @@ Deno.serve(async (req: Request) => {
     }
 
     // Calculate profit. Entry price comes from the entry snapshot (same source the
-    // image uses) and falls back to the legacy entry_contract_price column.
+    // image uses) and falls back to the entry_price column.
     const snap = trade.entry_contract_snapshot ?? {};
-    const entryPrice = safeNum(snap.mid ?? snap.price ?? snap.last, safeNum(trade.entry_contract_price));
+    const entryPrice = safeNum(snap.mid ?? snap.price ?? snap.last, safeNum(trade.entry_price));
     const highPrice = safeNum(trade.contract_high_since, entryPrice);
     const profitPoints = highPrice - entryPrice;
     const profitDollars = profitPoints * (trade.qty || 1) * 100;
