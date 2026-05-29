@@ -98,10 +98,10 @@ Deno.serve(async (req: Request) => {
     const analystId = report.author_id ?? report.generated_by;
     const { data: analyzerProfile } = await supabase
       .from('profiles')
-      .select('full_name, username, avatar_url')
+      .select('full_name, telegram_username, avatar_url')
       .eq('id', analystId)
       .single();
-    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.username || 'Analyst';
+    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.telegram_username || 'Analyst';
     const initials = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
 
     // ── Summary metrics ─────────────────────────────────────────────────────
