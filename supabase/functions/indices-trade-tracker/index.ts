@@ -135,10 +135,13 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        if (trade.is_using_manual_price) {
-          console.log(`⏭️  Manual override — skip ${trade.id}`);
-          continue;
-        }
+        // NOTE: We intentionally do NOT skip is_using_manual_price trades here.
+        // A manual price is only a placeholder for when no live data exists
+        // (market closed — already skipped above). With the market open and a
+        // live quote available, process_streaming_price_update() resumes
+        // auto-tracking and clears the flag, so the contract price never stays
+        // frozen after a manual edit. (Previously this `continue` froze such
+        // trades permanently.)
 
         // ── UNDERLYING INDEX PRICE ────────────────────────────────────
         // Always update regardless of streaming state — the streaming
