@@ -44,6 +44,33 @@ function getTradeProfit(trade: any): number {
   return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
 }
 
+// ─── Test-trade & duplicate hygiene (kept in sync with generate-advanced-daily-report) ──
+const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
+
+function isTestTrade(t: any): boolean {
+  return t.is_testing === true || t.is_test === true;
+}
+
+function tradeSignature(t: any): string {
+  const s = t.entry_contract_snapshot ?? {};
+  const entry = s.price ?? s.mid ?? s.last ?? '';
+  return [
+    t.underlying_index_symbol ?? '', t.option_type ?? '',
+    t.strike ?? '', t.expiry ?? '',
+    entry, t.contract_high_since ?? '', t.pnl_usd ?? '', t.status ?? '',
+  ].join('|');
+}
+
+function dedupeTrades(list: any[]): any[] {
+  const seen = new Set<string>();
+  return list.filter(t => {
+    const k = tradeSignature(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 interface GeneratePeriodReportRequest {
   start_date: string;
   end_date: string;
@@ -132,7 +159,13 @@ Deno.serve(async (req) => {
     console.log(`[Period Report] Total trades from DB: ${trades?.length || 0}`);
     console.log(`[Period Report] Date range: ${startDate.toISOString()} to ${endDate.toISOString()}`);
 
-    const allTrades = (trades || []).filter(t => {
+    // Exclude test/demo trades (both flags) + non-reportable statuses first.
+    const reportable = (trades || []).filter(
+      t => !isTestTrade(t) && !NON_REPORTABLE_STATUSES.has((t.status ?? '').toLowerCase()),
+    );
+
+    // De-duplicate identical re-postings so each trade is counted once.
+    const allTrades = dedupeTrades(reportable.filter(t => {
       const createdAt = new Date(t.created_at);
       const closedAt = t.closed_at ? new Date(t.closed_at) : null;
       const expiryDate = t.expiry ? new Date(t.expiry) : null;
@@ -143,9 +176,9 @@ Deno.serve(async (req) => {
       const matchActive = t.status === 'active' && createdAt <= endDate;
 
       return matchCreated || matchClosed || matchExpiry || matchActive;
-    });
+    }));
 
-    console.log(`[Period Report] Filtered trades: ${allTrades.length}`);
+    console.log(`[Period Report] reportable=${reportable.length} deduped=${allTrades.length}`);
 
     const activeTrades = allTrades.filter(t => t.status === 'active');
 
@@ -460,10 +493,10 @@ function generatePeriodReportHTML(data: any): string {
 
   const css = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:${isAr||isDual?"'Cairo',":''}Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:#0B0F18;color:#EEF2F9;direction:${dir};padding:28px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+body{font-family:${isAr||isDual?"'Cairo',":''}Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:#070B14;color:#EEF2F9;direction:${dir};padding:28px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
 a{color:inherit}
 .page{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-.accent{height:4px;background:linear-gradient(90deg,#3B82F6 0%,#8B5CF6 50%,#EC4899 100%);border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.accent{height:4px;background:linear-gradient(90deg,#3B82F6 0%,#22D3EE 100%);border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .hdr{background:linear-gradient(135deg,#141923 0%,#1A2030 100%);border:1px solid #252D3D;border-radius:14px;padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}
 .hdr-l{display:flex;flex-direction:column;gap:6px}
 .brand{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#3B82F6;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.22);border-radius:6px;padding:4px 10px;width:fit-content;margin-bottom:2px}
@@ -528,7 +561,7 @@ a{color:inherit}
 @media print{
   body{background:#fff!important;color:#0f172a!important;padding:16px!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .page{max-width:100%!important;gap:12px!important}
-  .accent{background:linear-gradient(90deg,#3B82F6,#8B5CF6,#EC4899)!important}
+  .accent{background:linear-gradient(90deg,#3B82F6,#22D3EE)!important}
   .hdr,.strip,.trades,.ftr{background:#f8fafc!important;border-color:#e2e8f0!important}
   .kpi-np{background:rgba(34,197,94,0.06)!important;border-color:rgba(34,197,94,0.22)!important}
   .kpi-nn{background:rgba(239,68,68,0.06)!important;border-color:rgba(239,68,68,0.22)!important}

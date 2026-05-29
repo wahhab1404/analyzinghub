@@ -36,6 +36,33 @@ function safeNum(v: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+// ─── Test-trade & duplicate hygiene (kept in sync with generate-advanced-daily-report) ──
+const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
+
+function isTestTrade(t: any): boolean {
+  return t.is_testing === true || t.is_test === true;
+}
+
+function tradeSignature(t: any): string {
+  const s = t.entry_contract_snapshot ?? {};
+  const entry = s.price ?? s.mid ?? s.last ?? '';
+  return [
+    t.underlying_index_symbol ?? '', t.option_type ?? '',
+    t.strike ?? '', t.expiry ?? '',
+    entry, t.contract_high_since ?? '', t.pnl_usd ?? '', t.status ?? '',
+  ].join('|');
+}
+
+function dedupeTrades(list: any[]): any[] {
+  const seen = new Set<string>();
+  return list.filter(t => {
+    const k = tradeSignature(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 interface ReportRequest {
   report_id: string;
 }
@@ -117,8 +144,14 @@ Deno.serve(async (req: Request) => {
 
     const { data: allTrades } = await tradesQuery;
 
-    const periodTrades = (allTrades ?? [])
-      .filter((t: any) => {
+    // Exclude test/demo trades (both flags) + non-reportable statuses, then
+    // de-duplicate identical re-postings so the image matches the HTML report.
+    const reportable = (allTrades ?? []).filter(
+      (t: any) => !isTestTrade(t) && !NON_REPORTABLE_STATUSES.has((t.status ?? '').toLowerCase()),
+    );
+
+    const periodTrades = dedupeTrades(
+      reportable.filter((t: any) => {
         const created = new Date(t.created_at);
         const closed = t.closed_at ? new Date(t.closed_at) : null;
         return (
@@ -126,7 +159,8 @@ Deno.serve(async (req: Request) => {
           (closed && closed >= periodStart && closed <= periodEnd) ||
           (t.status === 'active' && created <= periodEnd)
         );
-      })
+      }),
+    )
       .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 5);
 
