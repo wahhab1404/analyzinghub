@@ -256,7 +256,7 @@ Deno.serve(async (req) => {
 
     const { data: analyzerProfile } = await supabase
       .from('profiles')
-      .select('full_name, username, avatar_url')
+      .select('full_name, telegram_username, avatar_url')
       .eq('id', analyst_id)
       .single();
 
@@ -402,7 +402,7 @@ function generatePeriodReportHTML(data: any): string {
   );
   const dateRangeStr = `${startFormatted} – ${endFormatted}`;
 
-  const analyzerName = analyzer?.full_name || analyzer?.username || 'Analyst';
+  const analyzerName = analyzer?.full_name || analyzer?.telegram_username || 'Analyst';
   const initials     = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
   const avatarHTML   = analyzer?.avatar_url
     ? `<img src="${analyzer.avatar_url}" class="av-img" alt="${analyzerName}">`
