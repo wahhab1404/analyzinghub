@@ -149,7 +149,19 @@ Deno.serve(async (req) => {
         }
 
         // ── STREAMING vs REST FALLBACK ────────────────────────────────
-        const streamingFresh = isStreamingFresh(trade.last_stream_event_at);
+        // runRestFallback() below also writes last_stream_event_at (via the
+        // process_streaming_price_update RPC, tagged premium_source='snapshot').
+        // We must NOT treat our own fallback write as a live streaming event:
+        // otherwise, while the realtime streaming service is down, the next cron
+        // cycle sees a <90 s-old timestamp, assumes streaming recovered, takes
+        // the "alert-check only" branch, and skips the price update — so peaks
+        // refresh only every OTHER minute instead of every minute. Only a
+        // genuine streaming event (any premium_source other than 'snapshot')
+        // counts toward freshness; a real event flips premium_source back the
+        // instant the stream recovers, so this still yields to live streaming.
+        const lastWriteWasRestFallback = trade.premium_source === "snapshot";
+        const streamingFresh =
+          isStreamingFresh(trade.last_stream_event_at) && !lastWriteWasRestFallback;
 
         if (streamingFresh) {
           console.log(
