@@ -62,6 +62,42 @@ function isWinner(trade: any): boolean {
   return getMaxProfit(trade) >= 100;
 }
 
+// ─── Test-trade & duplicate hygiene ───────────────────────────────────────────
+// Statuses that never belong in a performance report.
+const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
+
+// A trade is a test/demo trade if EITHER flag is set — `is_testing` is the
+// current column, `is_test` is the legacy one; both must be honoured so demo
+// trades never leak into a published report.
+function isTestTrade(t: any): boolean {
+  return t.is_testing === true || t.is_test === true;
+}
+
+// Outcome signature: two rows that share the same contract AND the same
+// realised outcome (entry, high, P&L, status) are the same trade re-posted,
+// not two distinct trades. Genuine re-entries differ in entry / high / P&L and
+// therefore produce different signatures, so they are preserved.
+function tradeSignature(t: any): string {
+  const s = t.entry_contract_snapshot ?? {};
+  const entry = s.price ?? s.mid ?? s.last ?? '';
+  return [
+    t.underlying_index_symbol ?? '', t.option_type ?? '',
+    t.strike ?? '', t.expiry ?? '',
+    entry, t.contract_high_since ?? '', t.pnl_usd ?? '', t.status ?? '',
+  ].join('|');
+}
+
+// Keep the first occurrence of each signature; drop later identical re-postings.
+function dedupeTrades(list: any[]): any[] {
+  const seen = new Set<string>();
+  return list.filter(t => {
+    const k = tradeSignature(t);
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 // ─── Request interface ────────────────────────────────────────────────────────
 interface GenerateReportRequest {
   date?: string;
@@ -128,8 +164,13 @@ Deno.serve(async (req) => {
 
     console.log(`[Report] DB trades: ${allTradesFromDB?.length ?? 0}  range: ${startOfDay.toISOString()} – ${endOfDay.toISOString()}`);
 
+    // ── Exclude test/demo trades (both flags) + non-reportable statuses ──────
+    const reportable = (allTradesFromDB ?? []).filter(
+      t => !isTestTrade(t) && !NON_REPORTABLE_STATUSES.has((t.status ?? '').toLowerCase()),
+    );
+
     // ── Filter to period ────────────────────────────────────────────────────
-    const trades = (allTradesFromDB ?? []).filter(t => {
+    const periodTrades = reportable.filter(t => {
       const created = new Date(t.created_at);
       const closed  = t.closed_at ? new Date(t.closed_at) : null;
       const expiry  = t.expiry    ? new Date(t.expiry)    : null;
@@ -139,7 +180,10 @@ Deno.serve(async (req) => {
           || (t.status === 'active' && created <= endOfDay);
     });
 
-    console.log(`[Report] Filtered trades: ${trades.length}`);
+    // ── De-duplicate identical re-postings so each trade is counted once ─────
+    const trades = dedupeTrades(periodTrades);
+
+    console.log(`[Report] reportable=${reportable.length} period=${periodTrades.length} deduped=${trades.length}`);
 
     // ── Categorise ──────────────────────────────────────────────────────────
     const activeTrades  = trades.filter(t => t.status === 'active');
@@ -398,11 +442,11 @@ function generateReportHTML(data: {
   // ── CSS ─────────────────────────────────────────────────────────────────────
   const css = `
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-body{font-family:${isAr||isDual?"'Cairo',":''}Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:#0B0F18;color:#EEF2F9;direction:${dir};padding:28px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
+body{font-family:${isAr||isDual?"'Cairo',":''}Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;background:#070B14;color:#EEF2F9;direction:${dir};padding:28px 16px;min-height:100vh;-webkit-font-smoothing:antialiased}
 a{color:inherit}
 .page{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-/* Gradient accent bar */
-.accent{height:4px;background:linear-gradient(90deg,#3B82F6 0%,#8B5CF6 50%,#EC4899 100%);border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+/* Gradient accent bar — platform primary (blue) → accent (cyan) */
+.accent{height:4px;background:linear-gradient(90deg,#3B82F6 0%,#22D3EE 100%);border-radius:4px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 /* ── Header ── */
 .hdr{background:linear-gradient(135deg,#141923 0%,#1A2030 100%);border:1px solid #252D3D;border-radius:14px;padding:24px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}
 .hdr-l{display:flex;flex-direction:column;gap:6px}
@@ -478,7 +522,7 @@ a{color:inherit}
 @media print{
   body{background:#fff!important;color:#0f172a!important;padding:16px!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   .page{max-width:100%!important;gap:12px!important}
-  .accent{background:linear-gradient(90deg,#3B82F6,#8B5CF6,#EC4899)!important}
+  .accent{background:linear-gradient(90deg,#3B82F6,#22D3EE)!important}
   .hdr,.strip,.trades,.ftr{background:#f8fafc!important;border-color:#e2e8f0!important}
   .kpi-np{background:rgba(34,197,94,0.06)!important;border-color:rgba(34,197,94,0.22)!important}
   .kpi-nn{background:rgba(239,68,68,0.06)!important;border-color:rgba(239,68,68,0.22)!important}
