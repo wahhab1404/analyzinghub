@@ -693,6 +693,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         ? (formData.telegram_channel_id === 'analysis' ? null : formData.telegram_channel_id)
         : null
 
+      if (formData.instrument_type === 'options' && !formData.polygon_option_ticker) {
+        toast.error('Select an option contract from the chain before saving (strike, expiry & type are filled in automatically)')
+        setLoading(false)
+        return
+      }
+
       if (marketStatus && !marketStatus.isOpen && !formData.current_price) {
         toast.error('Current price is required when markets are closed')
         setLoading(false)
