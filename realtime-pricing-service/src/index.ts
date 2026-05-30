@@ -17,6 +17,7 @@ import { SubscriptionManager } from './subscription-manager';
 import { PolygonQuoteFetcher } from './polygon-fetcher';
 import { SSEHandler } from './sse-handler';
 import { PersistenceService } from './persistence-service';
+import { CompanyContractTracker } from './company-contract-tracker';
 import { streamHealth } from './stream-health';
 
 // Load environment variables
@@ -87,9 +88,14 @@ const sseHandler = new SSEHandler(
   polygonFetcher
 );
 
+// Company option-contract deals are tracked via Polygon REST snapshots on a
+// short interval (live "via Fly.io"), mirroring index-trade tracking.
+const companyContractTracker = new CompanyContractTracker(supabase, POLYGON_API_KEY);
+
 // Start services
 polygonFetcher.start();
 persistenceService.start();
+companyContractTracker.start();
 
 // ── MIDDLEWARE ────────────────────────────────────────────────────────────────
 
@@ -187,6 +193,7 @@ async function shutdown(signal: string): Promise<void> {
 
   polygonFetcher.stop();
   persistenceService.stop();
+  companyContractTracker.stop();
   streamHealth.stop();
 
   // Final flush of Redis → Supabase
