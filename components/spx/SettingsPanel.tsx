@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Cpu, Target, Filter, Calendar, Layers, Zap, Activity, Bell,
   Clock, Timer, Database, Play, ChevronDown, ChevronRight, Save,
-  Loader2, AlertCircle, CheckCircle2,
+  Loader2, AlertCircle, CheckCircle2, Bot,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -50,6 +50,13 @@ interface SPXSettings {
   staleDataThresholdS: number
   replaySpeed: number
   replayDefaultDaysBack: number
+  // Auto-Trade
+  autoTradeEnabled: boolean
+  autoTradeMaxPremium: number
+  autoTradeMinLiquidity: number
+  autoTradeMinConfidenceClass: string
+  autoTradeChannelIds: string[]
+  autoTradeTrackLifecycle: boolean
   updatedAt: string
   updatedBy: string | null
 }
@@ -285,22 +292,33 @@ function Skeleton() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+interface TelegramChannel {
+  id: string
+  chatId: string
+  name: string
+  audience: string
+}
+
 export default function SettingsPanel() {
   const [settings, setSettings] = useState<SPXSettings | null>(null)
   const [draft, setDraft] = useState<SPXSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [telegramChannels, setTelegramChannels] = useState<TelegramChannel[]>([])
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     setLoading(true)
-    fetch('/api/spx/settings')
-      .then(r => r.json())
-      .then((json: { success: boolean; settings: SPXSettings }) => {
-        const s = json.settings ?? json
+    Promise.all([
+      fetch('/api/spx/settings').then(r => r.json()),
+      fetch('/api/spx/telegram-channels').then(r => r.json()).catch(() => ({ channels: [] })),
+    ])
+      .then(([settingsJson, channelsJson]) => {
+        const s = settingsJson.settings ?? settingsJson
         setSettings(s)
         setDraft(JSON.parse(JSON.stringify(s)))
+        setTelegramChannels(channelsJson?.channels ?? [])
       })
       .catch(() => setStatus({ type: 'error', message: 'Failed to load settings.' }))
       .finally(() => setLoading(false))
@@ -343,7 +361,11 @@ export default function SettingsPanel() {
   }
 
   const hasChanges = settings && draft
-    ? (Object.keys(draft) as Array<keyof SPXSettings>).some(k => draft[k] !== settings[k])
+    ? (Object.keys(draft) as Array<keyof SPXSettings>).some(k => {
+        const a = draft[k]; const b = settings[k]
+        if (Array.isArray(a) && Array.isArray(b)) return JSON.stringify(a) !== JSON.stringify(b)
+        return a !== b
+      })
     : false
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -746,6 +768,97 @@ export default function SettingsPanel() {
             onChange={v => set('replayDefaultDaysBack', v)}
             min={1} max={90} suffix="days"
           />
+        </div>
+      </SectionCard>
+
+      {/* ── Section 13: Auto Trading ── */}
+      <SectionCard icon={Bot} title="Auto Trading" defaultOpen>
+        <FieldRow label="Enable Auto Trading">
+          <Toggle value={draft?.autoTradeEnabled ?? false} onChange={v => set('autoTradeEnabled', v)} />
+        </FieldRow>
+        <FieldRow label="Track Lifecycle">
+          <Toggle value={draft?.autoTradeTrackLifecycle ?? true} onChange={v => set('autoTradeTrackLifecycle', v)} />
+        </FieldRow>
+        <FieldRow label="Max Premium ($)">
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0.1} max={50} step={0.1}
+              value={draft?.autoTradeMaxPremium ?? 4}
+              onChange={e => set('autoTradeMaxPremium', parseFloat(e.target.value))}
+              className="w-20 bg-[#070e1a] border border-[#1a2840] rounded-lg px-2.5 py-1.5 text-xs text-white tabular-nums text-right focus:outline-none focus:border-blue-500"
+            />
+            <span className={`text-xs font-medium ${changed('autoTradeMaxPremium') ? 'text-amber-400' : 'text-slate-500'}`}>
+              ${draft?.autoTradeMaxPremium?.toFixed(2) ?? '4.00'}
+            </span>
+          </div>
+        </FieldRow>
+        <FieldRow label="Min Liquidity Score">
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={0} max={100} step={5}
+              value={draft?.autoTradeMinLiquidity ?? 60}
+              onChange={e => set('autoTradeMinLiquidity', parseFloat(e.target.value))}
+              className="w-20 bg-[#070e1a] border border-[#1a2840] rounded-lg px-2.5 py-1.5 text-xs text-white tabular-nums text-right focus:outline-none focus:border-blue-500"
+            />
+            <span className={`text-xs font-medium ${changed('autoTradeMinLiquidity') ? 'text-amber-400' : 'text-slate-500'}`}>
+              {draft?.autoTradeMinLiquidity ?? 60}/100
+            </span>
+          </div>
+        </FieldRow>
+        <FieldRow label="Min Confidence Class">
+          <select
+            value={draft?.autoTradeMinConfidenceClass ?? 'B'}
+            onChange={e => set('autoTradeMinConfidenceClass', e.target.value as any)}
+            className="bg-[#070e1a] border border-[#1a2840] rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+          >
+            {['A', 'B', 'C', 'D', 'E'].map(c => (
+              <option key={c} value={c}>Class {c}{c === 'A' ? ' (Strongest)' : c === 'E' ? ' (Weakest)' : ''}</option>
+            ))}
+          </select>
+        </FieldRow>
+
+        {/* Telegram Channel Selector */}
+        <div className="pt-1">
+          <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+            Telegram Channels for Auto-Trade Alerts
+          </div>
+          {telegramChannels.length === 0 ? (
+            <p className="text-xs text-slate-600 italic">No enabled Telegram channels found. Add channels in your account settings first.</p>
+          ) : (
+            <div className="space-y-2">
+              {telegramChannels.map(ch => {
+                const selected = (draft?.autoTradeChannelIds ?? []).includes(ch.chatId)
+                return (
+                  <label key={ch.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors ${selected ? 'border-violet-500/40 bg-violet-500/5' : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10'}`}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => {
+                        const current = draft?.autoTradeChannelIds ?? []
+                        set('autoTradeChannelIds', selected
+                          ? current.filter(id => id !== ch.chatId)
+                          : [...current, ch.chatId]
+                        )
+                      }}
+                      className="w-3.5 h-3.5 accent-violet-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-slate-200 truncate">{ch.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">{ch.chatId}</div>
+                    </div>
+                    <span className="text-[10px] text-slate-600 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full capitalize">{ch.audience}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          {(draft?.autoTradeChannelIds?.length ?? 0) > 0 && (
+            <p className="text-[10px] text-violet-400 mt-2">
+              {draft?.autoTradeChannelIds?.length} channel{(draft?.autoTradeChannelIds?.length ?? 0) > 1 ? 's' : ''} selected — auto-trade alerts will only go to these channels.
+            </p>
+          )}
         </div>
       </SectionCard>
 

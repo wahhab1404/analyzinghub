@@ -64,6 +64,13 @@ export interface SPXSettings {
   // Replay
   replaySpeed: number;
   replayDefaultDaysBack: number;
+  // Auto-Trade (Phase 5)
+  autoTradeEnabled: boolean;
+  autoTradeMaxPremium: number;
+  autoTradeMinLiquidity: number;
+  autoTradeMinConfidenceClass: 'A' | 'B' | 'C' | 'D' | 'E';
+  autoTradeChannelIds: string[];
+  autoTradeTrackLifecycle: boolean;
   // Meta
   updatedAt: string;
   updatedBy: string | null;
@@ -117,6 +124,13 @@ export const DEFAULT_SETTINGS: SPXSettings = {
   // Replay
   replaySpeed: 1.0,
   replayDefaultDaysBack: 5,
+  // Auto-Trade
+  autoTradeEnabled: false,
+  autoTradeMaxPremium: 4.00,
+  autoTradeMinLiquidity: 60,
+  autoTradeMinConfidenceClass: 'B',
+  autoTradeChannelIds: [],
+  autoTradeTrackLifecycle: true,
   // Meta
   updatedAt: new Date().toISOString(),
   updatedBy: null,
@@ -159,6 +173,12 @@ export function dbRowToSettings(row: any): SPXSettings {
     staleDataThresholdS:    row.stale_data_threshold_s  ?? DEFAULT_SETTINGS.staleDataThresholdS,
     replaySpeed:            row.replay_speed            ?? DEFAULT_SETTINGS.replaySpeed,
     replayDefaultDaysBack:  row.replay_default_days_back ?? DEFAULT_SETTINGS.replayDefaultDaysBack,
+    autoTradeEnabled:           row.auto_trade_enabled              ?? DEFAULT_SETTINGS.autoTradeEnabled,
+    autoTradeMaxPremium:        row.auto_trade_max_premium != null ? Number(row.auto_trade_max_premium) : DEFAULT_SETTINGS.autoTradeMaxPremium,
+    autoTradeMinLiquidity:      row.auto_trade_min_liquidity != null ? Number(row.auto_trade_min_liquidity) : DEFAULT_SETTINGS.autoTradeMinLiquidity,
+    autoTradeMinConfidenceClass: (row.auto_trade_min_confidence_class ?? DEFAULT_SETTINGS.autoTradeMinConfidenceClass) as SPXSettings['autoTradeMinConfidenceClass'],
+    autoTradeChannelIds:        Array.isArray(row.auto_trade_channel_ids) ? row.auto_trade_channel_ids : DEFAULT_SETTINGS.autoTradeChannelIds,
+    autoTradeTrackLifecycle:    row.auto_trade_track_lifecycle      ?? DEFAULT_SETTINGS.autoTradeTrackLifecycle,
     updatedAt:              row.updated_at              ?? DEFAULT_SETTINGS.updatedAt,
     updatedBy:              row.updated_by              ?? null,
   };
@@ -200,6 +220,12 @@ function settingsToDbRow(settings: Partial<SPXSettings>): Record<string, any> {
   if (settings.staleDataThresholdS    !== undefined) row.stale_data_threshold_s   = settings.staleDataThresholdS;
   if (settings.replaySpeed            !== undefined) row.replay_speed             = settings.replaySpeed;
   if (settings.replayDefaultDaysBack  !== undefined) row.replay_default_days_back = settings.replayDefaultDaysBack;
+  if (settings.autoTradeEnabled             !== undefined) row.auto_trade_enabled                  = settings.autoTradeEnabled;
+  if (settings.autoTradeMaxPremium          !== undefined) row.auto_trade_max_premium              = settings.autoTradeMaxPremium;
+  if (settings.autoTradeMinLiquidity        !== undefined) row.auto_trade_min_liquidity            = settings.autoTradeMinLiquidity;
+  if (settings.autoTradeMinConfidenceClass  !== undefined) row.auto_trade_min_confidence_class     = settings.autoTradeMinConfidenceClass;
+  if (settings.autoTradeChannelIds          !== undefined) row.auto_trade_channel_ids              = settings.autoTradeChannelIds;
+  if (settings.autoTradeTrackLifecycle      !== undefined) row.auto_trade_track_lifecycle          = settings.autoTradeTrackLifecycle;
   if (settings.updatedBy              !== undefined) row.updated_by               = settings.updatedBy;
 
   return row;

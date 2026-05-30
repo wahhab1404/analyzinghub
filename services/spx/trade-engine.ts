@@ -57,6 +57,9 @@ export interface SPXTrade {
   createdAt: string;
   updatedAt: string;
   signalEventId: string | null;
+  isAuto: boolean;
+  autoChannelIds: string[];
+  alertSentAt: string | null;
   contractCandidateId: string | null;
   ticker: string | null;
   strike: number | null;
@@ -99,6 +102,11 @@ export interface SPXTrade {
   directionBias: string | null;
   invalidationNotes: string[];
   metadata: Record<string, any> | null;
+  // Phase 5 — auto-trade fields (optional / nullable)
+  isAuto?: boolean;
+  autoChannelIds?: string[];
+  alertSentAt?: string | null;
+  lastTargetAlerted?: number;
 }
 
 // ── ROW → TRADE MAPPER ────────────────────────────────────────────────────────
@@ -113,6 +121,9 @@ function rowToTrade(row: Record<string, any>): SPXTrade {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     signalEventId: row.signal_event_id ?? null,
+    isAuto: row.is_auto ?? false,
+    autoChannelIds: Array.isArray(row.auto_channel_ids) ? row.auto_channel_ids : [],
+    alertSentAt: row.alert_sent_at ?? null,
     contractCandidateId: row.contract_candidate_id ?? null,
     ticker: row.ticker ?? null,
     strike: row.strike !== null && row.strike !== undefined ? Number(row.strike) : null,
@@ -174,7 +185,54 @@ function rowToTrade(row: Record<string, any>): SPXTrade {
     directionBias: row.direction_bias ?? null,
     invalidationNotes: Array.isArray(row.invalidation_notes) ? row.invalidation_notes : [],
     metadata: row.metadata ?? null,
+    isAuto: row.is_auto ?? false,
+    autoChannelIds: Array.isArray(row.auto_channel_ids) ? row.auto_channel_ids : [],
+    alertSentAt: row.alert_sent_at ?? null,
+    lastTargetAlerted: row.last_target_alerted ?? 0,
   };
+}
+
+// ── Phase 5: AUTO-TRADE LIFECYCLE ──────────────────────────────────────────
+async function processAutoTradeLifecycle(
+  trade: SPXTrade,
+  currentPremium: number,
+  currentSpxPrice: number,
+  getDispatcher: () => Promise<typeof import('./auto-trade-dispatcher')>,
+): Promise<void> {
+  try {
+    const lastTarget = trade.lastTargetAlerted ?? 0;
+    const stop = trade.stopPremium;
+    const t1 = trade.target1Premium;
+    const t2 = trade.target2Premium;
+    const t3 = trade.target3Premium;
+    const dispatcher = await getDispatcher();
+
+    // 1) STOP hit — close trade and alert
+    if (stop != null && currentPremium <= stop && trade.state !== 'closed_loss' && trade.state !== 'closed_win') {
+      await closeTrade(trade.id, currentPremium, currentSpxPrice, 'auto_stop_hit');
+      const updated = (await getTradeById(trade.id)) ?? trade;
+      await dispatcher.dispatchAutoTradeStop(updated, currentPremium);
+      await dispatcher.dispatchAutoTradeClosed(updated);
+      return;
+    }
+
+    // 2) Target hits (ascending) — only fire when crossing fresh targets
+    if (lastTarget < 1 && t1 != null && currentPremium >= t1) {
+      await dispatcher.dispatchAutoTradeTarget(trade, 1, currentPremium);
+    }
+    if (lastTarget < 2 && t2 != null && currentPremium >= t2) {
+      await dispatcher.dispatchAutoTradeTarget(trade, 2, currentPremium);
+    }
+    if (lastTarget < 3 && t3 != null && currentPremium >= t3) {
+      await dispatcher.dispatchAutoTradeTarget(trade, 3, currentPremium);
+      // Treat T3 as the natural close
+      await closeTrade(trade.id, currentPremium, currentSpxPrice, 'auto_target3_hit');
+      const updated = (await getTradeById(trade.id)) ?? trade;
+      await dispatcher.dispatchAutoTradeClosed(updated);
+    }
+  } catch (err: any) {
+    console.warn(`[TradeEngine] processAutoTradeLifecycle(${trade.id}) failed:`, err.message);
+  }
 }
 
 // ── ACTIVE STATES ─────────────────────────────────────────────────────────────
@@ -191,7 +249,7 @@ const ACTIVE_STATES: TradeState[] = [
 ];
 
 /** States eligible for live premium refresh via Polygon. */
-const PREMIUM_REFRESH_STATES: TradeState[] = ['entered', 'active', 'partially_exited'];
+const PREMIUM_REFRESH_STATES: TradeState[] = ['confirmed', 'entered', 'active', 'partially_exited'];
 
 // ── PUBLIC API ─────────────────────────────────────────────────────────────────
 
@@ -690,6 +748,13 @@ export async function refreshActiveTradePremiums(currentSpxPrice: number): Promi
     return;
   }
 
+  // Lazy-load auto-trade dispatcher (avoid cycle with intelligence-engine)
+  let dispatcher: typeof import('./auto-trade-dispatcher') | null = null;
+  async function getDispatcher() {
+    if (!dispatcher) dispatcher = await import('./auto-trade-dispatcher');
+    return dispatcher;
+  }
+
   // Apply premium refresh for each trade whose ticker resolved a price
   const refreshPromises = eligibleTrades.map(async (trade) => {
     const premium = snapshotMap.get(trade.ticker!);
@@ -697,6 +762,11 @@ export async function refreshActiveTradePremiums(currentSpxPrice: number): Promi
 
     try {
       await refreshTradePremium(trade.id, premium, currentSpxPrice);
+
+      // Phase 5: auto-trade lifecycle alerts (TP / SL / closing)
+      if ((trade as any).isAuto || (trade as any).is_auto) {
+        await processAutoTradeLifecycle(trade, premium, currentSpxPrice, getDispatcher);
+      }
     } catch (err: any) {
       console.warn(
         `[TradeEngine] refreshActiveTradePremiums: refreshTradePremium(${trade.id}) failed:`,
