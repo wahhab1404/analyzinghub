@@ -28,16 +28,26 @@ Deno.serve(async (req: Request) => {
 
     const { data: report, error: reportError } = await supabase
       .from('daily_trade_reports')
-      .select('*, profiles(full_name, username)')
+      .select('*')
       .eq('id', report_id)
       .single();
 
     if (reportError || !report) {
+      console.error('[Send Report to Telegram] Report lookup failed:', reportError);
       return new Response(
         JSON.stringify({ error: 'Report not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+
+    // Analyst profile fetched separately (no FK embed): the embedded join on a
+    // non-existent column was failing the whole query and surfacing as
+    // "Report not found".
+    const { data: analyzerProfile } = await supabase
+      .from('profiles')
+      .select('full_name, telegram_username')
+      .eq('id', report.author_id)
+      .maybeSingle();
 
     console.log('[Send Report to Telegram] Looking for channels:', {
       author_id: report.author_id,
@@ -82,7 +92,7 @@ Deno.serve(async (req: Request) => {
     const isDual = language_mode === 'dual';
     const metrics = report.summary || {};
 
-    const analyzerName = report.profiles?.full_name || report.profiles?.username || 'Analyzer';
+    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.telegram_username || 'Analyzer';
 
     const periodTypeTranslations: Record<string, { en: string; ar: string }> = {
       'daily': { en: 'Daily Report', ar: 'تقرير يومي' },
