@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { buildTradeMessage } from '@/lib/telegram/trade-message-builder'
+import { getBotToken, sendMessage } from '@/lib/telegram/bot-sender'
 import type { TradeFull } from '@/lib/types/trades'
 
 export const runtime = 'nodejs'
@@ -82,30 +83,28 @@ export async function POST(req: NextRequest, { params }: Params) {
     let alertStatus: 'sent' | 'failed' = 'failed'
 
     if (chatId) {
-      // Invoke the telegram-sender edge function
+      // Send directly to the channel via the Telegram Bot API.
+      //
+      // NOTE: we deliberately do NOT use the `telegram-sender` edge function
+      // here — that function is built for per-user notifications (it expects a
+      // { userId, type } payload and looks up a personal telegram_accounts row),
+      // so sending a channel { chat_id, text } payload to it always 404s and the
+      // broadcast silently fails. Resolving the bot token and calling sendMessage
+      // directly is the same mechanism the rest of the bot uses for channels.
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
       const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY!
 
-      const res = await fetch(`${supabaseUrl}/functions/v1/telegram-sender`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML',
-          disable_web_page_preview: false,
-        }),
-      })
-
-      if (res.ok) {
-        const result = await res.json()
-        telegramMsgId = result?.result?.message_id?.toString() ?? null
-        alertStatus = 'sent'
+      const botToken = await getBotToken(supabaseUrl, serviceKey)
+      if (!botToken) {
+        console.error('[broadcast] bot token not configured')
       } else {
-        console.error('[broadcast] telegram-sender failed', await res.text())
+        const msgId = await sendMessage(botToken, chatId, message)
+        if (msgId != null) {
+          telegramMsgId = String(msgId)
+          alertStatus = 'sent'
+        } else {
+          console.error('[broadcast] sendMessage returned null (Telegram API rejected the send)')
+        }
       }
     }
 
