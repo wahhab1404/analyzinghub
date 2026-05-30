@@ -62,6 +62,21 @@ function isWinner(trade: any): boolean {
   return getMaxProfit(trade) >= 100;
 }
 
+// Full premium paid for the contract (entry × qty × multiplier).
+function getContractValue(trade: any): number {
+  return getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+}
+
+// Reported P&L (analyst-defined model):
+//   • Winner  (peak ≥ $100): profit = peak profit (entry → highest price reached).
+//   • Loser   (peak <  $100): loss  = full contract value (entire premium lost).
+//   • Active trade not yet a winner: show running peak (not finalised as a loss).
+function getReportProfit(trade: any, isActive = false): number {
+  const peak = getMaxProfit(trade);
+  if (peak >= 100 || isActive) return peak;
+  return -getContractValue(trade);
+}
+
 // ─── Test-trade & duplicate hygiene ───────────────────────────────────────────
 // Statuses that never belong in a performance report.
 const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
@@ -215,8 +230,9 @@ Deno.serve(async (req) => {
     const winRate = completedTrades.length > 0
       ? (winningTrades / completedTrades.length) * 100 : 0;
 
-    const totalProfit = winningTradesList.reduce((s, t) => s + Math.abs(getTradeProfit(t)), 0);
-    const totalLoss   = losingTradesList.reduce( (s, t) => s + Math.abs(getTradeProfit(t)), 0);
+    // Winner profit = peak (entry → highest); loser loss = full contract value.
+    const totalProfit = winningTradesList.reduce((s, t) => s + getMaxProfit(t), 0);
+    const totalLoss   = losingTradesList.reduce( (s, t) => s + getContractValue(t), 0);
     const netProfit   = totalProfit - totalLoss;
 
     // Average return % across all trades (entry → highest)
@@ -228,8 +244,8 @@ Deno.serve(async (req) => {
     const avgProfit    = allPct.length > 0 ? allPct.reduce((s, v) => s + v, 0) / allPct.length : 0;
     const maxProfitPct = allPct.length > 0 ? Math.max(...allPct) : 0;
 
-    const allWins  = winningTradesList.map(t => Math.abs(getTradeProfit(t)));
-    const allLoss  = losingTradesList.map(t  => Math.abs(getTradeProfit(t)));
+    const allWins  = winningTradesList.map(t => getMaxProfit(t));
+    const allLoss  = losingTradesList.map(t  => getContractValue(t));
     const bestTrade  = allWins.length  > 0 ? Math.max(...allWins)  : 0;
     const worstTrade = allLoss.length  > 0 ? -Math.max(...allLoss) : 0;
 
@@ -256,15 +272,19 @@ Deno.serve(async (req) => {
     // ── Dry run ─────────────────────────────────────────────────────────────
     if (dry_run) {
       const preview = trades.map(t => {
-        const entry  = getEntryPrice(t);
-        const high   = getHighestPrice(t, entry);
-        const profit = getTradeProfit(t);
-        const pct    = entry > 0 ? ((high - entry) / entry) * 100 : 0;
+        const entry   = getEntryPrice(t);
+        const high    = getHighestPrice(t, entry);
+        const isActive = t.status === 'active';
+        const win     = winnerIds.has(t.id);
+        const profit  = getReportProfit(t, isActive);
+        const pct     = (isActive || win)
+          ? (entry > 0 ? ((high - entry) / entry) * 100 : 0)
+          : -100;
         return { id: t.id, symbol: t.underlying_index_symbol, type: t.option_type,
                  strike: t.strike, entry_price: entry, highest_price: high,
                  current_price: t.current_contract || 0, qty: t.qty || 1,
                  profit, profit_percent: pct, status: t.status,
-                 created_at: t.created_at, expiry: t.expiry, is_winner: winnerIds.has(t.id) };
+                 created_at: t.created_at, expiry: t.expiry, is_winner: win };
       });
       return new Response(
         JSON.stringify({ success: true, metrics, trades: preview, analyzer: analyzerProfile, dry_run: true }),
@@ -382,11 +402,14 @@ function generateReportHTML(data: {
         const entry   = getEntryPrice(t);
         const high    = getHighestPrice(t, entry);
         const current = t.current_contract ? +t.current_contract : 0;
-        const profit  = getTradeProfit(t);
-        const pct     = entry > 0 ? ((high - entry) / entry) * 100 : 0;
         const win     = winnerIds.has(t.id);
         const isCall  = (t.option_type ?? '').toLowerCase() === 'call';
         const isActive = t.status === 'active';
+        // Winner/active → peak profit & peak %; finalised loser → full premium lost & -100%.
+        const profit  = getReportProfit(t, isActive);
+        const pct     = (isActive || win)
+          ? (entry > 0 ? ((high - entry) / entry) * 100 : 0)
+          : -100;
 
         const sClass = isActive ? 'sb-active' : win ? 'sb-win' : 'sb-loss';
         const sLabel = isActive
@@ -404,7 +427,7 @@ function generateReportHTML(data: {
 
         const pColor   = profit > 0 ? '#22C55E' : profit < 0 ? '#EF4444' : '#8892A4';
         const pDollar  = `${profit >= 0 ? '+' : '-'}$${fmt(Math.abs(profit), 0)}`;
-        const pPct     = `${pct >= 0 ? '+' : ''}${fmt(pct, 1)}% ${lbl('gain', 'عائد')}`;
+        const pPct     = `${pct >= 0 ? '+' : ''}${fmt(pct, 1)}% ${pct >= 0 ? lbl('gain', 'عائد') : lbl('loss', 'خسارة')}`;
 
         const qty        = t.qty || 1;
         const contractLbl = qty > 1

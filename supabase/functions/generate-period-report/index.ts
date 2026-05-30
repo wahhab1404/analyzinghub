@@ -44,6 +44,26 @@ function getTradeProfit(trade: any): number {
   return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
 }
 
+// Peak profit entry -> highest (drives win classification & winner profit).
+function getMaxProfit(trade: any): number {
+  const entry = getEntryPrice(trade);
+  const high  = getHighestPrice(trade, entry);
+  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+}
+function isWinner(trade: any): boolean {
+  return getMaxProfit(trade) >= 100;
+}
+// Full premium paid (entry x qty x multiplier) — the loss for a non-winner.
+function getContractValue(trade: any): number {
+  return getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+}
+// Winner/active -> peak profit; finalised loser -> full premium lost.
+function getReportProfit(trade: any, isActive = false): number {
+  const peak = getMaxProfit(trade);
+  if (peak >= 100 || isActive) return peak;
+  return -getContractValue(trade);
+}
+
 // ─── Test-trade & duplicate hygiene (kept in sync with generate-advanced-daily-report) ──
 const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
 
@@ -201,18 +221,12 @@ Deno.serve(async (req) => {
       (t.expiry && new Date(t.expiry) >= startDate && new Date(t.expiry) <= endDate)
     );
 
-    const winningTrades = completedTrades.filter(t => t.is_winning_trade === true);
-    const losingTrades = completedTrades.filter(t => t.is_winning_trade === false);
+    // Win = reached >= $100 peak profit (entry -> highest). Loss = full premium.
+    const winningTrades = completedTrades.filter(t => isWinner(t));
+    const losingTrades = completedTrades.filter(t => !isWinner(t));
 
-    const totalProfit = winningTrades.reduce((sum, t) => {
-      const profit = t.max_profit || 0;
-      return sum + Math.abs(profit);
-    }, 0);
-
-    const totalLoss = losingTrades.reduce((sum, t) => {
-      const loss = t.max_profit || 0;
-      return sum + Math.abs(loss);
-    }, 0);
+    const totalProfit = winningTrades.reduce((sum, t) => sum + getMaxProfit(t), 0);
+    const totalLoss   = losingTrades.reduce((sum, t) => sum + getContractValue(t), 0);
 
     const netProfit = totalProfit - totalLoss;
 
@@ -228,9 +242,8 @@ Deno.serve(async (req) => {
       ? -(totalLoss / losingTrades.length)
       : 0;
 
-    const allProfits = completedTrades.map(t => t.max_profit || 0);
-    const bestTrade = allProfits.length > 0 ? Math.max(...allProfits) : 0;
-    const worstTrade = allProfits.length > 0 ? Math.min(...allProfits) : 0;
+    const bestTrade  = winningTrades.length > 0 ? Math.max(...winningTrades.map(t => getMaxProfit(t))) : 0;
+    const worstTrade = losingTrades.length  > 0 ? -Math.max(...losingTrades.map(t => getContractValue(t))) : 0;
 
     const metrics = {
       total_trades: allTrades.length,
@@ -430,11 +443,14 @@ function generatePeriodReportHTML(data: any): string {
         const entry   = getEntryPrice(t);
         const high    = getHighestPrice(t, entry);
         const current = t.current_contract ? +t.current_contract : 0;
-        const profit  = getTradeProfit(t);
-        const pct     = entry > 0 ? ((high - entry) / entry) * 100 : 0;
-        const win     = t.is_winning_trade === true;
         const isCall  = (t.option_type ?? '').toLowerCase() === 'call';
         const isActive = t.status === 'active';
+        const win     = isWinner(t);
+        // Winner/active -> peak profit & peak %; finalised loser -> full premium lost & -100%.
+        const profit  = getReportProfit(t, isActive);
+        const pct     = (isActive || win)
+          ? (entry > 0 ? ((high - entry) / entry) * 100 : 0)
+          : -100;
 
         const sClass = isActive ? 'sb-active' : win ? 'sb-win' : 'sb-loss';
         const sLabel = isActive
@@ -452,7 +468,7 @@ function generatePeriodReportHTML(data: any): string {
 
         const pColor  = profit > 0 ? '#22C55E' : profit < 0 ? '#EF4444' : '#8892A4';
         const pDollar = `${profit >= 0 ? '+' : '-'}$${fmt(Math.abs(profit), 0)}`;
-        const pPct    = `${pct >= 0 ? '+' : ''}${fmt(pct, 1)}% ${lbl('gain', 'عائد')}`;
+        const pPct    = `${pct >= 0 ? '+' : ''}${fmt(pct, 1)}% ${pct >= 0 ? lbl('gain', 'عائد') : lbl('loss', 'خسارة')}`;
 
         const qty         = t.qty || 1;
         const contractLbl = qty > 1 ? lbl(`${qty} contracts`, `${qty} عقود`) : lbl('1 contract', 'عقد');
