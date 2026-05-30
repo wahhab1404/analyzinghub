@@ -1,9 +1,14 @@
 /**
- * Supabase Edge Function: generate-report-image
+ * generate-report-image -- mobile-portrait (1080x1920) PNG via @vercel/og.
+ * Platform-styled, compact, P&L on the same row as each trade.
  *
- * Generates a professional PNG trade report image using @vercel/og.
- * Dark, premium design inspired by professional trading dashboards.
- * Returns raw PNG bytes (Content-Type: image/png).
+ * Two things make this robust on Supabase Edge:
+ *  1. An explicit Inter font is supplied, so @vercel/og never tries to
+ *     fetch its default font over the network (that fetch was failing and
+ *     returning 500 -- no report ever got an image).
+ *  2. The avatar is pre-fetched to a base64 data-URI and only used when it
+ *     is PNG/JPEG; otherwise we fall back to initials (satori can't decode
+ *     webp/avif and was throwing).
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -16,19 +21,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
-// ─── Design tokens ──────────────────────────────────────────────────────────
 const C = {
-  bg: '#0D1117',
-  card: '#161B22',
-  elevated: '#1C2128',
-  border: '#30363D',
-  text: '#E6EDF3',
-  textSub: '#8B949E',
-  textMuted: '#6E7681',
-  call: '#3FB950',
-  put: '#F85149',
-  blue: '#58A6FF',
-  gold: '#E3B341',
+  bg: '#0B0F17', card: '#141A24', elevated: '#1A2230', border: '#243042',
+  text: '#EEF2F9', textSub: '#9AA6B8', textMuted: '#66738A',
+  green: '#22C55E', greenBg: 'rgba(34,197,94,0.10)', greenBorder: 'rgba(34,197,94,0.30)',
+  red: '#EF4444', redBg: 'rgba(239,68,68,0.10)', redBorder: 'rgba(239,68,68,0.30)',
+  blue: '#3B82F6', blueBg: 'rgba(59,130,246,0.12)', blueBorder: 'rgba(59,130,246,0.30)',
+  cyan: '#22D3EE', gold: '#F59E0B',
 };
 
 function safeNum(v: any, fallback = 0): number {
@@ -36,402 +35,216 @@ function safeNum(v: any, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-// ─── Test-trade & duplicate hygiene (kept in sync with generate-advanced-daily-report) ──
 const NON_REPORTABLE_STATUSES = new Set(['draft', 'canceled', 'cancelled']);
-
-function isTestTrade(t: any): boolean {
-  return t.is_testing === true || t.is_test === true;
-}
-
+const isTestTrade = (t: any) => t.is_testing === true || t.is_test === true;
 function tradeSignature(t: any): string {
   const s = t.entry_contract_snapshot ?? {};
   const entry = s.price ?? s.mid ?? s.last ?? '';
-  return [
-    t.underlying_index_symbol ?? '', t.option_type ?? '',
-    t.strike ?? '', t.expiry ?? '',
-    entry, t.contract_high_since ?? '', t.pnl_usd ?? '', t.status ?? '',
-  ].join('|');
+  return [t.underlying_index_symbol ?? '', t.option_type ?? '', t.strike ?? '', t.expiry ?? '', entry, t.contract_high_since ?? '', t.pnl_usd ?? '', t.status ?? ''].join('|');
 }
-
 function dedupeTrades(list: any[]): any[] {
   const seen = new Set<string>();
-  return list.filter(t => {
-    const k = tradeSignature(t);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  return list.filter(t => { const k = tradeSignature(t); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
-interface ReportRequest {
-  report_id: string;
+async function avatarToDataUri(url?: string | null): Promise<string> {
+  if (!url) return '';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return '';
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('png') && !ct.includes('jpeg') && !ct.includes('jpg')) return '';
+    const buf = new Uint8Array(await r.arrayBuffer());
+    if (buf.length === 0 || buf.length > 3_000_000) return '';
+    let bin = ''; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    return `data:${ct.includes('png') ? 'image/png' : 'image/jpeg'};base64,${btoa(bin)}`;
+  } catch { return ''; }
 }
+
+async function loadFonts() {
+  const want = [[400, 'inter-latin-400-normal.woff'], [700, 'inter-latin-700-normal.woff'], [900, 'inter-latin-900-normal.woff']] as const;
+  const fonts: any[] = [];
+  for (const [weight, file] of want) {
+    try {
+      const r = await fetch(`https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/${file}`);
+      if (r.ok) fonts.push({ name: 'Inter', data: await r.arrayBuffer(), weight, style: 'normal' });
+    } catch { /* fall back to default */ }
+  }
+  return fonts;
+}
+
+interface ReportRequest { report_id: string; }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { status: 200, headers: corsHeaders });
 
   try {
-    const data: ReportRequest = await req.json();
-
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('[generate-report-image] Fetching report:', data.report_id);
+    const data: ReportRequest = await req.json();
 
     const { data: report, error: reportError } = await supabase
-      .from('daily_trade_reports')
-      .select('*')
-      .eq('id', data.report_id)
-      .maybeSingle();
+      .from('daily_trade_reports').select('*').eq('id', data.report_id).maybeSingle();
+    if (reportError || !report) throw new Error('Report not found');
 
-    if (reportError || !report) {
-      console.error('[generate-report-image] Report not found:', reportError);
-      throw new Error('Report not found');
-    }
-
-    console.log('[generate-report-image] Report:', report.id, report.report_date, report.period_type);
-
-    // ── Fetch analyzer profile ───────────────────────────────────────────────
     const analystId = report.author_id ?? report.generated_by;
     const { data: analyzerProfile } = await supabase
-      .from('profiles')
-      .select('full_name, telegram_username, avatar_url')
-      .eq('id', analystId)
-      .single();
+      .from('profiles').select('full_name, telegram_username, avatar_url').eq('id', analystId).single();
     const analyzerName = analyzerProfile?.full_name || analyzerProfile?.telegram_username || 'Analyst';
     const initials = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+    const avatarDataUri = await avatarToDataUri(analyzerProfile?.avatar_url);
 
-    // ── Summary metrics ─────────────────────────────────────────────────────
+    const fonts = await loadFonts();
+    const FF = fonts.length ? 'Inter' : 'sans-serif';
+
     const summary = report.summary ?? {};
     const totalTrades = safeNum(summary.total_trades);
-    const activeTrades = safeNum(summary.active_trades);
-    const closedTrades = safeNum(summary.closed_trades);
     const winningTrades = safeNum(summary.winning_trades);
     const losingTrades = safeNum(summary.losing_trades);
     const totalProfit = safeNum(summary.total_profit_dollars ?? summary.total_profit);
-    const totalLoss = safeNum(Math.abs(safeNum(summary.total_loss)));
+    const totalLoss = Math.abs(safeNum(summary.total_loss));
     const netProfit = safeNum(summary.net_profit, totalProfit - totalLoss);
-    const winRate =
-      winningTrades + losingTrades > 0
-        ? (winningTrades / (winningTrades + losingTrades)) * 100
-        : 0;
-    const wlRatio = losingTrades > 0
-      ? (winningTrades / losingTrades).toFixed(1) + '×'
-      : winningTrades > 0 ? '∞' : '—';
+    const winRate = winningTrades + losingTrades > 0 ? (winningTrades / (winningTrades + losingTrades)) * 100 : 0;
+    const wlRatio = losingTrades > 0 ? (winningTrades / losingTrades).toFixed(1) + 'x' : winningTrades > 0 ? 'inf' : '-';
     const avgWin = safeNum(summary.avg_profit_per_winning_trade);
     const bestTrade = safeNum(summary.best_trade);
     const worstTrade = safeNum(summary.worst_trade);
 
-    // ── Fetch recent trades ──────────────────────────────────────────────────
     const startDate = report.start_date ?? report.report_date;
     const endDate = report.end_date ?? report.report_date;
     const periodStart = new Date(startDate + 'T00:00:00.000Z');
     const periodEnd = new Date(endDate + 'T23:59:59.999Z');
 
-    // Filter to the same channel + exclude test trades so the image matches the HTML report.
-    let tradesQuery = supabase
-      .from('index_trades')
-      .select('*')
-      .eq('author_id', analystId)
-      .eq('is_testing', false);
+    let tq = supabase.from('index_trades').select('*').eq('author_id', analystId).eq('is_testing', false);
+    if (report.telegram_channel_id) tq = tq.eq('telegram_channel_id', report.telegram_channel_id);
+    const { data: allTrades } = await tq;
 
-    if (report.telegram_channel_id) {
-      tradesQuery = tradesQuery.eq('telegram_channel_id', report.telegram_channel_id);
-    }
-
-    const { data: allTrades } = await tradesQuery;
-
-    // Exclude test/demo trades (both flags) + non-reportable statuses, then
-    // de-duplicate identical re-postings so the image matches the HTML report.
-    const reportable = (allTrades ?? []).filter(
-      (t: any) => !isTestTrade(t) && !NON_REPORTABLE_STATUSES.has((t.status ?? '').toLowerCase()),
-    );
-
-    const periodTrades = dedupeTrades(
-      reportable.filter((t: any) => {
-        const created = new Date(t.created_at);
-        const closed = t.closed_at ? new Date(t.closed_at) : null;
-        return (
-          (created >= periodStart && created <= periodEnd) ||
-          (closed && closed >= periodStart && closed <= periodEnd) ||
-          (t.status === 'active' && created <= periodEnd)
-        );
-      }),
-    )
-      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 5);
-
-    console.log('[generate-report-image] Period trades:', periodTrades.length);
+    const reportable = (allTrades ?? []).filter((t: any) => !isTestTrade(t) && !NON_REPORTABLE_STATUSES.has((t.status ?? '').toLowerCase()));
+    const periodTrades = dedupeTrades(reportable.filter((t: any) => {
+      const created = new Date(t.created_at);
+      const closed = t.closed_at ? new Date(t.closed_at) : null;
+      return (created >= periodStart && created <= periodEnd) || (closed && closed >= periodStart && closed <= periodEnd) || (t.status === 'active' && created <= periodEnd);
+    })).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6);
 
     const tradesData = periodTrades.map((t: any) => {
-      // Same model as the HTML report: winner/active -> peak profit
-      // (entry -> highest); finalised loser -> full premium lost.
-      const ep   = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
-      const hp   = safeNum(t.contract_high_since ?? t.current_contract, ep);
-      const qtyN = safeNum(t.qty, 1);
-      const multN = safeNum(t.contract_multiplier, 100);
+      const ep = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
+      const hp = safeNum(t.contract_high_since ?? t.current_contract, ep);
+      const qtyN = safeNum(t.qty, 1); const multN = safeNum(t.contract_multiplier, 100);
       const peak = (hp - ep) * qtyN * multN;
       const isActive = t.status === 'active';
       const isWin = peak >= 100;
       const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);
-      const isLoss = !isActive && !isWin;
-
+      const pct = (isActive || isWin) ? (ep > 0 ? ((hp - ep) / ep) * 100 : 0) : -100;
       let sym = t.underlying_index_symbol ?? 'N/A';
-      if (t.polygon_option_ticker) {
-        const parts = String(t.polygon_option_ticker).split(':');
-        if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, '');
-      }
-
-      const statusColor = isActive ? C.blue : isWin ? C.call : isLoss ? C.put : C.textSub;
-      const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(0)}` : '—';
-      const profitColor = profit > 0 ? C.call : profit < 0 ? C.put : C.textSub;
-
-      const entry = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
-      const high = safeNum(t.contract_high_since ?? t.current_contract, entry);
+      if (t.polygon_option_ticker) { const parts = String(t.polygon_option_ticker).split(':'); if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, ''); }
       const strike = safeNum(t.strike);
-      const optType = (t.option_type ?? t.direction ?? 'call').toLowerCase();
-      const isCall = optType === 'call';
-      const dirLabel = isCall ? 'CALL' : 'PUT';
-      const dirColor = isCall ? C.call : C.put;
-      const dirBg = isCall ? 'rgba(63,185,80,0.10)' : 'rgba(248,81,73,0.10)';
-      const dirBorder = isCall ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)';
-
-      return { sym, strike: strike > 0 ? `$${strike.toFixed(0)}` : '—',
-               entry: entry > 0 ? `$${entry.toFixed(2)}` : '—',
-               high: high > 0 ? `$${high.toFixed(2)}` : '—',
-               profitStr, profitColor, statusColor, dirLabel, dirColor, dirBg, dirBorder };
+      const isCall = (t.option_type ?? t.direction ?? 'call').toLowerCase() === 'call';
+      return {
+        sym, strikeStr: strike > 0 ? `$${strike.toFixed(0)}` : '-',
+        entryStr: ep > 0 ? `$${ep.toFixed(2)}` : '-', highStr: hp > 0 ? `$${hp.toFixed(2)}` : '-',
+        dirLabel: isCall ? 'CALL' : 'PUT', dirColor: isCall ? C.green : C.red,
+        dirBg: isCall ? C.greenBg : C.redBg, dirBorder: isCall ? C.greenBorder : C.redBorder,
+        badge: isActive ? 'ACTIVE' : isWin ? 'WIN' : 'LOSS',
+        badgeColor: isActive ? C.blue : isWin ? C.green : C.red,
+        badgeBg: isActive ? C.blueBg : isWin ? C.greenBg : C.redBg,
+        badgeBorder: isActive ? C.blueBorder : isWin ? C.greenBorder : C.redBorder,
+        pnlStr: `${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(0)}`,
+        pctStr: `${pct >= 0 ? '+' : ''}${pct.toFixed(0)}%`,
+        pColor: profit > 0 ? C.green : profit < 0 ? C.red : C.textSub,
+      };
     });
 
-    // ── Period title ─────────────────────────────────────────────────────────
-    const periodLabel =
-      report.period_type === 'weekly' ? 'Weekly Report' :
-      report.period_type === 'monthly' ? 'Monthly Report' : 'Daily Report';
+    const periodLabel = report.period_type === 'weekly' ? 'Weekly Report' : report.period_type === 'monthly' ? 'Monthly Report' : 'Daily Report';
+    const dateLabel = report.period_type === 'daily' ? report.report_date : `${startDate}  -  ${endDate}`;
+    const netColor = netProfit >= 0 ? C.green : C.red;
+    const netSign = netProfit >= 0 ? '+' : '-';
 
-    const dateLabel =
-      report.period_type === 'daily' ? report.report_date : `${startDate} – ${endDate}`;
+    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 8 }, children: [ { type: 'div', props: { style: { fontSize: 20, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 56, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
+    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }, children: [ { type: 'div', props: { style: { fontSize: 16, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 32, fontWeight: 900, color }, children: value } } ] } });
+    const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 26px', borderBottom: `1px solid ${C.border}` }, children: [
+      { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: [
+        { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 12 }, children: [
+          { type: 'div', props: { style: { fontSize: 34, fontWeight: 900, color: C.text }, children: t.sym } },
+          { type: 'div', props: { style: { display: 'flex', background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 7, padding: '4px 11px', fontSize: 19, fontWeight: 800, color: t.dirColor }, children: t.dirLabel } },
+          { type: 'div', props: { style: { fontSize: 26, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
+        ] } },
+        { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10 }, children: [
+          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 600 }, children: 'Entry' } },
+          { type: 'div', props: { style: { fontSize: 24, color: C.textSub, fontWeight: 700 }, children: t.entryStr } },
+          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted }, children: '->' } },
+          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 600 }, children: 'High' } },
+          { type: 'div', props: { style: { fontSize: 24, color: C.green, fontWeight: 800 }, children: t.highStr } },
+        ] } },
+      ] } },
+      { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }, children: [
+        { type: 'div', props: { style: { display: 'flex', background: t.badgeBg, border: `1px solid ${t.badgeBorder}`, borderRadius: 8, padding: '4px 12px', fontSize: 19, fontWeight: 800, color: t.badgeColor }, children: t.badge } },
+        { type: 'div', props: { style: { fontSize: 36, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
+        { type: 'div', props: { style: { fontSize: 20, fontWeight: 700, color: t.pColor }, children: t.pctStr } },
+      ] } },
+    ] } });
 
-    const netColor = netProfit >= 0 ? C.call : C.put;
-    const netSign = netProfit >= 0 ? '+' : '';
+    const avatarNode = avatarDataUri
+      ? { type: 'img', props: { src: avatarDataUri, width: 84, height: 84, style: { width: 84, height: 84, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
+      : { type: 'div', props: { style: { display: 'flex', width: 84, height: 84, borderRadius: '50%', background: C.blueBg, border: `2px solid ${C.blueBorder}`, alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 900, color: C.blue }, children: initials } };
 
-    console.log('[generate-report-image] Generating image...');
-
-    // ── vdom (object notation for Deno edge compatibility) ───────────────────
-    const imageResponse = new ImageResponse(
-      {
-        type: 'div',
-        props: {
-          style: {
-            width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
-            background: C.bg, fontFamily: 'system-ui, sans-serif',
-            position: 'relative', overflow: 'hidden',
-          },
-          children: [
-            // Top accent
-            { type: 'div', props: { style: { position: 'absolute', top: 0, left: 0, right: 0, height: 5, background: C.blue } } },
-            // Main content
-            {
-              type: 'div',
-              props: {
-                style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '44px 52px 36px' },
-                children: [
-                  // Header
-                  {
-                    type: 'div',
-                    props: {
-                      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 },
-                      children: [
-                        // Left: brand + title + date
-                        {
-                          type: 'div',
-                          props: {
-                            style: { display: 'flex', flexDirection: 'column', gap: 5 },
-                            children: [
-                              { type: 'div', props: { style: { background: 'rgba(88,166,255,0.10)', border: '1px solid rgba(88,166,255,0.25)', borderRadius: 6, padding: '3px 12px', color: C.blue, fontSize: 11, fontWeight: 700, letterSpacing: '0.13em', width: 'fit-content' }, children: 'ANALYZINGHUB' } },
-                              { type: 'div', props: { style: { fontSize: 32, fontWeight: 800, color: C.text, letterSpacing: '-0.5px', lineHeight: 1.15 }, children: periodLabel } },
-                              { type: 'div', props: { style: { fontSize: 17, color: C.textSub }, children: dateLabel } },
-                            ],
-                          },
-                        },
-                        // Right: analyst avatar + name
-                        {
-                          type: 'div',
-                          props: {
-                            style: { display: 'flex', alignItems: 'center', gap: 12 },
-                            children: [
-                              analyzerProfile?.avatar_url
-                                ? { type: 'img', props: { src: analyzerProfile.avatar_url, style: { width: 48, height: 48, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
-                                : { type: 'div', props: { style: { width: 48, height: 48, borderRadius: '50%', background: 'rgba(88,166,255,0.10)', border: '2px solid rgba(88,166,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 800, color: C.blue }, children: initials } },
-                              {
-                                type: 'div',
-                                props: {
-                                  style: { display: 'flex', flexDirection: 'column', gap: 2 },
-                                  children: [
-                                    { type: 'div', props: { style: { fontSize: 15, fontWeight: 700, color: C.text }, children: analyzerName } },
-                                    { type: 'div', props: { style: { fontSize: 12, color: C.textMuted }, children: 'Index Analyst' } },
-                                  ],
-                                },
-                              },
-                            ],
-                          },
-                        },
-                      ],
-                    },
-                  },
-                  // KPI row
-                  {
-                    type: 'div',
-                    props: {
-                      style: { display: 'flex', gap: 14, marginBottom: 14 },
-                      children: [
-                        // Net profit (wide)
-                        {
-                          type: 'div',
-                          props: {
-                            style: {
-                              flex: 2, background: netProfit >= 0 ? 'rgba(63,185,80,0.08)' : 'rgba(248,81,73,0.08)',
-                              border: `1px solid ${netProfit >= 0 ? 'rgba(63,185,80,0.25)' : 'rgba(248,81,73,0.25)'}`,
-                              borderRadius: 14, padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 4,
-                            },
-                            children: [
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Net Profit' } },
-                              { type: 'div', props: { style: { fontSize: 46, fontWeight: 900, color: netColor, lineHeight: 1, letterSpacing: '-1px' }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
-                            ],
-                          },
-                        },
-                        // Win rate
-                        {
-                          type: 'div',
-                          props: {
-                            style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
-                            children: [
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Win Rate' } },
-                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: winRate >= 50 ? C.call : C.put, lineHeight: 1 }, children: `${winRate.toFixed(0)}%` } },
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, marginTop: 2 }, children: `${winningTrades}W · ${losingTrades}L · W/L ${wlRatio}` } },
-                            ],
-                          },
-                        },
-                        // Best trade
-                        {
-                          type: 'div',
-                          props: {
-                            style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 4 },
-                            children: [
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase' }, children: 'Best Trade' } },
-                              { type: 'div', props: { style: { fontSize: 40, fontWeight: 900, color: C.gold, lineHeight: 1 }, children: `+$${bestTrade.toFixed(0)}` } },
-                              { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, marginTop: 2 }, children: `Avg win +$${avgWin.toFixed(0)}` } },
-                            ],
-                          },
-                        },
-                      ],
-                    },
-                  },
-                  // Counts row
-                  {
-                    type: 'div',
-                    props: {
-                      style: { display: 'flex', gap: 10, marginBottom: 14 },
-                      children: (
-                        [
-                          ['Total', String(totalTrades), C.text],
-                          ['Active', String(activeTrades), C.blue],
-                          ['Closed', String(closedTrades), C.textSub],
-                          ['Won', String(winningTrades), C.call],
-                          ['Lost', String(losingTrades), C.put],
-                          ['Best', `+$${bestTrade.toFixed(0)}`, C.call],
-                          ['Worst', `$${worstTrade.toFixed(0)}`, C.put],
-                        ] as const
-                      ).map(([label, value, color]) => ({
-                        type: 'div',
-                        props: {
-                          style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 12, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 3 },
-                          children: [
-                            { type: 'div', props: { style: { fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.10em', textTransform: 'uppercase' }, children: label } },
-                            { type: 'div', props: { style: { fontSize: 20, fontWeight: 800, color }, children: value } },
-                          ],
-                        },
-                      })),
-                    },
-                  },
-                  // Trades table
-                  {
-                    type: 'div',
-                    props: {
-                      style: { flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
-                      children: [
-                        // Table header
-                        {
-                          type: 'div',
-                          props: {
-                            style: { display: 'flex', background: C.elevated, padding: '10px 18px', borderBottom: `1px solid ${C.border}` },
-                            children: (
-                              [['Symbol', 2], ['Strike', 1], ['Entry', 1], ['High', 1], ['P/L', 1]] as const
-                            ).map(([label, flex]) => ({
-                              type: 'div',
-                              props: { style: { flex, fontSize: 11, color: C.textMuted, fontWeight: 700, letterSpacing: '0.10em', textTransform: 'uppercase' }, children: label },
-                            })),
-                          },
-                        },
-                        // Rows
-                        ...tradesData.map((t: any) => ({
-                          type: 'div',
-                          props: {
-                            style: { display: 'flex', padding: '10px 18px', borderBottom: `1px solid ${C.border}`, alignItems: 'center' },
-                            children: [
-                              {
-                                type: 'div',
-                                props: {
-                                  style: { flex: 2, display: 'flex', alignItems: 'center', gap: 8 },
-                                  children: [
-                                    { type: 'div', props: { style: { fontSize: 16, fontWeight: 800, color: C.text }, children: t.sym } },
-                                    { type: 'div', props: { style: { background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 4, padding: '2px 6px', fontSize: 10, fontWeight: 800, color: t.dirColor, letterSpacing: '0.05em' }, children: t.dirLabel } },
-                                  ],
-                                },
-                              },
-                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.textSub, fontWeight: 600 }, children: t.strike } },
-                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.textSub }, children: t.entry } },
-                              { type: 'div', props: { style: { flex: 1, fontSize: 14, color: C.call }, children: t.high } },
-                              { type: 'div', props: { style: { flex: 1, fontSize: 15, fontWeight: 800, color: t.profitColor }, children: t.profitStr } },
-                            ],
-                          },
-                        })),
-                        ...(tradesData.length === 0 ? [{
-                          type: 'div',
-                          props: {
-                            style: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 17, padding: '20px' },
-                            children: 'No trades in this period',
-                          },
-                        }] : []),
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        },
+    const vdom = {
+      type: 'div', props: {
+        style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative' },
+        children: [
+          { type: 'div', props: { style: { display: 'flex', position: 'absolute', top: 0, left: 0, right: 0, height: 10, background: C.blue } } },
+          { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '64px 56px 48px', gap: 26 }, children: [
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 14 }, children: [
+              { type: 'div', props: { style: { display: 'flex', background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 8, padding: '6px 16px', color: C.blue, fontSize: 20, fontWeight: 800 }, children: 'ANALYZINGHUB' } },
+              { type: 'div', props: { style: { fontSize: 64, fontWeight: 900, color: C.text, lineHeight: 1.1 }, children: periodLabel } },
+              { type: 'div', props: { style: { fontSize: 28, color: C.textSub }, children: dateLabel } },
+              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 16, marginTop: 6 }, children: [
+                avatarNode,
+                { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 4 }, children: [
+                  { type: 'div', props: { style: { fontSize: 28, fontWeight: 800, color: C.text }, children: analyzerName } },
+                  { type: 'div', props: { style: { fontSize: 21, color: C.textMuted }, children: 'Index Analyst' } },
+                ] } },
+              ] } },
+            ] } },
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 22, padding: '30px 36px', gap: 10 }, children: [
+              { type: 'div', props: { style: { fontSize: 24, color: C.textMuted, fontWeight: 800 }, children: 'NET PROFIT' } },
+              { type: 'div', props: { style: { fontSize: 110, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
+              { type: 'div', props: { style: { fontSize: 24, color: C.textSub, fontWeight: 600 }, children: `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
+            ] } },
+            { type: 'div', props: { style: { display: 'flex', gap: 20 }, children: [
+              chip('WIN RATE', `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
+              chip('BEST TRADE', `+$${bestTrade.toFixed(0)}`, C.gold),
+            ] } },
+            { type: 'div', props: { style: { display: 'flex', gap: 14 }, children: [
+              miniStat('TOTAL', String(totalTrades), C.text),
+              miniStat('WON', String(winningTrades), C.green),
+              miniStat('LOST', String(losingTrades), C.red),
+              miniStat('AVG WIN', `+$${avgWin.toFixed(0)}`, C.green),
+              miniStat('WORST', `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
+            ] } },
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 22, overflow: 'hidden' }, children: [
+              { type: 'div', props: { style: { display: 'flex', padding: '16px 26px', fontSize: 20, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `TRADES (${totalTrades})` } },
+              ...tradesData.map(tradeRow),
+              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 28, padding: '40px' }, children: 'No trades in this period' } }] : []),
+            ] } },
+            { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 20, color: C.textMuted }, children: [
+              { type: 'div', props: { children: 'AnalyzingHub  .  Index Trading Report' } },
+              { type: 'div', props: { style: { color: C.cyan, fontWeight: 700 }, children: `W/L ${wlRatio}` } },
+            ] } },
+          ] } },
+        ],
       },
-      { width: 1200, height: 675 }
-    );
+    };
 
+    const opts: any = { width: 1080, height: 1920 };
+    if (fonts.length) opts.fonts = fonts;
+    const imageResponse = new ImageResponse(vdom as any, opts);
     const arrayBuffer = await imageResponse.arrayBuffer();
-    const pngBuffer = new Uint8Array(arrayBuffer);
 
-    console.log('[generate-report-image] Done, size:', pngBuffer.length, 'bytes');
-
-    return new Response(pngBuffer, {
-      status: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'image/png' },
-    });
-
+    return new Response(new Uint8Array(arrayBuffer), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'image/png' } });
   } catch (error: any) {
-    console.error('[generate-report-image] Error:', error?.message);
-    console.error('[generate-report-image] Stack:', error?.stack);
-    return new Response(
-      JSON.stringify({ error: error?.message ?? 'Image generation failed' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    console.error('[generate-report-image] Error:', error?.message, error?.stack);
+    return new Response(JSON.stringify({ error: error?.message ?? 'Image generation failed' }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 });
