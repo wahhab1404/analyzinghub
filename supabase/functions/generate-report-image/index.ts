@@ -186,8 +186,8 @@ Deno.serve(async (req: Request) => {
     const netColor = netProfit >= 0 ? C.green : C.red;
     const netSign = netProfit >= 0 ? '+' : '-';
 
-    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 7 }, children: [ { type: 'div', props: { style: { fontSize: 18, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 44, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
-    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '13px 5px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 14, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color }, children: value } } ] } });
+    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 7 }, children: [ { type: 'div', props: { style: { fontSize: 18, color: C.text, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 44, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
+    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '13px 5px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 14, color: C.text, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color }, children: value } } ] } });
     const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 22px', borderBottom: `1px solid ${C.border}` }, children: [
       { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10, flex: 1 }, children: [
         { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color: C.text }, children: t.sym } },
@@ -212,7 +212,7 @@ Deno.serve(async (req: Request) => {
 
     const vdom = {
       type: 'div', props: {
-        style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative', direction: dir },
+        style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative' },
         children: [
           { type: 'div', props: { style: { display: 'flex', position: 'absolute', top: 0, left: 0, right: 0, height: 9, background: C.blue } } },
           { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '40px 40px 30px', gap: 18 }, children: [
@@ -229,9 +229,9 @@ Deno.serve(async (req: Request) => {
               ] } },
             ] } },
             { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 18, padding: '22px 28px', gap: 6 }, children: [
-              { type: 'div', props: { style: { fontSize: 21, color: C.textMuted, fontWeight: 800 }, children: lbl('NET PROFIT', 'صافي الربح') } },
-              { type: 'div', props: { style: { fontSize: 76, fontWeight: 900, color: netColor, lineHeight: 1, direction: 'ltr' }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
-              { type: 'div', props: { style: { fontSize: 21, color: C.textSub, fontWeight: 600 }, children: `${lbl('Profits', 'الأرباح')} +$${totalProfit.toFixed(0)}   .   ${lbl('Losses', 'الخسائر')} -$${totalLoss.toFixed(0)}` } },
+              { type: 'div', props: { style: { fontSize: 21, color: C.text, fontWeight: 800 }, children: lbl('NET PROFIT', 'صافي الربح') } },
+              { type: 'div', props: { style: { fontSize: 76, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
+              { type: 'div', props: { style: { fontSize: 21, color: C.textSub, fontWeight: 600 }, children: ar ? `الأرباح: +$${totalProfit.toFixed(0)}   ·   الخسائر: -$${totalLoss.toFixed(0)}` : `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
             ] } },
             { type: 'div', props: { style: { display: 'flex', gap: 16 }, children: [
               chip(lbl('WIN RATE', 'معدل النجاح'), `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
@@ -245,14 +245,14 @@ Deno.serve(async (req: Request) => {
               miniStat(lbl('WORST', 'أسوأ'), `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
             ] } },
             { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: 'hidden' }, children: [
-              { type: 'div', props: { style: { display: 'flex', padding: '13px 22px', fontSize: 18, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `${lbl('TRADES', 'الصفقات')} (${totalTrades})` } },
+              { type: 'div', props: { style: { display: 'flex', padding: '13px 22px', fontSize: 18, fontWeight: 800, color: C.text, borderBottom: `1px solid ${C.border}` }, children: `${lbl('TRADES', 'الصفقات')} (${totalTrades})` } },
               ...shownTrades.map(tradeRow),
               ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '13px', fontSize: 17, fontWeight: 600, color: C.textMuted }, children: lbl(`+ ${hiddenCount} more trades - see full report`, `+ ${hiddenCount} صفقات أخرى — راجع التقرير الكامل`) } }] : []),
               ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 24, padding: '36px' }, children: lbl('No trades in this period', 'لا توجد صفقات في هذه الفترة') } }] : []),
             ] } },
             { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 17, color: C.textMuted }, children: [
               { type: 'div', props: { children: lbl('AnalyzingHub  .  Index Trading Report', 'AnalyzingHub  ·  تقرير تداول المؤشرات') } },
-              { type: 'div', props: { style: { color: C.cyan, fontWeight: 700, direction: 'ltr' }, children: `W/L ${wlRatio}` } },
+              { type: 'div', props: { style: { color: C.cyan, fontWeight: 700 }, children: `W/L ${wlRatio}` } },
             ] } },
           ] } },
         ],
