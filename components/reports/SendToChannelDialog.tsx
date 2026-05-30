@@ -25,7 +25,7 @@ interface SendToChannelDialogProps {
 }
 
 export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: SendToChannelDialogProps) {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [channels, setChannels] = useState<TelegramChannel[]>([])
   const [selectedChannels, setSelectedChannels] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -157,8 +157,10 @@ export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: Se
                         </p>
                       )}
                       {channel.audience_type && (
-                        <p className="text-xs text-muted-foreground capitalize">
-                          {channel.audience_type === 'subscribers' ? 'Subscriber Channel' : 'Advertisement Channel'}
+                        <p className="text-xs text-muted-foreground">
+                          {channel.audience_type === 'subscribers'
+                            ? (language === 'ar' ? 'قناة المشتركين' : 'Subscriber Channel')
+                            : (language === 'ar' ? 'قناة إعلانات الصفقات' : 'Advertisement Channel')}
                         </p>
                       )}
                     </div>
