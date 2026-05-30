@@ -331,6 +331,27 @@ export function CreateTradeDialog({
         return
       }
 
+      // Publish to the selected Telegram channel. Creating the trade only saves
+      // it (and marks it published); the actual channel send happens here via
+      // the broadcast endpoint. Best-effort: a send failure must not block the
+      // create success.
+      if (values.publish_now && json.trade?.id && values.telegram_channel_id) {
+        try {
+          const bRes = await fetch(`/api/trades/${json.trade.id}/broadcast`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          })
+          const bJson = await bRes.json().catch(() => ({}))
+          if (bRes.ok && bJson?.telegram_sent) {
+            toast.success('تم النشر في تيليقرام / Published to Telegram')
+          } else if (bRes.ok) {
+            toast.error('تم إنشاء الصفقة لكن تعذّر الإرسال لتيليقرام / Created, but Telegram send failed')
+          }
+        } catch {
+          toast.warning('تم إنشاء الصفقة لكن تعذّر الإرسال لتيليقرام / Created, but Telegram send failed')
+        }
+      }
+
       toast.success('تم إنشاء الصفقة / Trade created')
       onCreated?.(json.trade)
       onOpenChange(false)
