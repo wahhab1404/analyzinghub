@@ -1161,13 +1161,35 @@ export default function ReportsPage() {
             </DialogTitle>
           </DialogHeader>
           {previewReport?.html_content && (
-            <iframe
-              srcDoc={previewReport.html_content}
-              className="w-full border-0 rounded"
-              style={{ height: '70vh' }}
-              sandbox="allow-same-origin"
-              title="Report Preview"
-            />
+            <div
+              className="w-full overflow-y-auto overscroll-contain rounded"
+              style={{ maxHeight: '78vh', WebkitOverflowScrolling: 'touch' }}
+            >
+              <iframe
+                srcDoc={previewReport.html_content}
+                className="w-full border-0 rounded block"
+                style={{ height: '78vh' }}
+                scrolling="no"
+                sandbox="allow-same-origin"
+                title="Report Preview"
+                onLoad={(e) => {
+                  // Size the iframe to its full content so the wrapper handles
+                  // scrolling — reliable on mobile where inner-iframe touch
+                  // scrolling often fails.
+                  try {
+                    const f = e.currentTarget as HTMLIFrameElement
+                    const doc = f.contentDocument
+                    if (doc) {
+                      const h = Math.max(
+                        doc.documentElement.scrollHeight,
+                        doc.body?.scrollHeight ?? 0,
+                      )
+                      if (h > 0) f.style.height = h + 'px'
+                    }
+                  } catch { /* cross-origin guard */ }
+                }}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>
