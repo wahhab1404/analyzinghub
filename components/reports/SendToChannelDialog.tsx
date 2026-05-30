@@ -42,13 +42,19 @@ export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: Se
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/telegram/channels/list')
-      if (!response.ok) throw new Error('Failed to load channels')
-      const data = await response.json()
+      // Report/subscriber channels + the separate trade-advertisement channels
+      // (stored in telegram_ad_channels) so both appear as send targets.
+      const [chRes, adRes] = await Promise.all([
+        fetch('/api/telegram/channels/list'),
+        fetch('/api/telegram/ad-channels'),
+      ])
+      if (!chRes.ok) throw new Error('Failed to load channels')
+      const chData = await chRes.json()
+      const adData = adRes.ok ? await adRes.json() : { channels: [] }
 
       // The list API returns camelCase keys (channelId/channelName/...),
       // normalise them to the snake_case shape this dialog renders/sends.
-      const enabledChannels: TelegramChannel[] = (data.channels || [])
+      const subChannels: TelegramChannel[] = (chData.channels || [])
         .map((ch: any) => ({
           channel_id: ch.channel_id ?? ch.channelId,
           channel_name: ch.channel_name ?? ch.channelName,
@@ -57,12 +63,29 @@ export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: Se
           audience_type: ch.audience_type ?? ch.audienceType,
         }))
         .filter((ch: TelegramChannel) => ch.enabled && ch.channel_id)
+
+      const adChannels: TelegramChannel[] = (adData.channels || [])
+        .map((ch: any) => ({
+          channel_id: ch.channel_id ?? ch.channelId,
+          channel_name: ch.channel_name ?? ch.channelName,
+          channel_username: undefined,
+          enabled: (ch.is_active ?? ch.isActive) !== false,
+          audience_type: 'advertisement' as const,
+        }))
+        .filter((ch: TelegramChannel) => ch.enabled && ch.channel_id)
+
+      // Merge, de-duplicating by channel_id (ad channels listed first).
+      const seen = new Set<string>()
+      const enabledChannels: TelegramChannel[] = [...adChannels, ...subChannels].filter((ch) => {
+        if (seen.has(ch.channel_id)) return false
+        seen.add(ch.channel_id)
+        return true
+      })
       setChannels(enabledChannels)
 
       if (enabledChannels.length > 0) {
-        // Pre-select ALL enabled channels (subscriber + advertisement/trade-ad)
-        // so the report goes to the ad channels by default; the user can
-        // uncheck any they don't want before sending.
+        // Pre-select ALL channels (subscriber + advertisement/trade-ad) so the
+        // report reaches the ad channels by default; user can uncheck any.
         setSelectedChannels(enabledChannels.map((c) => c.channel_id))
       }
     } catch (err: any) {
