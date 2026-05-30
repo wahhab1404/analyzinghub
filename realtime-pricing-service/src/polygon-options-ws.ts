@@ -100,6 +100,27 @@ function normalizeEventMs(ts: number): number {
 
 // ── CLASS ─────────────────────────────────────────────────────────────────────
 
+/** SPX auto-trade metadata — used to monitor TP/SL on real-time price ticks */
+export interface SPXAutoTradeMeta {
+  tradeId:          string;
+  ticker:           string;       // O:SPX...
+  optionType:       'call' | 'put';
+  strike:           number | null;
+  expiry:           string | null;
+  dte:              number | null;
+  entryPremium:     number | null;
+  stopPremium:      number | null;
+  target1Premium:   number | null;
+  target2Premium:   number | null;
+  target3Premium:   number | null;
+  lastTargetAlerted: number;      // 0 / 1 / 2 / 3
+  channelIds:       string[];     // auto_trade_channel_ids — only these get alerts
+  signalMode:       string | null;
+  confidenceClass:  string | null;
+  compositeScore:   number | null;
+  directionBias:    string | null;
+}
+
 /** Buy-range metadata stored per trade, populated from syncActiveTrades */
 interface BuyRangeMeta {
   min:         number;
@@ -122,11 +143,14 @@ export class PolygonOptionsWebSocket {
   private apiKey: string;
   private telegramAlerts: TelegramAlertsService | null;
 
-  /** ticker → tradeId (for the active trades we care about) */
+  /** ticker → tradeId (for the active indices trades we care about) */
   private tickerToTradeId = new Map<string, string>();
 
   /** ticker → buy-range metadata (only for trades with pending buy-range alerts) */
   private tickerToBuyRange = new Map<string, BuyRangeMeta>();
+
+  /** ticker → SPX auto-trade metadata (TP/SL monitored in realtime) */
+  private spxAutoTradeMeta = new Map<string, SPXAutoTradeMeta>();
 
   /** tickers currently subscribed in Polygon */
   private subscribedTickers = new Set<string>();
@@ -177,9 +201,9 @@ export class PolygonOptionsWebSocket {
       }
     }
 
-    // Unsubscribe tickers no longer needed
+    // Unsubscribe tickers no longer needed — BUT only if the SPX map doesn't keep them alive
     for (const [ticker] of this.tickerToTradeId) {
-      if (!newTradeMap.has(ticker) && this.subscribedTickers.has(ticker)) {
+      if (!newTradeMap.has(ticker) && !this.spxAutoTradeMeta.has(ticker) && this.subscribedTickers.has(ticker)) {
         this.sendUnsubscribe([ticker]);
         this.subscribedTickers.delete(ticker);
       }
@@ -187,7 +211,7 @@ export class PolygonOptionsWebSocket {
 
     this.tickerToTradeId    = newTradeMap;
     this.tickerToBuyRange   = newBuyRangeMap;
-    streamHealth.setSubscribedCount('options', newTradeMap.size);
+    streamHealth.setSubscribedCount('options', newTradeMap.size + this.spxAutoTradeMeta.size);
 
     // Subscribe to new tickers
     if (this.isAuthenticated) {
@@ -197,6 +221,34 @@ export class PolygonOptionsWebSocket {
       if (toSubscribe.length > 0) {
         this.sendSubscribe(toSubscribe);
       }
+    }
+  }
+
+  /**
+   * Register all live SPX auto-trades whose TP/SL should be monitored on
+   * every WebSocket tick. Called by the fetcher every 30s.
+   */
+  setActiveSPXAutoTrades(trades: SPXAutoTradeMeta[]): void {
+    const newMap = new Map<string, SPXAutoTradeMeta>();
+    for (const t of trades) {
+      const ticker = t.ticker.startsWith('O:') ? t.ticker : `O:${t.ticker}`;
+      newMap.set(ticker, { ...t, ticker });
+    }
+
+    // Unsubscribe SPX tickers that are no longer active AND not held by indices map
+    for (const [ticker] of this.spxAutoTradeMeta) {
+      if (!newMap.has(ticker) && !this.tickerToTradeId.has(ticker) && this.subscribedTickers.has(ticker)) {
+        this.sendUnsubscribe([ticker]);
+        this.subscribedTickers.delete(ticker);
+      }
+    }
+
+    this.spxAutoTradeMeta = newMap;
+    streamHealth.setSubscribedCount('options', this.tickerToTradeId.size + newMap.size);
+
+    if (this.isAuthenticated) {
+      const toSubscribe = Array.from(newMap.keys()).filter(t => !this.subscribedTickers.has(t));
+      if (toSubscribe.length > 0) this.sendSubscribe(toSubscribe);
     }
   }
 
@@ -393,8 +445,8 @@ export class PolygonOptionsWebSocket {
   ): void {
     const ticker = rawSym.startsWith('O:') ? rawSym : `O:${rawSym}`;
 
-    // Only track tickers we care about
-    if (!this.tickerToTradeId.has(ticker)) return;
+    // Only track tickers we care about (indices trades OR SPX auto-trades)
+    if (!this.tickerToTradeId.has(ticker) && !this.spxAutoTradeMeta.has(ticker)) return;
 
     const existing = this.pendingUpdates.get(ticker) ?? {
       bid: null,
@@ -454,7 +506,8 @@ export class PolygonOptionsWebSocket {
 
     for (const [ticker, pending] of batch) {
       const tradeId = this.tickerToTradeId.get(ticker);
-      if (!tradeId) continue;
+      const spxMeta = this.spxAutoTradeMeta.get(ticker);
+      if (!tradeId && !spxMeta) continue;
 
       // Rate-limit guard
       if (this.rpcCallsThisSecond >= this.MAX_RPC_PER_SECOND) {
@@ -479,7 +532,12 @@ export class PolygonOptionsWebSocket {
 
       const eventTs = new Date(normalizeEventMs(pending.latestTimestampNs)).toISOString();
 
-      promises.push(this.callPriceRpc(tradeId, ticker, priceResult, pending, eventTs));
+      if (tradeId) {
+        promises.push(this.callPriceRpc(tradeId, ticker, priceResult, pending, eventTs));
+      }
+      if (spxMeta) {
+        promises.push(this.processSPXAutoTradeTick(spxMeta, priceResult.price!, eventTs));
+      }
     }
 
     // Fire all RPC calls concurrently (already rate-limited above)
@@ -590,6 +648,124 @@ export class PolygonOptionsWebSocket {
 
     } catch (err: any) {
       console.error(`[OptionsWS] Exception calling RPC for trade ${tradeId}:`, err.message);
+    }
+  }
+
+  // ── SPX AUTO-TRADE TICK HANDLER ────────────────────────────────────────────
+
+  /**
+   * Process one realtime tick for an SPX auto-trade:
+   *   1. Update spx_trades.current_premium / highest / lowest / unrealized_pnl_pct
+   *   2. Check stop_premium → if hit, send Telegram stop alert + close trade
+   *   3. Check target_1/2/3 in order → send target alert + close on T3
+   */
+  private async processSPXAutoTradeTick(
+    meta: SPXAutoTradeMeta,
+    currentPremium: number,
+    eventTs: string,
+  ): Promise<void> {
+    try {
+      // 1. Update premium tracking via RPC (atomic high/low + pnl)
+      const { data: rpcData, error: rpcErr } = await this.supabase.rpc('spx_update_trade_premium', {
+        p_trade_id:        meta.tradeId,
+        p_current_premium: currentPremium,
+        p_event_ts:        eventTs,
+      });
+      if (rpcErr) {
+        // Fallback: direct UPDATE if RPC doesn't exist yet
+        await this.supabase
+          .from('spx_trades')
+          .update({
+            current_premium:    currentPremium,
+            premium_updated_at: eventTs,
+            updated_at:         eventTs,
+          })
+          .eq('id', meta.tradeId);
+      }
+
+      // 2. Check stop_premium hit
+      if (meta.stopPremium != null && currentPremium <= meta.stopPremium) {
+        const pnlPct = meta.entryPremium && meta.entryPremium > 0
+          ? ((currentPremium - meta.entryPremium) / meta.entryPremium) * 100
+          : 0;
+        if (this.telegramAlerts) {
+          this.telegramAlerts.sendSPXLifecycleAlert({
+            type:          'stop_hit',
+            ticker:        meta.ticker,
+            currentPremium,
+            entryPremium:  meta.entryPremium,
+            pnlPct,
+            channelIds:    meta.channelIds,
+            tradeId:       meta.tradeId,
+          }).catch((err: any) => console.error('[OptionsWS] SPX stop alert failed:', err.message));
+        }
+        // Close trade in DB
+        await this.supabase
+          .from('spx_trades')
+          .update({
+            state:               currentPremium > (meta.entryPremium ?? 0) ? 'closed_win' : 'closed_loss',
+            exit_timestamp:      eventTs,
+            exit_premium:        currentPremium,
+            exit_reason:         'auto_stop_hit',
+            realized_pnl_pct:    pnlPct,
+            updated_at:          eventTs,
+          })
+          .eq('id', meta.tradeId);
+        // Remove from active map so we stop alerting
+        this.spxAutoTradeMeta.delete(meta.ticker);
+        return;
+      }
+
+      // 3. Check target hits (in order)
+      const targets: Array<[number | null, 1 | 2 | 3]> = [
+        [meta.target1Premium, 1],
+        [meta.target2Premium, 2],
+        [meta.target3Premium, 3],
+      ];
+      for (const [tPremium, tNum] of targets) {
+        if (tPremium == null) continue;
+        if (currentPremium < tPremium) continue;
+        if (meta.lastTargetAlerted >= tNum) continue;
+
+        const pnlPct = meta.entryPremium && meta.entryPremium > 0
+          ? ((currentPremium - meta.entryPremium) / meta.entryPremium) * 100
+          : 0;
+
+        if (this.telegramAlerts) {
+          this.telegramAlerts.sendSPXLifecycleAlert({
+            type:          'target_hit',
+            targetNum:     tNum,
+            ticker:        meta.ticker,
+            currentPremium,
+            entryPremium:  meta.entryPremium,
+            pnlPct,
+            channelIds:    meta.channelIds,
+            tradeId:       meta.tradeId,
+          }).catch((err: any) => console.error('[OptionsWS] SPX target alert failed:', err.message));
+        }
+
+        meta.lastTargetAlerted = tNum;
+
+        await this.supabase
+          .from('spx_trades')
+          .update({
+            last_target_alerted: tNum,
+            state:               tNum === 3 ? 'closed_win' : 'active',
+            ...(tNum === 3 ? {
+              exit_timestamp: eventTs,
+              exit_premium:   currentPremium,
+              exit_reason:    'auto_target_3_hit',
+              realized_pnl_pct: pnlPct,
+            } : {}),
+            updated_at: eventTs,
+          })
+          .eq('id', meta.tradeId);
+
+        if (tNum === 3) this.spxAutoTradeMeta.delete(meta.ticker);
+        break;
+      }
+    } catch (err: any) {
+      console.error(`[OptionsWS] processSPXAutoTradeTick(${meta.tradeId}) failed:`, err.message);
     }
   }
 

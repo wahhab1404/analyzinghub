@@ -265,4 +265,64 @@ export class TelegramAlertsService {
 
     return msg.length > 1020 ? msg.substring(0, 1020) + '…' : msg;
   }
+
+  // ────────────────────────────────────────────────────────────────────────────
+  // SPX AUTO-TRADE LIFECYCLE ALERTS
+  // ────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Send a target-hit or stop-hit alert for an SPX auto-trade, ONLY to the
+   * provided channelIds. Plain text — no image (lifecycle alerts are fast).
+   */
+  async sendSPXLifecycleAlert(params: {
+    type:          'target_hit' | 'stop_hit';
+    targetNum?:    1 | 2 | 3;
+    ticker:        string;
+    tradeId:       string;
+    currentPremium: number;
+    entryPremium:  number | null;
+    pnlPct:        number;
+    channelIds:    string[];
+  }): Promise<void> {
+    if (params.channelIds.length === 0) return;
+
+    const cleanTicker = params.ticker.replace(/^O:/, '');
+    const pnlStr = `${params.pnlPct >= 0 ? '+' : ''}${params.pnlPct.toFixed(1)}%`;
+    const entryStr = params.entryPremium != null ? `$${params.entryPremium.toFixed(2)}` : '—';
+    const priceStr = `$${params.currentPremium.toFixed(2)}`;
+
+    let text: string;
+    if (params.type === 'stop_hit') {
+      text = [
+        `🛑 <b>AUTO TRADE — STOP HIT</b>`,
+        `<code>${cleanTicker}</code>`,
+        `Exit: ${priceStr} | Entry: ${entryStr}`,
+        `P/L: <b>${pnlStr}</b>`,
+        ``,
+        `<i>Auto-closed by realtime watcher.</i>`,
+      ].join('\n');
+    } else {
+      const t = params.targetNum ?? 1;
+      const closing = t === 3;
+      text = [
+        `🎯 <b>AUTO TRADE — TARGET T${t} HIT</b>`,
+        `<code>${cleanTicker}</code>`,
+        `Price: ${priceStr} | Entry: ${entryStr}`,
+        `P/L: <b>${pnlStr}</b>`,
+        ``,
+        closing
+          ? `🚀 <i>Full target reached — position auto-closed.</i>`
+          : `💡 <i>Consider trailing stop to ${t === 1 ? 'breakeven' : `T${t - 1}`}.</i>`,
+      ].join('\n');
+    }
+
+    await Promise.allSettled(
+      params.channelIds.map(chatId =>
+        this.sendMessage(chatId, text).catch((err: any) =>
+          console.error(`[TelegramAlerts] SPX ${params.type} send failed for ${chatId}:`, err.message),
+        ),
+      ),
+    );
+    console.log(`[TelegramAlerts] ✅ SPX ${params.type}${params.targetNum ? ' T' + params.targetNum : ''} sent for ${params.tradeId} → ${params.channelIds.length} channel(s)`);
+  }
 }

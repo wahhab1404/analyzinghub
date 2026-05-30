@@ -269,15 +269,64 @@ export class PolygonQuoteFetcher {
    */
   private startTradeSyncLoop(): void {
     // Run immediately on start
-    this.syncActiveTrades().catch(err =>
-      console.error('[FetcherSync] Initial sync failed:', err.message)
-    );
+    Promise.all([
+      this.syncActiveTrades().catch(err => console.error('[FetcherSync] Initial sync failed:', err.message)),
+      this.syncActiveSPXAutoTrades().catch(err => console.error('[FetcherSync] Initial SPX sync failed:', err.message)),
+    ]);
 
     this.tradeSyncTimer = setInterval(async () => {
-      await this.syncActiveTrades().catch(err =>
-        console.error('[FetcherSync] Sync failed:', err.message)
-      );
+      await Promise.allSettled([
+        this.syncActiveTrades().catch(err => console.error('[FetcherSync] Sync failed:', err.message)),
+        this.syncActiveSPXAutoTrades().catch(err => console.error('[FetcherSync] SPX sync failed:', err.message)),
+      ]);
     }, ACTIVE_TRADE_SYNC_INTERVAL_MS);
+  }
+
+  /**
+   * Fetch all live SPX auto-trades and hand them to the options WS so it
+   * monitors TP/SL on every tick.
+   */
+  private async syncActiveSPXAutoTrades(): Promise<void> {
+    const { data: trades, error } = await this.supabase
+      .from('spx_trades')
+      .select(
+        'id, ticker, option_type, strike, expiry, dte, entry_premium, current_premium, ' +
+        'stop_premium, target_1_premium, target_2_premium, target_3_premium, last_target_alerted, ' +
+        'auto_channel_ids, signal_mode, confidence_class, composite_score, direction_bias',
+      )
+      .eq('is_auto', true)
+      .in('state', ['alerted', 'entered', 'active'])
+      .not('ticker', 'is', null);
+
+    if (error) {
+      console.error('[FetcherSync] Failed to fetch SPX auto-trades:', error.message);
+      return;
+    }
+
+    const mapped = (trades ?? [])
+      .filter((t: any) => Array.isArray(t.auto_channel_ids) && t.auto_channel_ids.length > 0)
+      .map((t: any) => ({
+        tradeId:           t.id as string,
+        ticker:            t.ticker as string,
+        optionType:        (t.option_type ?? 'call') as 'call' | 'put',
+        strike:            t.strike != null ? Number(t.strike) : null,
+        expiry:            t.expiry ?? null,
+        dte:               t.dte != null ? Number(t.dte) : null,
+        entryPremium:      t.entry_premium != null ? Number(t.entry_premium) : (t.current_premium != null ? Number(t.current_premium) : null),
+        stopPremium:       t.stop_premium != null ? Number(t.stop_premium) : null,
+        target1Premium:    t.target_1_premium != null ? Number(t.target_1_premium) : null,
+        target2Premium:    t.target_2_premium != null ? Number(t.target_2_premium) : null,
+        target3Premium:    t.target_3_premium != null ? Number(t.target_3_premium) : null,
+        lastTargetAlerted: Number(t.last_target_alerted ?? 0),
+        channelIds:        t.auto_channel_ids as string[],
+        signalMode:        t.signal_mode ?? null,
+        confidenceClass:   t.confidence_class ?? null,
+        compositeScore:    t.composite_score != null ? Number(t.composite_score) : null,
+        directionBias:     t.direction_bias ?? null,
+      }));
+
+    console.log(`[FetcherSync] Synced ${mapped.length} SPX auto-trade(s) for realtime monitoring`);
+    this.optionsWs.setActiveSPXAutoTrades(mapped);
   }
 
   private stopTradeSyncLoop(): void {
