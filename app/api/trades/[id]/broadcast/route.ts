@@ -100,6 +100,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     let telegramMsgId: string | null = null
     let alertStatus: 'sent' | 'failed' = 'failed'
+    let imageError: string | null = null
 
     if (chatId) {
       // Send directly to the channel via the Telegram Bot API.
@@ -138,7 +139,8 @@ export async function POST(req: NextRequest, { params }: Params) {
               status: trade.status,
             })
             photoBytes = new Uint8Array(png)
-          } catch (imgErr) {
+          } catch (imgErr: any) {
+            imageError = imgErr?.message || String(imgErr)
             console.error('[broadcast] image render failed (falling back to text):', imgErr)
           }
         }
@@ -175,6 +177,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       status:              alertStatus,
     })
 
+    // DIAGNOSTIC: persist any image-render error onto the trade so it can be
+    // inspected server-side (no Netlify function logs available).
+    if (imageError) {
+      await db
+        .from('trades')
+        .update({ broadcast_image_error: imageError })
+        .eq('id', id)
+    }
+
     // Update trade: mark as published + set published_at
     if (trade.status === 'draft') {
       await db
@@ -186,6 +197,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({
       success: true,
       telegram_sent: alertStatus === 'sent',
+      sent_as: telegramMsgId && imageError == null && trade.trade_type === 'option' ? 'photo' : 'text',
+      image_error: imageError,
       message_preview: message.slice(0, 200),
     })
   } catch (err: any) {
