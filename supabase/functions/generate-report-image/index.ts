@@ -167,25 +167,23 @@ Deno.serve(async (req: Request) => {
     console.log('[generate-report-image] Period trades:', periodTrades.length);
 
     const tradesData = periodTrades.map((t: any) => {
-      let profit = 0;
-      if (t.pnl_usd != null) profit = safeNum(t.pnl_usd);
-      else if (t.final_profit != null) profit = safeNum(t.final_profit);
-      else if (t.max_profit != null) profit = safeNum(t.max_profit);
-      else {
-        const ep = safeNum(t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
-        const hp = safeNum(t.contract_high_since);
-        profit = (hp - ep) * safeNum(t.qty, 1) * safeNum(t.contract_multiplier, 100);
-      }
+      // Same model as the HTML report: winner/active -> peak profit
+      // (entry -> highest); finalised loser -> full premium lost.
+      const ep   = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
+      const hp   = safeNum(t.contract_high_since ?? t.current_contract, ep);
+      const qtyN = safeNum(t.qty, 1);
+      const multN = safeNum(t.contract_multiplier, 100);
+      const peak = (hp - ep) * qtyN * multN;
+      const isActive = t.status === 'active';
+      const isWin = peak >= 100;
+      const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);
+      const isLoss = !isActive && !isWin;
 
       let sym = t.underlying_index_symbol ?? 'N/A';
       if (t.polygon_option_ticker) {
         const parts = String(t.polygon_option_ticker).split(':');
         if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, '');
       }
-
-      const isActive = t.status === 'active';
-      const isWin = t.is_winning_trade || profit >= 100;
-      const isLoss = profit < -20;
 
       const statusColor = isActive ? C.blue : isWin ? C.call : isLoss ? C.put : C.textSub;
       const profitStr = profit !== 0 ? `${profit >= 0 ? '+' : '-'}$${Math.abs(profit).toFixed(0)}` : '—';
