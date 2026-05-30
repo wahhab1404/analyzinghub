@@ -24,15 +24,45 @@ function num(v: unknown, fallback = 0): number {
 }
 function fmt(n: number): string { return n.toFixed(2) }
 
+// Asset sources. We prefer reading the bundled files from node_modules (works
+// when Netlify traces them into the Lambda), but fall back to fetching from a
+// CDN at runtime. The CDN fallback is the durable fix for the Lambda "ENOENT:
+// index_bg.wasm" failure on routes whose outputFileTracingIncludes entry is not
+// honoured — the renderer then has no hard dependency on the filesystem layout.
+const WASM_CDN = 'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm'
+const FONT_REG_CDN = 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-normal.woff2'
+const FONT_BOLD_CDN = 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-normal.woff2'
+
+async function readLocalOrFetch(localPath: string, cdnUrl: string): Promise<Buffer> {
+  try {
+    return readFileSync(localPath)
+  } catch {
+    const res = await fetch(cdnUrl)
+    if (!res.ok) throw new Error(`Failed to fetch asset ${cdnUrl}: HTTP ${res.status}`)
+    return Buffer.from(await res.arrayBuffer())
+  }
+}
+
 let initPromise: Promise<{ fontReg: Buffer; fontBold: Buffer }> | null = null
 function ensureInit(): Promise<{ fontReg: Buffer; fontBold: Buffer }> {
   if (!initPromise) {
     initPromise = (async () => {
       const wasmPath = path.join(process.cwd(), 'node_modules', '@resvg', 'resvg-wasm', 'index_bg.wasm')
-      await initWasm(readFileSync(wasmPath))
       const fontBase = path.join(process.cwd(), 'node_modules', '@fontsource', 'inter', 'files')
-      const fontReg = readFileSync(path.join(fontBase, 'inter-latin-400-normal.woff2'))
-      const fontBold = readFileSync(path.join(fontBase, 'inter-latin-700-normal.woff2'))
+
+      const [wasm, fontReg, fontBold] = await Promise.all([
+        readLocalOrFetch(wasmPath, WASM_CDN),
+        readLocalOrFetch(path.join(fontBase, 'inter-latin-400-normal.woff2'), FONT_REG_CDN),
+        readLocalOrFetch(path.join(fontBase, 'inter-latin-700-normal.woff2'), FONT_BOLD_CDN),
+      ])
+
+      try {
+        await initWasm(wasm)
+      } catch (e: any) {
+        // initWasm throws if the module was already initialised in this
+        // process (e.g. a warm Lambda). That's fine — ignore only that case.
+        if (!String(e?.message || e).includes('Already initialized')) throw e
+      }
       return { fontReg, fontBold }
     })().catch((err) => { initPromise = null; throw err })
   }
