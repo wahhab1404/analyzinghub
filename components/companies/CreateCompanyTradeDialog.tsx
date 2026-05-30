@@ -250,6 +250,7 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
         direction,
         strike: selectedContract!.strike,
         expiry_date: selectedExpiry,
+        polygon_option_ticker: selectedContract!.ticker,
         entry_price: parseFloat(entryPrice),
         contracts_qty: parseInt(qty),
         stoploss: stoploss ? { price: parseFloat(stoploss) } : null,

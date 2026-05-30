@@ -667,6 +667,28 @@ async function processCompanyTradeMessage(
   const isTesting   = payload?.isTestingMode ?? false;
 
   const caption = buildCompanyTradeCaption(trade, isTesting);
+  const imageUrl = trade?.image_url ?? trade?.contract_url ?? null;
+
+  // Prefer an inline photo card (same style as index trades). Download the
+  // bytes and upload via multipart so display never depends on URL/bucket
+  // accessibility. Fall back to a text card if no image or the fetch fails.
+  if (imageUrl) {
+    try {
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(20_000) });
+      if (res.ok) {
+        const ct = res.headers.get('content-type') ?? '';
+        const buf = await res.arrayBuffer();
+        if (ct.startsWith('image/') && buf.byteLength > 1024) {
+          console.log(`[outbox] Sending company_new_trade photo to ${chatId} (isTesting=${isTesting})`);
+          return await sendTelegramPhotoBytes(botToken, chatId, buf, caption);
+        }
+      }
+      console.warn(`[outbox] company_new_trade image fetch unusable (${res.status}) — falling back to text`);
+    } catch (err: any) {
+      console.warn(`[outbox] company_new_trade image fetch failed — falling back to text:`, err?.message);
+    }
+  }
+
   console.log(`[outbox] Sending company_new_trade text to ${chatId} (isTesting=${isTesting})`);
   return await sendTelegramMessage(botToken, chatId, caption, true);
 }
