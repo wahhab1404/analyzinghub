@@ -109,12 +109,12 @@ Deno.serve(async (req: Request) => {
         : periodTrans.en;
 
     const dateText = report.period_type === 'daily'
-      ? new Date(report.report_date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', {
+      ? new Date(report.report_date).toLocaleDateString(isArabic ? 'ar-SA-u-ca-gregory' : 'en-US', {
           year: 'numeric',
           month: 'long',
           day: 'numeric'
         })
-      : `${new Date(report.start_date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric' })} - ${new Date(report.end_date).toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+      : `${new Date(report.start_date).toLocaleDateString(isArabic ? 'ar-SA-u-ca-gregory' : 'en-US', { month: 'short', day: 'numeric' })} - ${new Date(report.end_date).toLocaleDateString(isArabic ? 'ar-SA-u-ca-gregory' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
 
     const totalProfit = metrics.total_profit || 0;
     const totalLoss = metrics.total_loss || 0;

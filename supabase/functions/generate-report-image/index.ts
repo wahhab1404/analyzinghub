@@ -153,10 +153,11 @@ Deno.serve(async (req: Request) => {
     });
 
     // Bounded canvas so a long report never exceeds the renderer limit (546).
-    const CANVAS_W = 900;
-    const ROW_H = 76;
-    const FIXED_TOP = 960;
-    const MAX_H = 2450;
+    // Keep total pixels well under the renderer limit (~2.0M is flaky / 546).
+    const CANVAS_W = 760;
+    const ROW_H = 70;
+    const FIXED_TOP = 940;
+    const MAX_H = 2350;
     const maxRows = Math.max(1, Math.floor((MAX_H - FIXED_TOP) / ROW_H));
     const shownTrades = tradesData.slice(0, maxRows);
     const hiddenCount = tradesData.length - shownTrades.length;
@@ -169,9 +170,9 @@ Deno.serve(async (req: Request) => {
 
     const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 8 }, children: [ { type: 'div', props: { style: { fontSize: 19, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 48, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
     const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 15, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color }, children: value } } ] } });
-    const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 24px', borderBottom: `1px solid ${C.border}` }, children: [
+    const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 22px', borderBottom: `1px solid ${C.border}` }, children: [
       { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10, flex: 1 }, children: [
-        { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color: C.text }, children: t.sym } },
+        { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color: C.text }, children: t.sym } },
         { type: 'div', props: { style: { display: 'flex', background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 6, padding: '3px 8px', fontSize: 14, fontWeight: 800, color: t.dirColor }, children: t.dirLabel } },
         { type: 'div', props: { style: { fontSize: 21, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
         { type: 'div', props: { style: { fontSize: 18, fontWeight: 600, color: C.textMuted, marginLeft: 4 }, children: t.entryStr } },
@@ -181,8 +182,8 @@ Deno.serve(async (req: Request) => {
       { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 11 }, children: [
         { type: 'div', props: { style: { display: 'flex', background: t.badgeBg, border: `1px solid ${t.badgeBorder}`, borderRadius: 6, padding: '3px 9px', fontSize: 14, fontWeight: 800, color: t.badgeColor }, children: t.badge } },
         { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }, children: [
-          { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
-          { type: 'div', props: { style: { fontSize: 15, fontWeight: 700, color: t.pColor }, children: t.pctStr } },
+          { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
+          { type: 'div', props: { style: { fontSize: 14, fontWeight: 700, color: t.pColor }, children: t.pctStr } },
         ] } },
       ] } },
     ] } });
