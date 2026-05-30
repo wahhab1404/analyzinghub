@@ -601,6 +601,16 @@ a{color:inherit}
   .px-val{color:#475569!important} .px-val.hi{color:#16a34a!important} .px-val.cur{color:#0f172a!important}
   .empty-title{color:#475569!important}
   .ftr{background:#f8fafc!important;border-color:#e2e8f0!important}
+  /* Force compact single-row trades in PDF (beats the mobile column rules) */
+  .tr{flex-direction:row!important;align-items:center!important;gap:14px!important;padding:8px 16px!important;page-break-inside:avoid;break-inside:avoid}
+  .tr-l{flex:1!important;gap:3px!important;min-width:0}
+  .tr-r{flex-direction:row!important;align-items:center!important;gap:12px!important;flex-shrink:0}
+  .tr-id{gap:6px!important}.tr-px{gap:5px!important}
+  .sym{font-size:14px!important}.strike{font-size:12px!important}
+  .pnl{font-size:14px!important}.pnl-pct{font-size:10px!important}
+  .kpi-val{font-size:24px!important}.title{font-size:20px!important}
+  .hdr{padding:16px 20px!important}.kpi{padding:12px 16px!important}
+  .st-val{font-size:15px!important}.st{padding:9px 6px!important}
 }
 @media(max-width:640px){
   body{padding:12px 8px}
