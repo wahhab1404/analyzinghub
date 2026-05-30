@@ -128,15 +128,11 @@ Deno.serve(async (req: Request) => {
     const bestTrade = metrics.best_trade || 0;
     const worstTrade = metrics.worst_trade || 0;
 
-    // Inline-rendering link: a signed URL WITHOUT the download disposition so
-    // mobile browsers render the report as a page instead of showing raw HTML.
-    let linkUrl = report.file_url;
-    if (report.file_path) {
-      const { data: inlineSigned } = await supabase.storage
-        .from('daily-reports')
-        .createSignedUrl(report.file_path, 60 * 60 * 24 * 7);
-      if (inlineSigned?.signedUrl) linkUrl = inlineSigned.signedUrl;
-    }
+    // Link through the app domain: it serves the report as a real page
+    // (Content-Type text/html) and hides the storage URL + signed token,
+    // which both fixes "opens as raw HTML" and the security concern.
+    const APP_BASE = Deno.env.get('PUBLIC_SITE_URL') || 'https://analyzhub.com';
+    const linkUrl = `${APP_BASE}/api/reports/${report_id}/preview`;
 
     let message = '';
 

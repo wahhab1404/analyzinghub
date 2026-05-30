@@ -113,6 +113,12 @@ function dedupeTrades(list: any[]): any[] {
   });
 }
 
+// Strip any OCC option suffix (YYMMDD + C/P + 8 digits) -> just the root.
+function symbolRoot(t: any): string {
+  const raw = String(t.underlying_index_symbol ?? '—');
+  return raw.replace(/\s*\d{6}[CP]\d{8}\s*$/i, '').trim() || raw;
+}
+
 // ─── Request interface ────────────────────────────────────────────────────────
 interface GenerateReportRequest {
   date?: string;
@@ -405,6 +411,7 @@ function generateReportHTML(data: {
         const win     = winnerIds.has(t.id);
         const isCall  = (t.option_type ?? '').toLowerCase() === 'call';
         const isActive = t.status === 'active';
+        const symRoot = symbolRoot(t);
         // Winner/active → peak profit & peak %; finalised loser → full premium lost & -100%.
         const profit  = getReportProfit(t, isActive);
         const pct     = (isActive || win)
@@ -441,7 +448,7 @@ function generateReportHTML(data: {
         return `<div class="tr">
   <div class="tr-l">
     <div class="tr-id">
-      <span class="sym">${t.underlying_index_symbol ?? '—'}</span>
+      <span class="sym">${symRoot}</span>
       <span class="dir-badge ${isCall ? 'dc' : 'dp'}">${isCall ? lbl('CALL','شراء') : lbl('PUT','بيع')}</span>
       <span class="strike">${fmtPlain(t.strike ?? 0, 0)}</span>
       <span class="qty-info">· ${contractLbl}</span>
