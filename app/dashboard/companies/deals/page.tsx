@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { useLanguage } from '@/lib/i18n/language-context'
+import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -9,10 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import {
   TrendingUp, TrendingDown, RefreshCw, Search, Filter,
-  Calendar, DollarSign, BarChart3, Activity, Target, X
+  Calendar, DollarSign, BarChart3, Activity, Target, X, Plus, Image as ImageIcon, Loader2, Trophy
 } from 'lucide-react'
 import Link from 'next/link'
 import { formatPnL, formatPercentage, calculatePnLPercentage } from '@/services/trades/canonical-pnl.service'
+import { CreateCompanyContractDealDialog } from '@/components/companies/CreateCompanyContractDealDialog'
 
 interface Trade {
   id: string
@@ -25,6 +28,7 @@ interface Trade {
   contract_multiplier: number
   status: string
   max_price_since_entry: number
+  current_price?: number
   pnl_value: number
   is_win: boolean
   entry_cost_total: number
@@ -34,6 +38,8 @@ interface Trade {
   close_reason?: string
   avg_adjustments_count?: number
   analysis_id?: string
+  image_url?: string
+  polygon_option_ticker?: string
 }
 
 interface TradeStats {
@@ -48,21 +54,47 @@ interface TradeStats {
 
 export default function CompanyDealsPage() {
   const router = useRouter()
+  const { language } = useLanguage()
+  const ar = language === 'ar'
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [directionFilter, setDirectionFilter] = useState<string>('all')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [refreshingPrices, setRefreshingPrices] = useState(false)
+  const [generatingImage, setGeneratingImage] = useState<string | null>(null)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const supabaseRef = useRef(createClient())
 
   useEffect(() => {
     loadTrades()
   }, [refreshKey])
 
+  // Live updates: realtime price/peak changes on contract_trades (via Fly.io)
+  useEffect(() => {
+    const supabase = supabaseRef.current
+    const channel = supabase
+      .channel('company-contract-deals-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contract_trades' }, (payload) => {
+        if (payload.eventType === 'DELETE') {
+          const oldId = (payload.old as { id?: string })?.id
+          if (oldId) setTrades(prev => prev.filter(t => t.id !== oldId))
+          return
+        }
+        const updated = payload.new as Trade & { scope?: string }
+        if (updated.scope && updated.scope !== 'company') return
+        setTrades(prev => prev.map(t => (t.id === updated.id ? { ...t, ...updated } : t)))
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   async function loadTrades() {
     setLoading(true)
     try {
-      const response = await fetch('/api/companies/trades')
+      const response = await fetch('/api/companies/contract-trades')
       if (response.status === 401) {
         router.push('/login')
         return
@@ -77,10 +109,40 @@ export default function CompanyDealsPage() {
     setLoading(false)
   }
 
-  async function handleCloseTrade(tradeId: string) {
-    if (!confirm('Are you sure you want to close this trade?')) return
+  async function handleRefreshPrices() {
+    setRefreshingPrices(true)
     try {
-      const response = await fetch(`/api/companies/trades/${tradeId}`, {
+      await fetch('/api/companies/contract-trades/update-prices', { method: 'POST' })
+      await loadTrades()
+    } catch (error) {
+      console.error('Error refreshing prices:', error)
+    } finally {
+      setRefreshingPrices(false)
+    }
+  }
+
+  async function handleGenerateImage(tradeId: string) {
+    setGeneratingImage(tradeId)
+    try {
+      const response = await fetch(`/api/companies/contract-trades/${tradeId}/generate-image`, { method: 'POST' })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.image_url) {
+          setTrades(prev => prev.map(t => (t.id === tradeId ? { ...t, image_url: data.image_url } : t)))
+          setPreviewImage(data.image_url)
+        }
+      }
+    } catch (error) {
+      console.error('Error generating image:', error)
+    } finally {
+      setGeneratingImage(null)
+    }
+  }
+
+  async function handleCloseTrade(tradeId: string) {
+    if (!confirm(ar ? 'هل أنت متأكد من إغلاق هذه الصفقة؟' : 'Are you sure you want to close this trade?')) return
+    try {
+      const response = await fetch(`/api/companies/contract-trades/${tradeId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'CLOSED', close_reason: 'MANUAL' })
@@ -135,15 +197,29 @@ export default function CompanyDealsPage() {
             All your options contract trades across stock analyses
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setRefreshKey(prev => prev + 1)}
-          disabled={loading}
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setShowCreateDialog(true)} size="sm">
+            <Plus className="h-4 w-4 mr-2" />
+            {ar ? 'صفقة عقد جديدة' : 'New Contract Deal'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshPrices}
+            disabled={refreshingPrices}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${refreshingPrices ? 'animate-spin' : ''}`} />
+            {ar ? 'تحديث الأسعار' : 'Update Prices'}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRefreshKey(prev => prev + 1)}
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -292,9 +368,15 @@ export default function CompanyDealsPage() {
                 : 'No trades match the current filters.'}
             </p>
             {trades.length === 0 && (
-              <Link href="/dashboard/companies/analyses">
-                <Button>Browse Stock Analyses</Button>
-              </Link>
+              <div className="flex items-center justify-center gap-2">
+                <Button onClick={() => setShowCreateDialog(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  {ar ? 'صفقة عقد جديدة' : 'New Contract Deal'}
+                </Button>
+                <Link href="/dashboard/companies/analyses">
+                  <Button variant="outline">{ar ? 'تصفح التحليلات' : 'Browse Stock Analyses'}</Button>
+                </Link>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -346,6 +428,29 @@ export default function CompanyDealsPage() {
 
                     <div className="flex items-center gap-2">
                       {getStatusBadge(trade)}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleGenerateImage(trade.id)}
+                        disabled={generatingImage === trade.id}
+                        className="h-8 w-8 p-0"
+                        title={ar ? 'إنشاء صورة' : 'Generate image'}
+                      >
+                        {generatingImage === trade.id
+                          ? <Loader2 className="h-4 w-4 animate-spin" />
+                          : <ImageIcon className="h-4 w-4" />}
+                      </Button>
+                      {trade.image_url && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setPreviewImage(trade.image_url!)}
+                          className="h-8 w-8 p-0"
+                          title={ar ? 'عرض الصورة' : 'View image'}
+                        >
+                          <Search className="h-4 w-4" />
+                        </Button>
+                      )}
                       {trade.status === 'ACTIVE' && (
                         <Button
                           variant="ghost"
@@ -359,14 +464,20 @@ export default function CompanyDealsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-3">
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Entry Cost</div>
                       <div className="font-semibold">${trade.entry_cost_total.toFixed(2)}</div>
                     </div>
                     <div>
-                      <div className="text-xs text-muted-foreground mb-1">Max Price</div>
-                      <div className="font-semibold">${trade.max_price_since_entry.toFixed(2)}</div>
+                      <div className="text-xs text-muted-foreground mb-1">{ar ? 'السعر الحالي' : 'Current'}</div>
+                      <div className="font-semibold">{trade.current_price != null ? `$${trade.current_price.toFixed(2)}` : '—'}</div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
+                        <Trophy className="h-3 w-3 text-amber-500" /> {ar ? 'القمة' : 'Peak'}
+                      </div>
+                      <div className="font-semibold text-amber-600">${trade.max_price_since_entry.toFixed(2)}</div>
                     </div>
                     <div>
                       <div className="text-xs text-muted-foreground mb-1">Max Profit</div>
@@ -420,6 +531,25 @@ export default function CompanyDealsPage() {
               </Card>
             )
           })}
+        </div>
+      )}
+
+      <CreateCompanyContractDealDialog
+        open={showCreateDialog}
+        onOpenChange={setShowCreateDialog}
+        onTradeCreated={() => {
+          setShowCreateDialog(false)
+          setRefreshKey(prev => prev + 1)
+        }}
+      />
+
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={previewImage} alt="Contract deal" className="max-h-[90vh] max-w-full rounded-lg" />
         </div>
       )}
     </div>
