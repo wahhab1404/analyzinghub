@@ -177,6 +177,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       status:              alertStatus,
     })
 
+    // DIAGNOSTIC: persist any image-render error onto the trade so it can be
+    // inspected server-side (no Netlify function logs available).
+    if (imageError) {
+      await db
+        .from('trades')
+        .update({ broadcast_image_error: imageError })
+        .eq('id', id)
+    }
+
     // Update trade: mark as published + set published_at
     if (trade.status === 'draft') {
       await db
