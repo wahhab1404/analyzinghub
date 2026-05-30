@@ -1,14 +1,7 @@
 /**
- * generate-report-image -- mobile-portrait (1080x1920) PNG via @vercel/og.
- * Platform-styled, compact, P&L on the same row as each trade.
- *
- * Two things make this robust on Supabase Edge:
- *  1. An explicit Inter font is supplied, so @vercel/og never tries to
- *     fetch its default font over the network (that fetch was failing and
- *     returning 500 -- no report ever got an image).
- *  2. The avatar is pre-fetched to a base64 data-URI and only used when it
- *     is PNG/JPEG; otherwise we fall back to initials (satori can't decode
- *     webp/avif and was throwing).
+ * generate-report-image -- mobile-portrait PNG via @vercel/og.
+ * Compact single-line rows + bounded canvas (width 900) so all trades show
+ * without exceeding the renderer's memory/CPU limit (a too-large PNG -> 546).
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -126,7 +119,7 @@ Deno.serve(async (req: Request) => {
       const created = new Date(t.created_at);
       const closed = t.closed_at ? new Date(t.closed_at) : null;
       return (created >= periodStart && created <= periodEnd) || (closed && closed >= periodStart && closed <= periodEnd) || (t.status === 'active' && created <= periodEnd);
-    })).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6);
+    })).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     const tradesData = periodTrades.map((t: any) => {
       const ep = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
@@ -156,79 +149,86 @@ Deno.serve(async (req: Request) => {
       };
     });
 
+    // Bounded canvas so a long report never exceeds the renderer limit (546).
+    const CANVAS_W = 900;
+    const ROW_H = 76;
+    const FIXED_TOP = 960;
+    const MAX_H = 2450;
+    const maxRows = Math.max(1, Math.floor((MAX_H - FIXED_TOP) / ROW_H));
+    const shownTrades = tradesData.slice(0, maxRows);
+    const hiddenCount = tradesData.length - shownTrades.length;
+    const canvasHeight = Math.max(1350, FIXED_TOP + shownTrades.length * ROW_H + (hiddenCount > 0 ? 64 : 0));
+
     const periodLabel = report.period_type === 'weekly' ? 'Weekly Report' : report.period_type === 'monthly' ? 'Monthly Report' : 'Daily Report';
     const dateLabel = report.period_type === 'daily' ? report.report_date : `${startDate}  -  ${endDate}`;
     const netColor = netProfit >= 0 ? C.green : C.red;
     const netSign = netProfit >= 0 ? '+' : '-';
 
-    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 8 }, children: [ { type: 'div', props: { style: { fontSize: 20, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 56, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
-    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 16, padding: '18px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }, children: [ { type: 'div', props: { style: { fontSize: 16, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 32, fontWeight: 900, color }, children: value } } ] } });
-    const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 26px', borderBottom: `1px solid ${C.border}` }, children: [
-      { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 10 }, children: [
-        { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 12 }, children: [
-          { type: 'div', props: { style: { fontSize: 34, fontWeight: 900, color: C.text }, children: t.sym } },
-          { type: 'div', props: { style: { display: 'flex', background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 7, padding: '4px 11px', fontSize: 19, fontWeight: 800, color: t.dirColor }, children: t.dirLabel } },
-          { type: 'div', props: { style: { fontSize: 26, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
-        ] } },
-        { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10 }, children: [
-          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 600 }, children: 'Entry' } },
-          { type: 'div', props: { style: { fontSize: 24, color: C.textSub, fontWeight: 700 }, children: t.entryStr } },
-          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted }, children: '->' } },
-          { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 600 }, children: 'High' } },
-          { type: 'div', props: { style: { fontSize: 24, color: C.green, fontWeight: 800 }, children: t.highStr } },
-        ] } },
+    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 8 }, children: [ { type: 'div', props: { style: { fontSize: 19, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 48, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
+    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 15, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color }, children: value } } ] } });
+    const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '15px 24px', borderBottom: `1px solid ${C.border}` }, children: [
+      { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10, flex: 1 }, children: [
+        { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color: C.text }, children: t.sym } },
+        { type: 'div', props: { style: { display: 'flex', background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 6, padding: '3px 8px', fontSize: 14, fontWeight: 800, color: t.dirColor }, children: t.dirLabel } },
+        { type: 'div', props: { style: { fontSize: 21, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
+        { type: 'div', props: { style: { fontSize: 18, fontWeight: 600, color: C.textMuted, marginLeft: 4 }, children: t.entryStr } },
+        { type: 'div', props: { style: { fontSize: 17, color: C.textMuted }, children: '->' } },
+        { type: 'div', props: { style: { fontSize: 18, fontWeight: 700, color: C.green }, children: t.highStr } },
       ] } },
-      { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }, children: [
-        { type: 'div', props: { style: { display: 'flex', background: t.badgeBg, border: `1px solid ${t.badgeBorder}`, borderRadius: 8, padding: '4px 12px', fontSize: 19, fontWeight: 800, color: t.badgeColor }, children: t.badge } },
-        { type: 'div', props: { style: { fontSize: 36, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
-        { type: 'div', props: { style: { fontSize: 20, fontWeight: 700, color: t.pColor }, children: t.pctStr } },
+      { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 11 }, children: [
+        { type: 'div', props: { style: { display: 'flex', background: t.badgeBg, border: `1px solid ${t.badgeBorder}`, borderRadius: 6, padding: '3px 9px', fontSize: 14, fontWeight: 800, color: t.badgeColor }, children: t.badge } },
+        { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }, children: [
+          { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
+          { type: 'div', props: { style: { fontSize: 15, fontWeight: 700, color: t.pColor }, children: t.pctStr } },
+        ] } },
       ] } },
     ] } });
 
     const avatarNode = avatarDataUri
-      ? { type: 'img', props: { src: avatarDataUri, width: 84, height: 84, style: { width: 84, height: 84, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
-      : { type: 'div', props: { style: { display: 'flex', width: 84, height: 84, borderRadius: '50%', background: C.blueBg, border: `2px solid ${C.blueBorder}`, alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 900, color: C.blue }, children: initials } };
+      ? { type: 'img', props: { src: avatarDataUri, width: 78, height: 78, style: { width: 78, height: 78, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
+      : { type: 'div', props: { style: { display: 'flex', width: 78, height: 78, borderRadius: '50%', background: C.blueBg, border: `2px solid ${C.blueBorder}`, alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 900, color: C.blue }, children: initials } };
 
     const vdom = {
       type: 'div', props: {
         style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative' },
         children: [
-          { type: 'div', props: { style: { display: 'flex', position: 'absolute', top: 0, left: 0, right: 0, height: 10, background: C.blue } } },
-          { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '64px 56px 48px', gap: 26 }, children: [
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 14 }, children: [
-              { type: 'div', props: { style: { display: 'flex', background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 8, padding: '6px 16px', color: C.blue, fontSize: 20, fontWeight: 800 }, children: 'ANALYZINGHUB' } },
-              { type: 'div', props: { style: { fontSize: 64, fontWeight: 900, color: C.text, lineHeight: 1.1 }, children: periodLabel } },
-              { type: 'div', props: { style: { fontSize: 28, color: C.textSub }, children: dateLabel } },
-              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 16, marginTop: 6 }, children: [
+          { type: 'div', props: { style: { display: 'flex', position: 'absolute', top: 0, left: 0, right: 0, height: 9, background: C.blue } } },
+          { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '44px 44px 34px', gap: 20 }, children: [
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 12 }, children: [
+              { type: 'div', props: { style: { display: 'flex', background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 8, padding: '5px 14px', color: C.blue, fontSize: 18, fontWeight: 800 }, children: 'ANALYZINGHUB' } },
+              { type: 'div', props: { style: { fontSize: 54, fontWeight: 900, color: C.text, lineHeight: 1.1 }, children: periodLabel } },
+              { type: 'div', props: { style: { fontSize: 25, color: C.textSub }, children: dateLabel } },
+              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 14, marginTop: 4 }, children: [
                 avatarNode,
-                { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 4 }, children: [
-                  { type: 'div', props: { style: { fontSize: 28, fontWeight: 800, color: C.text }, children: analyzerName } },
-                  { type: 'div', props: { style: { fontSize: 21, color: C.textMuted }, children: 'Index Analyst' } },
+                { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 3 }, children: [
+                  { type: 'div', props: { style: { fontSize: 25, fontWeight: 800, color: C.text }, children: analyzerName } },
+                  { type: 'div', props: { style: { fontSize: 19, color: C.textMuted }, children: 'Index Analyst' } },
                 ] } },
               ] } },
             ] } },
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 22, padding: '30px 36px', gap: 10 }, children: [
-              { type: 'div', props: { style: { fontSize: 24, color: C.textMuted, fontWeight: 800 }, children: 'NET PROFIT' } },
-              { type: 'div', props: { style: { fontSize: 110, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
-              { type: 'div', props: { style: { fontSize: 24, color: C.textSub, fontWeight: 600 }, children: `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 20, padding: '24px 30px', gap: 6 }, children: [
+              { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 800 }, children: 'NET PROFIT' } },
+              { type: 'div', props: { style: { fontSize: 82, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
+              { type: 'div', props: { style: { fontSize: 22, color: C.textSub, fontWeight: 600 }, children: `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
             ] } },
-            { type: 'div', props: { style: { display: 'flex', gap: 20 }, children: [
+            { type: 'div', props: { style: { display: 'flex', gap: 18 }, children: [
               chip('WIN RATE', `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
               chip('BEST TRADE', `+$${bestTrade.toFixed(0)}`, C.gold),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', gap: 14 }, children: [
+            { type: 'div', props: { style: { display: 'flex', gap: 12 }, children: [
               miniStat('TOTAL', String(totalTrades), C.text),
               miniStat('WON', String(winningTrades), C.green),
               miniStat('LOST', String(losingTrades), C.red),
               miniStat('AVG WIN', `+$${avgWin.toFixed(0)}`, C.green),
               miniStat('WORST', `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, background: C.card, border: `1px solid ${C.border}`, borderRadius: 22, overflow: 'hidden' }, children: [
-              { type: 'div', props: { style: { display: 'flex', padding: '16px 26px', fontSize: 20, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `TRADES (${totalTrades})` } },
-              ...tradesData.map(tradeRow),
-              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', flex: 1, alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 28, padding: '40px' }, children: 'No trades in this period' } }] : []),
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, overflow: 'hidden' }, children: [
+              { type: 'div', props: { style: { display: 'flex', padding: '14px 24px', fontSize: 19, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `TRADES (${totalTrades})` } },
+              ...shownTrades.map(tradeRow),
+              ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '14px', fontSize: 18, fontWeight: 600, color: C.textMuted }, children: `+ ${hiddenCount} more trades - see full report` } }] : []),
+              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 26, padding: '40px' }, children: 'No trades in this period' } }] : []),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 20, color: C.textMuted }, children: [
+            { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 18, color: C.textMuted }, children: [
               { type: 'div', props: { children: 'AnalyzingHub  .  Index Trading Report' } },
               { type: 'div', props: { style: { color: C.cyan, fontWeight: 700 }, children: `W/L ${wlRatio}` } },
             ] } },
@@ -237,7 +237,7 @@ Deno.serve(async (req: Request) => {
       },
     };
 
-    const opts: any = { width: 1080, height: 1920 };
+    const opts: any = { width: CANVAS_W, height: canvasHeight };
     if (fonts.length) opts.fonts = fonts;
     const imageResponse = new ImageResponse(vdom as any, opts);
     const arrayBuffer = await imageResponse.arrayBuffer();

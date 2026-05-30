@@ -128,6 +128,16 @@ Deno.serve(async (req: Request) => {
     const bestTrade = metrics.best_trade || 0;
     const worstTrade = metrics.worst_trade || 0;
 
+    // Inline-rendering link: a signed URL WITHOUT the download disposition so
+    // mobile browsers render the report as a page instead of showing raw HTML.
+    let linkUrl = report.file_url;
+    if (report.file_path) {
+      const { data: inlineSigned } = await supabase.storage
+        .from('daily-reports')
+        .createSignedUrl(report.file_path, 60 * 60 * 24 * 7);
+      if (inlineSigned?.signedUrl) linkUrl = inlineSigned.signedUrl;
+    }
+
     let message = '';
 
     if (isDual) {
@@ -157,7 +167,7 @@ Deno.serve(async (req: Request) => {
         message += `⚠️ Worst Trade | أسوأ صفقة: -$${Math.abs(worstTrade).toFixed(0)}\n`;
       }
       message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `📄 [Download Full Report | تحميل التقرير الكامل](${report.file_url})\n`;
+      message += `📄 [Download Full Report | تحميل التقرير الكامل](${linkUrl})\n`;
     } else if (isArabic) {
       message = `📊 *${reportType}*\n`;
       message += `📅 ${dateText}\n`;
@@ -185,7 +195,7 @@ Deno.serve(async (req: Request) => {
         message += `⚠️ أسوأ صفقة: -$${Math.abs(worstTrade).toFixed(0)}\n`;
       }
       message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `📄 [تحميل التقرير الكامل](${report.file_url})\n`;
+      message += `📄 [تحميل التقرير الكامل](${linkUrl})\n`;
     } else {
       message = `📊 *${reportType}*\n`;
       message += `📅 ${dateText}\n`;
@@ -213,7 +223,7 @@ Deno.serve(async (req: Request) => {
         message += `⚠️ Worst Trade: -$${Math.abs(worstTrade).toFixed(0)}\n`;
       }
       message += `\n━━━━━━━━━━━━━━━━━━━━\n`;
-      message += `📄 [Download Full Report](${report.file_url})\n`;
+      message += `📄 [Download Full Report](${linkUrl})\n`;
     }
 
     let imageUrl = report.image_url;
