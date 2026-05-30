@@ -44,8 +44,7 @@ export async function GET(request: NextRequest) {
         period_type,
         start_date,
         end_date,
-        summary,
-        html_content
+        summary
       `)
       .order('created_at', { ascending: false })
       .limit(300)

@@ -1081,7 +1081,6 @@ export default function ReportsPage() {
                               handlePreview(report)
                             }}
                             className="h-8 text-slate-300 hover:text-white hover:bg-white/5"
-                            disabled={!report.html_content}
                           >
                             <Eye className="w-3.5 h-3.5 mr-1.5" />
                             {language === 'ar' ? 'معاينة' : 'Preview'}
@@ -1160,13 +1159,13 @@ export default function ReportsPage() {
               {language === 'ar' ? 'معاينة التقرير HTML' : 'HTML Report Preview'}
             </DialogTitle>
           </DialogHeader>
-          {previewReport?.html_content && (
+          {previewReport?.id && (
             <div
               className="w-full overflow-y-auto overscroll-contain rounded"
               style={{ maxHeight: '78vh', WebkitOverflowScrolling: 'touch' }}
             >
               <iframe
-                srcDoc={previewReport.html_content}
+                src={`/api/reports/${previewReport.id}/preview`}
                 className="w-full border-0 rounded block"
                 style={{ height: '78vh' }}
                 scrolling="no"
