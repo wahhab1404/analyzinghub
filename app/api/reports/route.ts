@@ -46,9 +46,9 @@ export async function GET(request: NextRequest) {
         end_date,
         summary,
         html_content
-      `, { count: 'exact' })
+      `)
       .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1)
+      .limit(300)
 
     if (!isAdmin) {
       query = query.eq('author_id', user.id)
@@ -62,18 +62,32 @@ export async function GET(request: NextRequest) {
       query = query.eq('language_mode', languageFilter)
     }
 
-    const { data: reports, error, count } = await query
+    const { data: allRows, error } = await query
 
     if (error) {
       console.error('[Reports API] Query error:', error)
       throw error
     }
 
-    console.log('[Reports API] Found', reports?.length || 0, 'reports out of', count, 'total')
+    // Collapse language/channel variants of the same period into the most
+    // recent one, so re-generating a report (e.g. in another language) does
+    // not show up as a duplicate row in the history list.
+    const seen = new Set<string>()
+    const deduped = (allRows || []).filter((r: any) => {
+      const key = `${r.period_type}|${r.report_date}|${r.start_date ?? ''}|${r.end_date ?? ''}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+
+    const total = deduped.length
+    const reports = deduped.slice(offset, offset + limit)
+
+    console.log('[Reports API] Found', reports.length, 'reports out of', total, 'unique periods')
 
     return NextResponse.json({
-      reports: reports || [],
-      total: count || 0,
+      reports,
+      total,
       limit,
       offset
     }, {
