@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { buildTradeMessage } from '@/lib/telegram/trade-message-builder'
-import { getBotToken, sendMessage } from '@/lib/telegram/bot-sender'
+import { getBotToken, sendMessage, sendPhoto } from '@/lib/telegram/bot-sender'
+import { renderContractTradePng } from '@/lib/companies/contract-trade-image'
 import type { TradeFull } from '@/lib/types/trades'
 
 export const runtime = 'nodejs'
@@ -98,10 +99,48 @@ export async function POST(req: NextRequest, { params }: Params) {
       if (!botToken) {
         console.error('[broadcast] bot token not configured')
       } else {
-        const msgId = await sendMessage(botToken, chatId, message)
+        // Render an alert-card image for option trades and send it as a photo
+        // (same card style as index/company contract deals). Stock trades and
+        // any image-generation failure fall back to the text message, so a
+        // broadcast is never dropped just because the image couldn't render.
+        let photoBytes: Uint8Array | null = null
+        if (trade.trade_type === 'option') {
+          const od = Array.isArray(trade.option_details)
+            ? trade.option_details[0]
+            : trade.option_details
+          try {
+            const png = await renderContractTradePng({
+              symbol: trade.symbol,
+              strike: od?.strike_price ?? null,
+              direction: trade.direction,
+              expiry_date: od?.expiration_date ?? null,
+              entry_price: trade.entry_price ?? od?.entry_premium ?? 0,
+              current_price: trade.current_price ?? null,
+              max_price_since_entry: od?.highest_premium_since_entry ?? null,
+              status: trade.status,
+            })
+            photoBytes = new Uint8Array(png)
+          } catch (imgErr) {
+            console.error('[broadcast] image render failed (falling back to text):', imgErr)
+          }
+        }
+
+        const msgId = photoBytes
+          ? await sendPhoto(botToken, chatId, photoBytes, message)
+          : await sendMessage(botToken, chatId, message)
+
         if (msgId != null) {
           telegramMsgId = String(msgId)
           alertStatus = 'sent'
+        } else if (photoBytes) {
+          // Photo send failed — last-ditch text fallback
+          const textId = await sendMessage(botToken, chatId, message)
+          if (textId != null) {
+            telegramMsgId = String(textId)
+            alertStatus = 'sent'
+          } else {
+            console.error('[broadcast] both photo and text send failed')
+          }
         } else {
           console.error('[broadcast] sendMessage returned null (Telegram API rejected the send)')
         }
