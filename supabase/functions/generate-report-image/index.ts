@@ -1,7 +1,9 @@
 /**
  * generate-report-image -- mobile-portrait PNG via @vercel/og.
- * Compact single-line rows + bounded canvas (width 900) so all trades show
- * without exceeding the renderer's memory/CPU limit (a too-large PNG -> 546).
+ * Compact rows + small bounded canvas so all trades render well under the
+ * renderer's memory/CPU limit (>~2.0M px is flaky and returns 546).
+ * Labels are localized to the report's language_mode (Arabic uses the Cairo
+ * font, since Inter has no Arabic glyphs).
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -54,14 +56,25 @@ async function avatarToDataUri(url?: string | null): Promise<string> {
   } catch { return ''; }
 }
 
-async function loadFonts() {
-  const want = [[400, 'inter-latin-400-normal.woff'], [700, 'inter-latin-700-normal.woff'], [900, 'inter-latin-900-normal.woff']] as const;
+// Inter for Latin/digits; Cairo (Arabic subset) is added when the report is
+// Arabic so satori can fall back to it for Arabic glyphs.
+async function loadFonts(needsArabic: boolean) {
   const fonts: any[] = [];
-  for (const [weight, file] of want) {
+  const inter = [[400, 'inter-latin-400-normal.woff'], [700, 'inter-latin-700-normal.woff'], [900, 'inter-latin-900-normal.woff']] as const;
+  for (const [weight, file] of inter) {
     try {
       const r = await fetch(`https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/files/${file}`);
       if (r.ok) fonts.push({ name: 'Inter', data: await r.arrayBuffer(), weight, style: 'normal' });
-    } catch { /* fall back to default */ }
+    } catch { /* ignore */ }
+  }
+  if (needsArabic) {
+    const cairo = [[400, 'cairo-arabic-400-normal.woff'], [700, 'cairo-arabic-700-normal.woff'], [900, 'cairo-arabic-900-normal.woff']] as const;
+    for (const [weight, file] of cairo) {
+      try {
+        const r = await fetch(`https://cdn.jsdelivr.net/npm/@fontsource/cairo@5.0.16/files/${file}`);
+        if (r.ok) fonts.push({ name: 'Cairo', data: await r.arrayBuffer(), weight, style: 'normal' });
+      } catch { /* ignore */ }
+    }
   }
   return fonts;
 }
@@ -82,14 +95,20 @@ Deno.serve(async (req: Request) => {
       .from('daily_trade_reports').select('*').eq('id', data.report_id).maybeSingle();
     if (reportError || !report) throw new Error('Report not found');
 
+    // Localization (mirrors the HTML report): Arabic for ar/dual, English for en.
+    const lang = report.language_mode || 'dual';
+    const ar = lang === 'ar' || lang === 'dual';
+    const lbl = (en: string, arar: string) => (ar ? arar : en);
+    const dir = ar ? 'rtl' : 'ltr';
+
     const analystId = report.author_id ?? report.generated_by;
     const { data: analyzerProfile } = await supabase
       .from('profiles').select('full_name, telegram_username, avatar_url').eq('id', analystId).single();
-    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.telegram_username || 'Analyst';
+    const analyzerName = analyzerProfile?.full_name || analyzerProfile?.telegram_username || (ar ? 'المحلل' : 'Analyst');
     const initials = analyzerName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
     const avatarDataUri = await avatarToDataUri(analyzerProfile?.avatar_url);
 
-    const fonts = await loadFonts();
+    const fonts = await loadFonts(ar);
     const FF = fonts.length ? 'Inter' : 'sans-serif';
 
     const summary = report.summary ?? {};
@@ -130,19 +149,16 @@ Deno.serve(async (req: Request) => {
       const isWin = peak >= 100;
       const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);
       const pct = (isActive || isWin) ? (ep > 0 ? ((hp - ep) / ep) * 100 : 0) : -100;
-      // Use the clean underlying symbol (e.g. SPX); strike + type are shown
-      // separately, giving "SPX 7600 CALL". Do NOT fall back to
-      // polygon_option_ticker (the long OCC contract id). Strip any OCC
-      // suffix defensively in case the symbol itself carries one.
+      // Clean underlying symbol only (e.g. SPX); strike + type shown separately.
       const sym = String(t.underlying_index_symbol ?? 'N/A').replace(/\s*\d{6}[CP]\d{8}\s*$/i, '').trim() || 'N/A';
       const strike = safeNum(t.strike);
       const isCall = (t.option_type ?? t.direction ?? 'call').toLowerCase() === 'call';
       return {
         sym, strikeStr: strike > 0 ? `$${strike.toFixed(0)}` : '-',
         entryStr: ep > 0 ? `$${ep.toFixed(2)}` : '-', highStr: hp > 0 ? `$${hp.toFixed(2)}` : '-',
-        dirLabel: isCall ? 'CALL' : 'PUT', dirColor: isCall ? C.green : C.red,
+        dirLabel: isCall ? lbl('CALL', 'شراء') : lbl('PUT', 'بيع'), dirColor: isCall ? C.green : C.red,
         dirBg: isCall ? C.greenBg : C.redBg, dirBorder: isCall ? C.greenBorder : C.redBorder,
-        badge: isActive ? 'ACTIVE' : isWin ? 'WIN' : 'LOSS',
+        badge: isActive ? lbl('ACTIVE', 'نشطة') : isWin ? lbl('WIN', 'ربح') : lbl('LOSS', 'خسارة'),
         badgeColor: isActive ? C.blue : isWin ? C.green : C.red,
         badgeBg: isActive ? C.blueBg : isWin ? C.greenBg : C.redBg,
         badgeBorder: isActive ? C.blueBorder : isWin ? C.greenBorder : C.redBorder,
@@ -152,7 +168,6 @@ Deno.serve(async (req: Request) => {
       };
     });
 
-    // Bounded canvas so a long report never exceeds the renderer limit (546).
     // Keep total pixels well under the renderer limit (~2.0M is flaky / 546).
     const CANVAS_W = 760;
     const ROW_H = 70;
@@ -163,23 +178,26 @@ Deno.serve(async (req: Request) => {
     const hiddenCount = tradesData.length - shownTrades.length;
     const canvasHeight = Math.max(1350, FIXED_TOP + shownTrades.length * ROW_H + (hiddenCount > 0 ? 64 : 0));
 
-    const periodLabel = report.period_type === 'weekly' ? 'Weekly Report' : report.period_type === 'monthly' ? 'Monthly Report' : 'Daily Report';
+    const periodLabel =
+      report.period_type === 'weekly' ? lbl('Weekly Report', 'التقرير الأسبوعي')
+      : report.period_type === 'monthly' ? lbl('Monthly Report', 'التقرير الشهري')
+      : lbl('Daily Report', 'التقرير اليومي');
     const dateLabel = report.period_type === 'daily' ? report.report_date : `${startDate}  -  ${endDate}`;
     const netColor = netProfit >= 0 ? C.green : C.red;
     const netSign = netProfit >= 0 ? '+' : '-';
 
-    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 8 }, children: [ { type: 'div', props: { style: { fontSize: 19, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 48, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
-    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 6px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 15, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 27, fontWeight: 900, color }, children: value } } ] } });
+    const chip = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 18, padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 7 }, children: [ { type: 'div', props: { style: { fontSize: 18, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 44, fontWeight: 900, color, lineHeight: 1 }, children: value } } ] } });
+    const miniStat = (label: string, value: string, color: string) => ({ type: 'div', props: { style: { flex: 1, background: C.elevated, border: `1px solid ${C.border}`, borderRadius: 14, padding: '13px 5px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }, children: [ { type: 'div', props: { style: { fontSize: 14, color: C.textMuted, fontWeight: 700 }, children: label } }, { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color }, children: value } } ] } });
     const tradeRow = (t: any) => ({ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 22px', borderBottom: `1px solid ${C.border}` }, children: [
       { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10, flex: 1 }, children: [
         { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color: C.text }, children: t.sym } },
         { type: 'div', props: { style: { display: 'flex', background: t.dirBg, border: `1px solid ${t.dirBorder}`, borderRadius: 6, padding: '3px 8px', fontSize: 14, fontWeight: 800, color: t.dirColor }, children: t.dirLabel } },
-        { type: 'div', props: { style: { fontSize: 21, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
-        { type: 'div', props: { style: { fontSize: 18, fontWeight: 600, color: C.textMuted, marginLeft: 4 }, children: t.entryStr } },
-        { type: 'div', props: { style: { fontSize: 17, color: C.textMuted }, children: '->' } },
-        { type: 'div', props: { style: { fontSize: 18, fontWeight: 700, color: C.green }, children: t.highStr } },
+        { type: 'div', props: { style: { fontSize: 20, fontWeight: 800, color: C.textSub }, children: t.strikeStr } },
+        { type: 'div', props: { style: { fontSize: 17, fontWeight: 600, color: C.textMuted, marginLeft: 4 }, children: t.entryStr } },
+        { type: 'div', props: { style: { fontSize: 16, color: C.textMuted }, children: '->' } },
+        { type: 'div', props: { style: { fontSize: 17, fontWeight: 700, color: C.green }, children: t.highStr } },
       ] } },
-      { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 11 }, children: [
+      { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 10 }, children: [
         { type: 'div', props: { style: { display: 'flex', background: t.badgeBg, border: `1px solid ${t.badgeBorder}`, borderRadius: 6, padding: '3px 9px', fontSize: 14, fontWeight: 800, color: t.badgeColor }, children: t.badge } },
         { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }, children: [
           { type: 'div', props: { style: { fontSize: 25, fontWeight: 900, color: t.pColor }, children: t.pnlStr } },
@@ -189,52 +207,52 @@ Deno.serve(async (req: Request) => {
     ] } });
 
     const avatarNode = avatarDataUri
-      ? { type: 'img', props: { src: avatarDataUri, width: 78, height: 78, style: { width: 78, height: 78, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
-      : { type: 'div', props: { style: { display: 'flex', width: 78, height: 78, borderRadius: '50%', background: C.blueBg, border: `2px solid ${C.blueBorder}`, alignItems: 'center', justifyContent: 'center', fontSize: 30, fontWeight: 900, color: C.blue }, children: initials } };
+      ? { type: 'img', props: { src: avatarDataUri, width: 76, height: 76, style: { width: 76, height: 76, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${C.border}` } } }
+      : { type: 'div', props: { style: { display: 'flex', width: 76, height: 76, borderRadius: '50%', background: C.blueBg, border: `2px solid ${C.blueBorder}`, alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 900, color: C.blue }, children: initials } };
 
     const vdom = {
       type: 'div', props: {
-        style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative' },
+        style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: FF, position: 'relative', direction: dir },
         children: [
           { type: 'div', props: { style: { display: 'flex', position: 'absolute', top: 0, left: 0, right: 0, height: 9, background: C.blue } } },
-          { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '44px 44px 34px', gap: 20 }, children: [
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 12 }, children: [
-              { type: 'div', props: { style: { display: 'flex', background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 8, padding: '5px 14px', color: C.blue, fontSize: 18, fontWeight: 800 }, children: 'ANALYZINGHUB' } },
-              { type: 'div', props: { style: { fontSize: 54, fontWeight: 900, color: C.text, lineHeight: 1.1 }, children: periodLabel } },
-              { type: 'div', props: { style: { fontSize: 25, color: C.textSub }, children: dateLabel } },
-              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 14, marginTop: 4 }, children: [
+          { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '40px 40px 30px', gap: 18 }, children: [
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 11 }, children: [
+              { type: 'div', props: { style: { display: 'flex', background: C.blueBg, border: `1px solid ${C.blueBorder}`, borderRadius: 8, padding: '5px 13px', color: C.blue, fontSize: 17, fontWeight: 800 }, children: 'ANALYZINGHUB' } },
+              { type: 'div', props: { style: { fontSize: 50, fontWeight: 900, color: C.text, lineHeight: 1.15 }, children: periodLabel } },
+              { type: 'div', props: { style: { fontSize: 23, color: C.textSub }, children: dateLabel } },
+              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 13, marginTop: 4 }, children: [
                 avatarNode,
                 { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 3 }, children: [
-                  { type: 'div', props: { style: { fontSize: 25, fontWeight: 800, color: C.text }, children: analyzerName } },
-                  { type: 'div', props: { style: { fontSize: 19, color: C.textMuted }, children: 'Index Analyst' } },
+                  { type: 'div', props: { style: { fontSize: 23, fontWeight: 800, color: C.text }, children: analyzerName } },
+                  { type: 'div', props: { style: { fontSize: 18, color: C.textMuted }, children: lbl('Index Analyst', 'محلل مؤشرات') } },
                 ] } },
               ] } },
             ] } },
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 20, padding: '24px 30px', gap: 6 }, children: [
-              { type: 'div', props: { style: { fontSize: 22, color: C.textMuted, fontWeight: 800 }, children: 'NET PROFIT' } },
-              { type: 'div', props: { style: { fontSize: 82, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
-              { type: 'div', props: { style: { fontSize: 22, color: C.textSub, fontWeight: 600 }, children: `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 18, padding: '22px 28px', gap: 6 }, children: [
+              { type: 'div', props: { style: { fontSize: 21, color: C.textMuted, fontWeight: 800 }, children: lbl('NET PROFIT', 'صافي الربح') } },
+              { type: 'div', props: { style: { fontSize: 76, fontWeight: 900, color: netColor, lineHeight: 1, direction: 'ltr' }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
+              { type: 'div', props: { style: { fontSize: 21, color: C.textSub, fontWeight: 600 }, children: `${lbl('Profits', 'الأرباح')} +$${totalProfit.toFixed(0)}   .   ${lbl('Losses', 'الخسائر')} -$${totalLoss.toFixed(0)}` } },
             ] } },
-            { type: 'div', props: { style: { display: 'flex', gap: 18 }, children: [
-              chip('WIN RATE', `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
-              chip('BEST TRADE', `+$${bestTrade.toFixed(0)}`, C.gold),
+            { type: 'div', props: { style: { display: 'flex', gap: 16 }, children: [
+              chip(lbl('WIN RATE', 'معدل النجاح'), `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
+              chip(lbl('BEST TRADE', 'أفضل صفقة'), `+$${bestTrade.toFixed(0)}`, C.gold),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', gap: 12 }, children: [
-              miniStat('TOTAL', String(totalTrades), C.text),
-              miniStat('WON', String(winningTrades), C.green),
-              miniStat('LOST', String(losingTrades), C.red),
-              miniStat('AVG WIN', `+$${avgWin.toFixed(0)}`, C.green),
-              miniStat('WORST', `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
+            { type: 'div', props: { style: { display: 'flex', gap: 11 }, children: [
+              miniStat(lbl('TOTAL', 'الإجمالي'), String(totalTrades), C.text),
+              miniStat(lbl('WON', 'رابحة'), String(winningTrades), C.green),
+              miniStat(lbl('LOST', 'خاسرة'), String(losingTrades), C.red),
+              miniStat(lbl('AVG WIN', 'متوسط الربح'), `+$${avgWin.toFixed(0)}`, C.green),
+              miniStat(lbl('WORST', 'أسوأ'), `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, overflow: 'hidden' }, children: [
-              { type: 'div', props: { style: { display: 'flex', padding: '14px 24px', fontSize: 19, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `TRADES (${totalTrades})` } },
+            { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: 'hidden' }, children: [
+              { type: 'div', props: { style: { display: 'flex', padding: '13px 22px', fontSize: 18, fontWeight: 800, color: C.textMuted, borderBottom: `1px solid ${C.border}` }, children: `${lbl('TRADES', 'الصفقات')} (${totalTrades})` } },
               ...shownTrades.map(tradeRow),
-              ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '14px', fontSize: 18, fontWeight: 600, color: C.textMuted }, children: `+ ${hiddenCount} more trades - see full report` } }] : []),
-              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 26, padding: '40px' }, children: 'No trades in this period' } }] : []),
+              ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '13px', fontSize: 17, fontWeight: 600, color: C.textMuted }, children: lbl(`+ ${hiddenCount} more trades - see full report`, `+ ${hiddenCount} صفقات أخرى — راجع التقرير الكامل`) } }] : []),
+              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 24, padding: '36px' }, children: lbl('No trades in this period', 'لا توجد صفقات في هذه الفترة') } }] : []),
             ] } },
-            { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 18, color: C.textMuted }, children: [
-              { type: 'div', props: { children: 'AnalyzingHub  .  Index Trading Report' } },
-              { type: 'div', props: { style: { color: C.cyan, fontWeight: 700 }, children: `W/L ${wlRatio}` } },
+            { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 17, color: C.textMuted }, children: [
+              { type: 'div', props: { children: lbl('AnalyzingHub  .  Index Trading Report', 'AnalyzingHub  ·  تقرير تداول المؤشرات') } },
+              { type: 'div', props: { style: { color: C.cyan, fontWeight: 700, direction: 'ltr' }, children: `W/L ${wlRatio}` } },
             ] } },
           ] } },
         ],
