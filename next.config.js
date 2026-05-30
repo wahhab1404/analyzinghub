@@ -34,6 +34,24 @@ const nextConfig = {
         './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
         './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
       ],
+      // Company contract-deal alert image
+      '/api/companies/contract-trades/[id]/generate-image': [
+        './node_modules/@resvg/resvg-wasm/**',
+        './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+        './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+      ],
+      // Company contract-deal create path renders the alert card at publish time
+      '/api/companies/contract-trades': [
+        './node_modules/@resvg/resvg-wasm/**',
+        './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+        './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+      ],
+      // Trade broadcast renders an alert card for option trades
+      '/api/trades/[id]/broadcast': [
+        './node_modules/@resvg/resvg-wasm/**',
+        './node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2',
+        './node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2',
+      ],
     },
   },
 };
