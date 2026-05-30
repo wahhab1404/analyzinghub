@@ -995,7 +995,7 @@ export default function ReportsPage() {
                             {report.language_mode === 'en' ? 'English' : report.language_mode === 'ar' ? 'العربية' : 'Both'}
                           </Badge>
                           {report.image_url && (
-                            <Badge variant="outline" className="text-xs border-violet-700 text-violet-400 bg-violet-950/30">
+                            <Badge variant="outline" className="text-xs border-cyan-700 text-cyan-400 bg-cyan-950/30">
                               <Image className="w-3 h-3 mr-1" />
                               Image
                             </Badge>
@@ -1010,14 +1010,14 @@ export default function ReportsPage() {
 
                         {report.summary && (
                           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-                            <div className="bg-emerald-950/25 border border-l-4 border-emerald-900/40 border-l-emerald-500 p-3 rounded-lg">
+                            <div className={`border border-l-4 p-3 rounded-lg ${Number(report.summary.net_profit || 0) >= 0 ? 'bg-emerald-950/25 border-emerald-900/40 border-l-emerald-500' : 'bg-red-950/25 border-red-900/40 border-l-red-500'}`}>
                               <p className="text-xs text-slate-400 mb-1">
                                 {language === 'ar' ? 'صافي الربح' : 'Net Profit'}
                               </p>
-                              <p className="text-2xl font-bold text-emerald-400 mb-0.5">
-                                {report.summary.net_profit >= 0 ? '+' : ''}${Number(report.summary.net_profit || 0).toFixed(0)}
+                              <p className={`text-2xl font-bold mb-0.5 ${Number(report.summary.net_profit || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {Number(report.summary.net_profit || 0) >= 0 ? '+' : '-'}${Number(Math.abs(report.summary.net_profit || 0)).toFixed(0)}
                               </p>
-                              <p className="text-xs text-emerald-600">
+                              <p className={`text-xs ${Number(report.summary.net_profit || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                 {report.summary.avg_profit_percent ? `${Number(report.summary.avg_profit_percent).toFixed(1)}%` : '0.0%'} {language === 'ar' ? 'متوسط' : 'avg'}
                               </p>
                             </div>
@@ -1043,14 +1043,14 @@ export default function ReportsPage() {
                                 {report.summary.winning_trades || 0}W / {report.summary.losing_trades || 0}L
                               </p>
                             </div>
-                            <div className="bg-violet-950/25 border border-l-4 border-violet-900/40 border-l-violet-500 p-3 rounded-lg">
+                            <div className="bg-cyan-950/25 border border-l-4 border-cyan-900/40 border-l-cyan-500 p-3 rounded-lg">
                               <p className="text-xs text-slate-400 mb-1">
                                 {language === 'ar' ? 'أعلى ربح' : 'Best Trade'}
                               </p>
-                              <p className="text-2xl font-bold text-violet-400 mb-0.5">
+                              <p className="text-2xl font-bold text-cyan-400 mb-0.5">
                                 +${Number((report.summary.best_trade || report.summary.max_profit_percent || 0)).toFixed(0)}
                               </p>
-                              <p className="text-xs text-violet-600">
+                              <p className="text-xs text-cyan-600">
                                 {Number(report.summary.max_profit_percent || 0).toFixed(1)}% {language === 'ar' ? 'نسبة' : 'gain'}
                               </p>
                             </div>
