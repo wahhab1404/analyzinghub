@@ -139,6 +139,43 @@ function getTradingDaysCount(start: Date, end: Date): number {
   return count;
 }
 
+// Render the report PNG and store its public URL on the report row. Run as a
+// background task (EdgeRuntime.waitUntil) so the HTTP response returns fast —
+// the synchronous image render was timing out the caller on larger (monthly)
+// reports.
+async function generateAndStoreImage(
+  supabase: any,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  reportId: string,
+): Promise<void> {
+  try {
+    const imgRes = await fetch(`${supabaseUrl}/functions/v1/generate-report-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceRoleKey}` },
+      body: JSON.stringify({ report_id: reportId }),
+    });
+    if (!imgRes.ok) {
+      console.error('[Period Report] Background image generation failed:', await imgRes.text());
+      return;
+    }
+    const buf = new Uint8Array(await imgRes.arrayBuffer());
+    const fileName = `report-image-${reportId}-${Date.now()}.png`;
+    const { error: upErr } = await supabase.storage
+      .from('daily-reports')
+      .upload(fileName, buf, { contentType: 'image/png', cacheControl: '3600', upsert: true });
+    if (upErr) {
+      console.error('[Period Report] Background image upload failed:', upErr);
+      return;
+    }
+    const { data: { publicUrl } } = supabase.storage.from('daily-reports').getPublicUrl(fileName);
+    await supabase.from('daily_trade_reports').update({ image_url: publicUrl }).eq('id', reportId);
+    console.log('[Period Report] Background image saved:', publicUrl);
+  } catch (e) {
+    console.error('[Period Report] Background image error:', e);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -369,6 +406,19 @@ Deno.serve(async (req) => {
     if (insertError) throw insertError;
 
     console.log(`[Period Report] Generated successfully`);
+
+    // Generate the social PNG in the background so the response returns fast.
+    if (reportRecord?.id) {
+      const bg = generateAndStoreImage(supabase, supabaseUrl, serviceRoleKey, reportRecord.id);
+      // @ts-ignore - EdgeRuntime is provided by the Supabase Edge runtime
+      if (typeof EdgeRuntime !== 'undefined' && EdgeRuntime?.waitUntil) {
+        // @ts-ignore
+        EdgeRuntime.waitUntil(bg);
+      } else {
+        // Fallback: best-effort fire-and-forget.
+        bg.catch((e) => console.error('[Period Report] bg image (no waitUntil):', e));
+      }
+    }
 
     return new Response(
       JSON.stringify({

@@ -99,7 +99,6 @@ Deno.serve(async (req: Request) => {
     const lang = report.language_mode || 'dual';
     const ar = lang === 'ar' || lang === 'dual';
     const lbl = (en: string, arar: string) => (ar ? arar : en);
-    const dir = ar ? 'rtl' : 'ltr';
 
     const analystId = report.author_id ?? report.generated_by;
     const { data: analyzerProfile } = await supabase
@@ -179,9 +178,9 @@ Deno.serve(async (req: Request) => {
     const canvasHeight = Math.max(1350, FIXED_TOP + shownTrades.length * ROW_H + (hiddenCount > 0 ? 64 : 0));
 
     const periodLabel =
-      report.period_type === 'weekly' ? lbl('Weekly Report', 'التقرير الأسبوعي')
-      : report.period_type === 'monthly' ? lbl('Monthly Report', 'التقرير الشهري')
-      : lbl('Daily Report', 'التقرير اليومي');
+      report.period_type === 'weekly' ? lbl('Weekly Report', 'الأسبوعي التقرير')
+      : report.period_type === 'monthly' ? lbl('Monthly Report', 'الشهري التقرير')
+      : lbl('Daily Report', 'اليومي التقرير');
     const dateLabel = report.period_type === 'daily' ? report.report_date : `${startDate}  -  ${endDate}`;
     const netColor = netProfit >= 0 ? C.green : C.red;
     const netSign = netProfit >= 0 ? '+' : '-';
@@ -224,34 +223,46 @@ Deno.serve(async (req: Request) => {
                 avatarNode,
                 { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', gap: 3 }, children: [
                   { type: 'div', props: { style: { fontSize: 23, fontWeight: 800, color: C.text }, children: analyzerName } },
-                  { type: 'div', props: { style: { fontSize: 18, color: C.textMuted }, children: lbl('Index Analyst', 'محلل مؤشرات') } },
+                  { type: 'div', props: { style: { fontSize: 18, color: C.textMuted }, children: lbl('Index Analyst', 'مؤشرات محلل') } },
                 ] } },
               ] } },
             ] } },
             { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: netProfit >= 0 ? C.greenBg : C.redBg, border: `1px solid ${netProfit >= 0 ? C.greenBorder : C.redBorder}`, borderRadius: 18, padding: '22px 28px', gap: 6 }, children: [
-              { type: 'div', props: { style: { fontSize: 21, color: C.text, fontWeight: 800 }, children: lbl('NET PROFIT', 'صافي الربح') } },
+              { type: 'div', props: { style: { fontSize: 21, color: C.text, fontWeight: 800 }, children: lbl('NET PROFIT', 'الربح صافي') } },
               { type: 'div', props: { style: { fontSize: 76, fontWeight: 900, color: netColor, lineHeight: 1 }, children: `${netSign}$${Math.abs(netProfit).toFixed(0)}` } },
-              { type: 'div', props: { style: { fontSize: 21, color: C.textSub, fontWeight: 600 }, children: ar ? `الأرباح: +$${totalProfit.toFixed(0)}   ·   الخسائر: -$${totalLoss.toFixed(0)}` : `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
+              // Profits/losses line. Satori renders inline text in logical
+              // (L->R) order without bidi reordering, so for Arabic we lay the
+              // pieces out as discrete atomic nodes in the desired visual order
+              // (numbers stay LTR; words read RTL right-to-left).
+              { type: 'div', props: { style: { display: 'flex', alignItems: 'center', gap: 9, fontSize: 21, color: C.textSub, fontWeight: 600 }, children: ar ? [
+                { type: 'div', props: { style: { display: 'flex' }, children: `-$${totalLoss.toFixed(0)}` } },
+                { type: 'div', props: { style: { display: 'flex' }, children: 'الخسائر' } },
+                { type: 'div', props: { style: { display: 'flex', color: C.textMuted }, children: '·' } },
+                { type: 'div', props: { style: { display: 'flex' }, children: `+$${totalProfit.toFixed(0)}` } },
+                { type: 'div', props: { style: { display: 'flex' }, children: 'الأرباح' } },
+              ] : [
+                { type: 'div', props: { style: { display: 'flex' }, children: `Profits +$${totalProfit.toFixed(0)}   .   Losses -$${totalLoss.toFixed(0)}` } },
+              ] } },
             ] } },
             { type: 'div', props: { style: { display: 'flex', gap: 16 }, children: [
-              chip(lbl('WIN RATE', 'معدل النجاح'), `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
-              chip(lbl('BEST TRADE', 'أفضل صفقة'), `+$${bestTrade.toFixed(0)}`, C.gold),
+              chip(lbl('WIN RATE', 'النجاح معدل'), `${winRate.toFixed(0)}%`, winRate >= 50 ? C.green : C.red),
+              chip(lbl('BEST TRADE', 'صفقة أفضل'), `+$${bestTrade.toFixed(0)}`, C.gold),
             ] } },
             { type: 'div', props: { style: { display: 'flex', gap: 11 }, children: [
               miniStat(lbl('TOTAL', 'الإجمالي'), String(totalTrades), C.text),
               miniStat(lbl('WON', 'رابحة'), String(winningTrades), C.green),
               miniStat(lbl('LOST', 'خاسرة'), String(losingTrades), C.red),
-              miniStat(lbl('AVG WIN', 'متوسط الربح'), `+$${avgWin.toFixed(0)}`, C.green),
+              miniStat(lbl('AVG WIN', 'الربح متوسط'), `+$${avgWin.toFixed(0)}`, C.green),
               miniStat(lbl('WORST', 'أسوأ'), `-$${Math.abs(worstTrade).toFixed(0)}`, C.red),
             ] } },
             { type: 'div', props: { style: { display: 'flex', flexDirection: 'column', background: C.card, border: `1px solid ${C.border}`, borderRadius: 18, overflow: 'hidden' }, children: [
               { type: 'div', props: { style: { display: 'flex', padding: '13px 22px', fontSize: 18, fontWeight: 800, color: C.text, borderBottom: `1px solid ${C.border}` }, children: `${lbl('TRADES', 'الصفقات')} (${totalTrades})` } },
               ...shownTrades.map(tradeRow),
-              ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '13px', fontSize: 17, fontWeight: 600, color: C.textMuted }, children: lbl(`+ ${hiddenCount} more trades - see full report`, `+ ${hiddenCount} صفقات أخرى — راجع التقرير الكامل`) } }] : []),
-              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 24, padding: '36px' }, children: lbl('No trades in this period', 'لا توجد صفقات في هذه الفترة') } }] : []),
+              ...(hiddenCount > 0 ? [{ type: 'div', props: { style: { display: 'flex', justifyContent: 'center', padding: '13px', fontSize: 17, fontWeight: 600, color: C.textMuted }, children: lbl(`+ ${hiddenCount} more trades - see full report`, `الكامل التقرير راجع — إضافية صفقة ${hiddenCount}+`) } }] : []),
+              ...(tradesData.length === 0 ? [{ type: 'div', props: { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.textMuted, fontSize: 24, padding: '36px' }, children: lbl('No trades in this period', 'الفترة هذه في صفقات توجد لا') } }] : []),
             ] } },
             { type: 'div', props: { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 17, color: C.textMuted }, children: [
-              { type: 'div', props: { children: lbl('AnalyzingHub  .  Index Trading Report', 'AnalyzingHub  ·  تقرير تداول المؤشرات') } },
+              { type: 'div', props: { children: lbl('AnalyzingHub  .  Index Trading Report', 'AnalyzingHub  ·  المؤشرات تداول تقرير') } },
               { type: 'div', props: { style: { color: C.cyan, fontWeight: 700 }, children: `W/L ${wlRatio}` } },
             ] } },
           ] } },
