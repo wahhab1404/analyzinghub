@@ -55,25 +55,33 @@ Deno.serve(async (req: Request) => {
       has_channel_ids: !!(channel_ids && channel_ids.length > 0)
     });
 
-    const { data: channels, error: channelsError } = channel_ids && channel_ids.length > 0
-      ? await supabase
-          .from('telegram_channels')
-          .select('*')
-          .eq('user_id', report.author_id)
-          .in('channel_id', channel_ids)
-      : await supabase
-          .from('telegram_channels')
-          .select('*')
-          .eq('user_id', report.author_id)
-          .eq('enabled', true);
+    const hasIds = Array.isArray(channel_ids) && channel_ids.length > 0;
+
+    // Report/subscriber channels.
+    let subQ = supabase.from('telegram_channels').select('*').eq('user_id', report.author_id);
+    subQ = hasIds ? subQ.in('channel_id', channel_ids) : subQ.eq('enabled', true);
+    const { data: subChannels, error: subErr } = await subQ;
+
+    // Trade-advertisement channels live in a separate table.
+    let adQ = supabase.from('telegram_ad_channels').select('*').eq('user_id', report.author_id).eq('is_active', true);
+    if (hasIds) adQ = adQ.in('channel_id', channel_ids);
+    const { data: adChannels } = await adQ;
+
+    // Merge both, de-duplicating by channel_id.
+    const byId = new Map<string, any>();
+    for (const c of [...(subChannels ?? []), ...(adChannels ?? [])]) {
+      if (c?.channel_id && !byId.has(c.channel_id)) byId.set(c.channel_id, c);
+    }
+    const channels = [...byId.values()];
+    const channelsError = subErr;
 
     console.log('[Send Report to Telegram] Channels found:', {
-      count: channels?.length || 0,
-      channels: channels?.map(c => ({ id: c.id, channel_id: c.channel_id, name: c.channel_name })),
+      count: channels.length,
+      channels: channels.map(c => ({ channel_id: c.channel_id, name: c.channel_name })),
       error: channelsError
     });
 
-    if (channelsError || !channels || channels.length === 0) {
+    if (!channels || channels.length === 0) {
       return new Response(
         JSON.stringify({ error: 'No active Telegram channels found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
