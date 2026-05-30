@@ -131,7 +131,10 @@ Deno.serve(async (req: Request) => {
       const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);
       const pct = (isActive || isWin) ? (ep > 0 ? ((hp - ep) / ep) * 100 : 0) : -100;
       let sym = t.underlying_index_symbol ?? 'N/A';
-      if (t.polygon_option_ticker) { const parts = String(t.polygon_option_ticker).split(':'); if (parts.length > 1) sym = parts[1].replace(/\d{6}[CP]\d{8}$/, ''); }
+      if (t.polygon_option_ticker) { const parts = String(t.polygon_option_ticker).split(':'); if (parts.length > 1) sym = parts[1]; }
+      // Strip any OCC option suffix (YYMMDD + C/P + 8 digits) -> just the root.
+      const root = String(sym).replace(/\s*\d{6}[CP]\d{8}\s*$/i, '').trim();
+      if (root) sym = root;
       const strike = safeNum(t.strike);
       const isCall = (t.option_type ?? t.direction ?? 'call').toLowerCase() === 'call';
       return {
