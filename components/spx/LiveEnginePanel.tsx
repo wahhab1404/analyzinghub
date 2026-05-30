@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Activity, Zap, TrendingUp, TrendingDown, Minus, AlertTriangle, PlusCircle } from 'lucide-react'
+import { RefreshCw, Activity, Zap, TrendingUp, TrendingDown, Minus, AlertTriangle, PlusCircle, Play, Square, Bot } from 'lucide-react'
 import { ScoreGauge, SubScoreBar } from './ScoreGauge'
 import { WallDisplay } from './WallDisplay'
 import { SignalCard } from './SignalCard'
@@ -44,6 +44,36 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
   const [tradeSuccess, setTradeSuccess] = useState<string | null>(null)
   const [tradeError, setTradeError]     = useState<string | null>(null)
 
+  // Phase 5: engine on/off
+  const [engineEnabled, setEngineEnabled] = useState<boolean | null>(null)
+  const [autoTradeEnabled, setAutoTradeEnabled] = useState<boolean>(false)
+  const [toggleBusy, setToggleBusy] = useState(false)
+
+  const refreshEngineState = useCallback(async () => {
+    try {
+      const r = await fetch('/api/spx/engine-toggle')
+      const j = await r.json()
+      if (j?.success) {
+        setEngineEnabled(!!j.engineEnabled)
+        setAutoTradeEnabled(!!j.autoTradeEnabled)
+      }
+    } catch {/* ignore */}
+  }, [])
+
+  const toggleEngine = useCallback(async () => {
+    if (engineEnabled == null) return
+    setToggleBusy(true)
+    try {
+      const r = await fetch('/api/spx/engine-toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !engineEnabled }),
+      })
+      const j = await r.json()
+      if (j?.success) setEngineEnabled(!!j.engineEnabled)
+    } finally { setToggleBusy(false) }
+  }, [engineEnabled])
+
   const refresh = useCallback(async (skipWalls = false) => {
     setLoading(true)
     setError(null)
@@ -74,9 +104,11 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
 
   useEffect(() => {
     refresh()
+    refreshEngineState()
     const interval = setInterval(() => refresh(true), 30_000)
-    return () => clearInterval(interval)
-  }, [refresh])
+    const stateInterval = setInterval(refreshEngineState, 15_000)
+    return () => { clearInterval(interval); clearInterval(stateInterval) }
+  }, [refresh, refreshEngineState])
 
   const createTradeFromSignal = useCallback(async () => {
     if (!result?.signal?.id) return
@@ -114,12 +146,34 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
             <span className="text-sm font-bold text-white">Live Engine</span>
           </div>
           {features && <DataQualityBadge quality={features.dataQuality} />}
+          {autoTradeEnabled && (
+            <span className="flex items-center gap-1.5 text-xs font-bold text-violet-400 bg-violet-500/10 border border-violet-500/25 px-2.5 py-1 rounded-full">
+              <Bot className="w-3 h-3" /> Auto ON
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {lastRefresh && (
             <span className="text-xs text-slate-500">
               Updated {lastRefresh.toLocaleTimeString()}
             </span>
+          )}
+          {/* ── Engine Start / Stop ── */}
+          {engineEnabled !== null && (
+            <button
+              onClick={toggleEngine}
+              disabled={toggleBusy}
+              className={`flex items-center gap-1.5 text-sm font-bold px-4 py-1.5 rounded-lg border transition-all disabled:opacity-40 ${
+                engineEnabled
+                  ? 'text-red-400 bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
+                  : 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20'
+              }`}
+            >
+              {engineEnabled
+                ? <><Square className="w-3.5 h-3.5" /> Stop Engine</>
+                : <><Play className="w-3.5 h-3.5" /> Start Engine</>
+              }
+            </button>
           )}
           <button
             onClick={() => refresh(false)}
@@ -131,6 +185,14 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
           </button>
         </div>
       </div>
+
+      {/* ── Engine stopped notice ─────────────────────────────────────────── */}
+      {engineEnabled === false && (
+        <div className="flex items-center gap-2 text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          <Square className="w-4 h-4 flex-shrink-0" />
+          Engine is stopped. Click <strong>Start Engine</strong> to begin background analysis. Runs every 30 seconds even when this page is closed.
+        </div>
+      )}
 
       {/* ── Error ────────────────────────────────────────────────────────── */}
       {error && (

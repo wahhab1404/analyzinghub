@@ -362,6 +362,25 @@ export async function runIntelligenceEngine(
     console.warn('[IntelligenceEngine] Alert dispatch failed:', alertErr.message);
   }
 
+  // ── 7b. PHASE 5: AUTO-TRADE SELECTION ────────────────────────────────────
+  // Non-fatal: any failure here logs and continues.
+  try {
+    const { runAutoTradeSelector } = await import('./auto-trade-selector');
+    const { getSettings } = await import('./settings-engine');
+    const settings = await getSettings();
+    const autoResult = await runAutoTradeSelector(
+      { features, walls, shock, signal, contracts, engineState, computedAt: new Date().toISOString() },
+      settings,
+    );
+    if (autoResult.created) {
+      console.info(`[IntelligenceEngine] Auto-trade created: ${autoResult.tradeId} (${autoResult.channelsSent} channels)`);
+    } else if (!['auto_trade_disabled', 'not_buy_signal', 'duplicate:auto_trade_exists'].includes(autoResult.reason)) {
+      console.info(`[IntelligenceEngine] Auto-trade skipped: ${autoResult.reason}`);
+    }
+  } catch (autoErr: any) {
+    console.warn('[IntelligenceEngine] Auto-trade flow failed:', autoErr.message);
+  }
+
   // ── 8. PHASE 3: REFRESH ACTIVE TRADE PREMIUMS ─────────────────────────────
   // For each active trade, fetch current premium from Polygon and update DB
   // Non-fatal

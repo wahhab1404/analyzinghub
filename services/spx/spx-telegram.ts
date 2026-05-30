@@ -18,7 +18,7 @@ import {
   getActiveAlertChannels,
   ALERT_COOLDOWNS,
 } from './alert-controller';
-import type { SignalOutput, SPXFeatures, WallEngineOutput, ShockEngineOutput, ContractRankingOutput } from './types';
+import type { SignalOutput, SPXFeatures, WallEngineOutput, ShockEngineOutput, ContractRankingOutput, ContractCandidate } from './types';
 import type { SPXTrade } from './trade-engine';
 import type { EntryPlan } from './entry-engine';
 import type { ExitSignal } from './exit-engine';
@@ -460,6 +460,155 @@ export async function sendTradeClosedSummary(trade: SPXTrade): Promise<void> {
   } catch (err: any) {
     console.error('[SPXTelegram] sendTradeClosedSummary failed:', err.message);
   }
+}
+
+// ── AUTO-TRADE ALERT HELPERS ──────────────────────────────────────────────────
+
+/**
+ * Send image + caption for a new auto-trade to specific channels only.
+ * Returns number of channels that received the message.
+ */
+export async function sendAutoTradeAlert(params: {
+  tradeId: string;
+  signal: SignalOutput;
+  features: SPXFeatures;
+  contract: ContractCandidate;
+  entryPlan: EntryPlan;
+  channelIds: string[];
+}): Promise<number> {
+  const { tradeId, signal, features, contract, entryPlan, channelIds } = params;
+  if (channelIds.length === 0) return 0;
+
+  const { url, key } = getSupabaseCredentials();
+  const token = await getBotToken(url, key);
+  if (!token) {
+    console.warn('[SPXTelegram] sendAutoTradeAlert: no bot token');
+    return 0;
+  }
+
+  const isCall = contract.optionType === 'call';
+  const dirEmoji = isCall ? '🟢' : '🔴';
+  const typeLabel = isCall ? 'CALL' : 'PUT';
+
+  const caption = [
+    `🤖 <b>AUTO TRADE — SPX ${typeLabel}</b>  ${dirEmoji}`,
+    ``,
+    `Contract: <code>${escapeHtml(contract.ticker)}</code>`,
+    `Strike: <code>${contract.strike}</code> | ${contract.dte ?? '?'}DTE`,
+    `Entry Zone: <code>$${entryPlan.suggestedEntryLow.toFixed(2)}–$${entryPlan.suggestedEntryHigh.toFixed(2)}</code>`,
+    ``,
+    `Stop: <code>$${entryPlan.stopPremium.toFixed(2)}</code> | SPX Stop: <code>${entryPlan.hardStopSpx.toFixed(0)}</code>`,
+    `T1: <code>$${entryPlan.target1Premium.toFixed(2)}</code> | T2: <code>$${entryPlan.target2Premium.toFixed(2)}</code> | T3: <code>$${entryPlan.target3Premium.toFixed(2)}</code>`,
+    ``,
+    `Score: <code>${Math.round(signal.compositeScore ?? 0)}/100</code> | Class: <b>${signal.confidenceClass}</b>`,
+    `Mode: ${escapeHtml(signal.signalMode)} | SPX: <code>${features.underlying.price}</code>`,
+    ``,
+    `<i>${escapeHtml(signal.rationale)}</i>`,
+  ].join('\n');
+
+  // Try to generate image via Next.js API
+  let imageBytes: Buffer | null = null;
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL;
+    if (appUrl) {
+      const imgRes = await fetch(`${appUrl}/api/spx/auto-trade-image?tradeId=${tradeId}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (imgRes.ok) {
+        imageBytes = Buffer.from(await imgRes.arrayBuffer());
+      }
+    }
+  } catch {
+    // fall back to text-only
+  }
+
+  let successCount = 0;
+  for (const chatId of channelIds) {
+    try {
+      if (imageBytes && imageBytes.length > 1024) {
+        // Send photo via multipart
+        const form = new FormData();
+        form.append('chat_id', chatId);
+        form.append('caption', caption);
+        form.append('parse_mode', 'HTML');
+        const blob = new Blob([imageBytes], { type: 'image/png' });
+        form.append('photo', blob, 'auto_trade.png');
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          body: form,
+        });
+        if (res.ok) { successCount++; continue; }
+      }
+      // Fallback: text only
+      const msgId = await sendMessage(token, chatId, caption);
+      if (msgId) successCount++;
+    } catch (err: any) {
+      console.error(`[SPXTelegram] sendAutoTradeAlert failed for ${chatId}:`, err.message);
+    }
+  }
+
+  await logAlert({
+    alertType: 'auto_trade_new',
+    dedupKey: `auto_trade:${tradeId}`,
+    tradeId,
+    channelCount: successCount,
+    suppressed: false,
+    messagePreview: caption.slice(0, 200),
+  });
+
+  return successCount;
+}
+
+/**
+ * Send lifecycle alert (target hit / stop hit) for an auto trade.
+ */
+export async function sendAutoTradeLifecycleAlert(params: {
+  type: 'target_hit' | 'stop_hit';
+  targetNum?: 1 | 2 | 3;
+  tradeId: string;
+  row: Record<string, any>;
+  currentPremium: number;
+  currentSpxPrice: number;
+  channelIds: string[];
+}): Promise<void> {
+  const { type, targetNum, tradeId, row, currentPremium, currentSpxPrice, channelIds } = params;
+  if (channelIds.length === 0) return;
+
+  const { url, key } = getSupabaseCredentials();
+  const token = await getBotToken(url, key);
+  if (!token) return;
+
+  const entryP = row.entry_premium != null ? Number(row.entry_premium) : currentPremium;
+  const pnlPct = entryP > 0 ? ((currentPremium - entryP) / entryP * 100) : 0;
+  const ticker = row.ticker ?? '?';
+
+  let text: string;
+  if (type === 'target_hit') {
+    text = [
+      `🎯 <b>AUTO TRADE — TARGET T${targetNum} HIT</b>`,
+      `<code>${escapeHtml(ticker)}</code>`,
+      `Premium: <code>$${currentPremium.toFixed(2)}</code> | P/L: <code>${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</code>`,
+      `SPX: <code>${currentSpxPrice}</code>`,
+      targetNum === 3 ? `\n🚀 Full target reached — close position` : `\n💡 Consider trailing stop`,
+    ].join('\n');
+  } else {
+    text = [
+      `🛑 <b>AUTO TRADE — STOP HIT</b>`,
+      `<code>${escapeHtml(ticker)}</code>`,
+      `Exit: <code>$${currentPremium.toFixed(2)}</code> | P/L: <code>${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</code>`,
+      `SPX: <code>${currentSpxPrice}</code>`,
+    ].join('\n');
+  }
+
+  const alertType = type === 'target_hit' ? `auto_target_t${targetNum}` : 'auto_stop_hit';
+  for (const chatId of channelIds) {
+    try {
+      await sendMessage(token, chatId, text);
+    } catch (err: any) {
+      console.error(`[SPXTelegram] sendAutoTradeLifecycleAlert failed for ${chatId}:`, err.message);
+    }
+  }
+  await logAlert({ alertType, dedupKey: `${alertType}:${tradeId}`, tradeId, channelCount: channelIds.length, suppressed: false, messagePreview: text.slice(0, 200) });
 }
 
 /** Send an exit signal advisory alert. */
