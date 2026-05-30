@@ -372,11 +372,11 @@ function generateReportHTML(data: {
   }
 
   const dateFormatted = new Date(date + 'T12:00:00Z').toLocaleDateString(
-    isAr ? 'ar-SA' : 'en-US',
+    isAr ? 'ar-SA-u-ca-gregory' : 'en-US',
     { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' },
   );
   const dateRangeStr = period_type !== 'daily'
-    ? `${new Date(startDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} – ${new Date(endDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`
+    ? `${new Date(startDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA-u-ca-gregory' : 'en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })} – ${new Date(endDate + 'T12:00:00Z').toLocaleDateString(isAr ? 'ar-SA-u-ca-gregory' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`
     : dateFormatted;
 
   const periodLabel =
@@ -427,7 +427,7 @@ function generateReportHTML(data: {
 
         const exp = t.expiry
           ? new Date(t.expiry + 'T00:00:00Z').toLocaleDateString(
-              isAr ? 'ar-SA' : 'en-US',
+              isAr ? 'ar-SA-u-ca-gregory' : 'en-US',
               { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' },
             )
           : '—';
@@ -599,7 +599,7 @@ a{color:inherit}
   .tr-r{flex-direction:row;align-items:center;gap:10px}
 }`;
 
-  const genTime = new Date().toLocaleString(isAr ? 'ar-SA' : 'en-US', {
+  const genTime = new Date().toLocaleString(isAr ? 'ar-SA-u-ca-gregory' : 'en-US', {
     timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });

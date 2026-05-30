@@ -412,11 +412,11 @@ function generatePeriodReportHTML(data: any): string {
                                 lbl('Daily Report',   'تقرير يومي');
 
   const startFormatted = new Date(start_date + 'T12:00:00Z').toLocaleDateString(
-    isAr ? 'ar-SA' : 'en-US',
+    isAr ? 'ar-SA-u-ca-gregory' : 'en-US',
     { month: 'short', day: 'numeric', timeZone: 'UTC' },
   );
   const endFormatted = new Date(end_date + 'T12:00:00Z').toLocaleDateString(
-    isAr ? 'ar-SA' : 'en-US',
+    isAr ? 'ar-SA-u-ca-gregory' : 'en-US',
     { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' },
   );
   const dateRangeStr = `${startFormatted} – ${endFormatted}`;
@@ -468,7 +468,7 @@ function generatePeriodReportHTML(data: any): string {
 
         const exp = t.expiry
           ? new Date(t.expiry + 'T00:00:00Z').toLocaleDateString(
-              isAr ? 'ar-SA' : 'en-US',
+              isAr ? 'ar-SA-u-ca-gregory' : 'en-US',
               { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' },
             )
           : '—';
@@ -509,7 +509,7 @@ function generatePeriodReportHTML(data: any): string {
       }).join('');
 
   // ── CSS ─────────────────────────────────────────────────────────────────────
-  const genTime = new Date().toLocaleString(isAr ? 'ar-SA' : 'en-US', {
+  const genTime = new Date().toLocaleString(isAr ? 'ar-SA-u-ca-gregory' : 'en-US', {
     timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
