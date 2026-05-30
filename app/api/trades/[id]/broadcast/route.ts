@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { buildTradeMessage } from '@/lib/telegram/trade-message-builder'
 import { getBotToken, sendMessage, sendPhoto } from '@/lib/telegram/bot-sender'
@@ -21,17 +21,35 @@ export async function POST(req: NextRequest, { params }: Params) {
     const supabase = createServerClient(cookieStore)
     const { id } = await params
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    // Internal/server invocation: a caller holding the CRON_SECRET (cron jobs,
+    // automated re-broadcast) may publish without a browser session. Normal
+    // requests still require an authenticated SuperAdmin/Analyzer.
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('Authorization') ?? ''
+    const isInternal = Boolean(cronSecret) && authHeader === `Bearer ${cronSecret}`
 
-    const { data: profile } = await supabase
-      .from('profiles').select('roles(name)').eq('id', user.id).single()
-    const roleName = (profile as any)?.roles?.name as string | undefined
-    if (!['SuperAdmin', 'Analyzer'].includes(roleName ?? ''))
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    let userId: string | null = null
+    let isSuperAdmin = false
+
+    if (!isInternal) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      userId = user.id
+
+      const { data: profile } = await supabase
+        .from('profiles').select('roles(name)').eq('id', user.id).single()
+      const roleName = (profile as any)?.roles?.name as string | undefined
+      if (!['SuperAdmin', 'Analyzer'].includes(roleName ?? ''))
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      isSuperAdmin = roleName === 'SuperAdmin'
+    }
+
+    // Use a service-role client for DB reads/writes when invoked internally
+    // (no user session → RLS would otherwise block the lookups).
+    const db = isInternal ? createServiceRoleClient() : supabase
 
     // Check for duplicate published alert
-    const { data: existingAlert } = await supabase
+    const { data: existingAlert } = await db
       .from('trade_alerts')
       .select('id')
       .eq('trade_id', id)
@@ -42,7 +60,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Trade already broadcast', duplicate: true }, { status: 409 })
     }
 
-    const { data: trade, error } = await supabase
+    const { data: trade, error } = await db
       .from('trades')
       .select(`
         *,
@@ -56,7 +74,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (error || !trade) return NextResponse.json({ error: 'Trade not found' }, { status: 404 })
 
-    if (trade.user_id !== user.id && roleName !== 'SuperAdmin')
+    if (!isInternal && trade.user_id !== userId && !isSuperAdmin)
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     // Build the Telegram message
@@ -69,7 +87,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     let chatId: string | null = null
 
     if (channelId) {
-      const { data: ch } = await supabase
+      const { data: ch } = await db
         .from('telegram_channels')
         .select('id, channel_id')
         .eq('id', channelId)
@@ -148,7 +166,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
 
     // Log the alert regardless (prevent double-send)
-    await supabase.from('trade_alerts').insert({
+    await db.from('trade_alerts').insert({
       trade_id:            id,
       alert_type:          'published',
       price:               trade.entry_price,
@@ -159,7 +177,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     // Update trade: mark as published + set published_at
     if (trade.status === 'draft') {
-      await supabase
+      await db
         .from('trades')
         .update({ status: 'published', published_at: new Date().toISOString() })
         .eq('id', id)
