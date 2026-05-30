@@ -46,7 +46,17 @@ export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: Se
       if (!response.ok) throw new Error('Failed to load channels')
       const data = await response.json()
 
-      const enabledChannels = data.channels?.filter((ch: TelegramChannel) => ch.enabled) || []
+      // The list API returns camelCase keys (channelId/channelName/...),
+      // normalise them to the snake_case shape this dialog renders/sends.
+      const enabledChannels: TelegramChannel[] = (data.channels || [])
+        .map((ch: any) => ({
+          channel_id: ch.channel_id ?? ch.channelId,
+          channel_name: ch.channel_name ?? ch.channelName,
+          channel_username: ch.channel_username ?? ch.channelUsername,
+          enabled: ch.enabled,
+          audience_type: ch.audience_type ?? ch.audienceType,
+        }))
+        .filter((ch: TelegramChannel) => ch.enabled && ch.channel_id)
       setChannels(enabledChannels)
 
       if (enabledChannels.length > 0) {
