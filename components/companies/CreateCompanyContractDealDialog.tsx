@@ -56,11 +56,30 @@ export function CreateCompanyContractDealDialog({ open, onOpenChange, onTradeCre
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Telegram publishing
+  const [channels, setChannels] = useState<Array<{ id: string; channelId: string; channelName: string }>>([])
+  const [publishChannelId, setPublishChannelId] = useState<string>('none')
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/telegram/channels/list')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled && data.ok && data.channels) setChannels(data.channels)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [open])
+
   const reset = () => {
     setStep('search'); setQuery(''); setResults([]); setSelectedSymbol(null)
     setDirection('CALL'); setStockPrice(null); setExpirations([]); setSelectedExp('')
     setSelectedStrike(null); setEntryPrice(''); setQty('1'); setTarget(''); setStop('')
-    setNotes(''); setError(null); setChainError(null)
+    setNotes(''); setError(null); setChainError(null); setPublishChannelId('none')
   }
 
   const handleOpenChange = (next: boolean) => {
@@ -139,6 +158,8 @@ export function CreateCompanyContractDealDialog({ open, onOpenChange, onTradeCre
           stoploss: stop ? { level: parseFloat(stop) } : null,
           notes: notes || null,
           underlying_price: stockPrice,
+          auto_publish_telegram: publishChannelId !== 'none',
+          telegram_channel_id: publishChannelId !== 'none' ? publishChannelId : null,
         }),
       })
       if (!res.ok) {
@@ -307,6 +328,28 @@ export function CreateCompanyContractDealDialog({ open, onOpenChange, onTradeCre
               <Label>{ar ? 'ملاحظات' : 'Notes'}</Label>
               <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)}
                 placeholder={ar ? 'ملاحظات اختيارية' : 'Optional notes'} />
+            </div>
+
+            <div className="space-y-2">
+              <Label>{ar ? 'النشر في تيليقرام' : 'Publish to Telegram'}</Label>
+              <Select value={publishChannelId} onValueChange={setPublishChannelId}>
+                <SelectTrigger>
+                  <SelectValue placeholder={ar ? 'بدون نشر' : 'Do not publish'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{ar ? 'بدون نشر' : 'Do not publish'}</SelectItem>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.id} value={ch.id}>{ch.channelName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {publishChannelId !== 'none' && (
+                <p className="text-xs text-muted-foreground">
+                  {ar
+                    ? 'سيتم نشر الصفقة مع صورة في القناة المختارة'
+                    : 'The deal will be published with an image to the selected channel'}
+                </p>
+              )}
             </div>
 
             {error && <div className="text-sm text-destructive">{error}</div>}

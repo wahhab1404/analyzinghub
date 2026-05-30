@@ -1,7 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server'
+import { generateAndUploadContractTradeImage } from '@/lib/companies/contract-trade-image'
 
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Generate the alert image, queue a `company_new_trade` Telegram message for the
+ * resolved channels and immediately flush the outbox. Mirrors the index /
+ * company-analysis publish paths. No-op when auto_publish_telegram is false.
+ * Never throws.
+ */
+async function publishContractDealToTelegram(
+  serviceClient: ReturnType<typeof createServiceRoleClient>,
+  trade: Record<string, unknown>,
+  opts: {
+    auto_publish_telegram?: boolean
+    telegram_channel_id?: string | null
+    is_testing?: boolean
+    testing_channel_ids?: string[]
+    image_url?: string | null
+  }
+): Promise<void> {
+  if (!opts.auto_publish_telegram) return
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.warn('[contract-publish] Supabase service credentials missing — cannot publish')
+    return
+  }
+
+  try {
+    // Resolve target chat IDs (testing channels or a single production channel)
+    const channelsToPublish: string[] = []
+
+    if (opts.is_testing && opts.testing_channel_ids && opts.testing_channel_ids.length > 0) {
+      for (const channelUuid of opts.testing_channel_ids) {
+        if (UUID_RE.test(channelUuid)) {
+          const { data: testChannel } = await serviceClient
+            .from('analyzer_testing_channels')
+            .select('telegram_channel_id')
+            .eq('id', channelUuid)
+            .eq('is_enabled', true)
+            .single()
+          if (testChannel?.telegram_channel_id) channelsToPublish.push(testChannel.telegram_channel_id)
+        } else {
+          channelsToPublish.push(channelUuid)
+        }
+      }
+    } else if (opts.telegram_channel_id) {
+      const id = opts.telegram_channel_id
+      if (UUID_RE.test(id)) {
+        const { data: channel } = await serviceClient
+          .from('telegram_channels')
+          .select('channel_id')
+          .eq('id', id)
+          .single()
+        if (channel?.channel_id) channelsToPublish.push(channel.channel_id)
+      } else {
+        channelsToPublish.push(id)
+      }
+    }
+
+    if (channelsToPublish.length === 0) {
+      console.warn('[contract-publish] auto_publish_telegram=true but no channels resolved')
+      return
+    }
+
+    const tradeWithImage = { ...trade, image_url: opts.image_url ?? trade.image_url ?? null }
+    const outboxIds: string[] = []
+
+    for (const chatId of channelsToPublish) {
+      const { data: row, error: outboxErr } = await serviceClient
+        .from('telegram_outbox')
+        .insert({
+          message_type: 'company_new_trade',
+          payload: { trade: tradeWithImage, isTestingMode: opts.is_testing || false },
+          channel_id: chatId,
+          status: 'pending',
+          priority: 5,
+          next_retry_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single()
+      if (outboxErr) {
+        console.error(`[contract-publish] outbox insert failed for ${chatId}:`, outboxErr.message)
+      } else if (row?.id) {
+        outboxIds.push(row.id)
+      }
+    }
+
+    // Fire-and-forget flush so the post is sent without waiting for the cron cycle
+    if (outboxIds.length > 0) {
+      fetch(`${supabaseUrl}/functions/v1/telegram-outbox-processor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({ triggered_by: 'company_contract_create' }),
+      }).catch((e) => console.error('[contract-publish] processor trigger failed:', e?.message))
+    }
+  } catch (err) {
+    console.error('[contract-publish] error:', err instanceof Error ? err.message : err)
+  }
+}
 
 /**
  * GET /api/companies/contract-trades
@@ -64,6 +167,11 @@ export async function POST(request: NextRequest) {
       stoploss,
       notes,
       underlying_price,
+      // Telegram publishing
+      auto_publish_telegram,
+      telegram_channel_id,
+      is_testing,
+      testing_channel_ids,
     } = body
 
     if (!symbol || !direction || strike == null || !expiry_date || !entry_price) {
@@ -123,6 +231,34 @@ export async function POST(request: NextRequest) {
       }
       console.error('[contract-trades] create error:', error)
       return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    // ── Image + Telegram publishing ─────────────────────────────────────────
+    // Generate the alert card and publish it (same approach as index trades).
+    // Best-effort: never blocks the trade creation response on failure.
+    if (auto_publish_telegram) {
+      const serviceClient = createServiceRoleClient()
+      let imageUrl: string | null = null
+      try {
+        imageUrl = await generateAndUploadContractTradeImage(serviceClient, trade.id, trade)
+        if (imageUrl) {
+          await serviceClient
+            .from('contract_trades')
+            .update({ image_url: imageUrl })
+            .eq('id', trade.id)
+          trade.image_url = imageUrl
+        }
+      } catch (imgErr) {
+        console.error('[contract-trades] image generation failed (non-fatal):', imgErr)
+      }
+
+      await publishContractDealToTelegram(serviceClient, trade, {
+        auto_publish_telegram,
+        telegram_channel_id,
+        is_testing,
+        testing_channel_ids,
+        image_url: imageUrl,
+      })
     }
 
     return NextResponse.json({ trade }, { status: 201 })
