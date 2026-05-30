@@ -60,7 +60,10 @@ export function SendToChannelDialog({ open, onOpenChange, onSend, reportId }: Se
       setChannels(enabledChannels)
 
       if (enabledChannels.length > 0) {
-        setSelectedChannels([enabledChannels[0].channel_id])
+        // Pre-select ALL enabled channels (subscriber + advertisement/trade-ad)
+        // so the report goes to the ad channels by default; the user can
+        // uncheck any they don't want before sending.
+        setSelectedChannels(enabledChannels.map((c) => c.channel_id))
       }
     } catch (err: any) {
       setError(err.message)
