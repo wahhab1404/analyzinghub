@@ -8,7 +8,8 @@ import { Plus, TrendingUp, TrendingDown, Activity, ArrowLeft, FileText, Calendar
 import { GlobalMarketBar } from '@/components/indices/terminal/GlobalMarketBar'
 import { TerminalSidebar, MobileTabBar } from '@/components/indices/terminal/TerminalSidebar'
 import type { TerminalTab } from '@/components/indices/terminal/TerminalSidebar'
-import { RightPanel } from '@/components/indices/terminal/RightPanel'
+import { RightPanelView } from '@/components/indices/terminal/RightPanel'
+import { usePanelData } from '@/hooks/use-panel-data'
 import { OverviewTab } from '@/components/indices/terminal/OverviewTab'
 import { CreateIndexAnalysisForm } from '@/components/indices/CreateIndexAnalysisForm'
 import { IndexAnalysesList } from '@/components/indices/IndexAnalysesList'
@@ -97,6 +98,11 @@ export default function IndicesHubPage() {
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null)
   const [refreshStandaloneTrades, setRefreshStandaloneTrades] = useState(0)
   const [activeTab, setActiveTab] = useState<TerminalTab>('overview')
+
+  // Market Intel data — lifted here so the xl+ sidebar and the inline
+  // (mobile/tablet) panel share a single polling source instead of each
+  // fetching independently.
+  const panelData = usePanelData(selectedIndexSymbol)
 
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [languageMode, setLanguageMode] = useState<'en' | 'ar' | 'dual'>('dual')
@@ -1201,6 +1207,16 @@ export default function IndicesHubPage() {
                   </div>
                 )}
 
+                {/* MARKET INTEL — inline panel for mobile/tablet (below xl),
+                    mirrors the desktop right sidebar so every section stays
+                    reachable on small screens. */}
+                <RightPanelView
+                  language={language}
+                  symbol={selectedIndexSymbol}
+                  variant="inline"
+                  {...panelData}
+                />
+
               </div>{/* end tab content area */}
 
               <NewTradeDialog
@@ -1284,8 +1300,13 @@ export default function IndicesHubPage() {
 
         </main>{/* end main workspace */}
 
-        {/* RIGHT PANEL — visible on xl+ only */}
-        <RightPanel language={language} symbol={selectedIndexSymbol} />
+        {/* RIGHT PANEL — fixed sidebar, visible on xl+ only */}
+        <RightPanelView
+          language={language}
+          symbol={selectedIndexSymbol}
+          variant="sidebar"
+          {...panelData}
+        />
 
       </div>{/* end 3-column body */}
 
