@@ -28,8 +28,8 @@ import { cn } from '@/lib/utils'
 // ─── Zod schema ──────────────────────────────────────────────────────────────
 
 const targetSchema = z.object({
-  label: z.string().min(1),
-  price: z.coerce.number().positive('Must be positive'),
+  label: z.string().optional(),
+  price: z.coerce.number().positive('Must be positive').optional().or(z.literal('')),
 })
 
 const baseSchema = z.object({
@@ -141,9 +141,9 @@ export function CreateTradeDialog({
     resolver: zodResolver(baseSchema),
     defaultValues: {
       symbol:            defaultSymbol ?? '',
-      trade_type:        'stock',
-      direction:         'long',
-      targets:           [{ label: 'TP1', price: 0 }],
+      trade_type:        'option',
+      direction:         'call',
+      targets:           [],
       visibility:        'public',
       is_public:         true,
       is_testing:        false,
@@ -228,7 +228,7 @@ export function CreateTradeDialog({
 
     try {
       const res = await fetch(
-        `/api/companies/options-chain?symbol=${encodeURIComponent(sym)}&direction=${dir}&maxDTE=60&percentBand=0.12`,
+        `/api/companies/options-chain?symbol=${encodeURIComponent(sym)}&direction=${dir}&maxDTE=120&percentBand=0.08`,
         { signal: controller.signal }
       )
       const data = await res.json()
@@ -265,7 +265,7 @@ export function CreateTradeDialog({
     setValue('contract_symbol', contract.ticker)
     setValue('underlying_symbol', symbol.toUpperCase())
     const midPrice = contract.mid ?? contract.last ?? contract.ask ?? 0
-    if (midPrice > 0) setValue('entry_premium', midPrice)
+    if (midPrice > 0) setValue('entry_premium', Number(midPrice.toFixed(2)))
   }
 
   function toggleExpiry(date: string) {
@@ -284,7 +284,9 @@ export function CreateTradeDialog({
         trade_type:        values.trade_type,
         symbol:            values.symbol.toUpperCase().trim(),
         direction:         values.direction,
-        targets:           values.targets.map((t, i) => ({ label: t.label || `TP${i + 1}`, price: Number(t.price) })),
+        targets:           values.targets
+          .filter(t => t.price !== '' && Number(t.price) > 0)
+          .map((t, i) => ({ label: t.label || `TP${i + 1}`, price: Number(t.price) })),
         timeframe:         values.timeframe || undefined,
         expected_duration: values.expected_duration || undefined,
         risk_level:        values.risk_level || undefined,
@@ -610,7 +612,7 @@ export function CreateTradeDialog({
               <div className="text-xs text-purple-300 font-medium">تفاصيل الدخول / Entry Details</div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label className="text-gray-300 text-xs mb-1 block">سعر الإضراب / Strike</Label>
+                  <Label className="text-gray-300 text-xs mb-1 block">سترايك / Strike</Label>
                   <Input
                     {...register('strike_price')}
                     type="number" step="0.01" placeholder="200.00"
@@ -628,7 +630,7 @@ export function CreateTradeDialog({
                   />
                 </div>
                 <div>
-                  <Label className="text-gray-300 text-xs mb-1 block">قسط الدخول / Entry Premium *</Label>
+                  <Label className="text-gray-300 text-xs mb-1 block">سعر الدخول / Entry *</Label>
                   <Input
                     {...register('entry_premium')}
                     type="number" step="0.01" placeholder="2.50"
@@ -636,7 +638,7 @@ export function CreateTradeDialog({
                   />
                 </div>
                 <div>
-                  <Label className="text-gray-300 text-xs mb-1 block">وقف القسط / Stop Premium</Label>
+                  <Label className="text-gray-300 text-xs mb-1 block">سعر الوقف / Stop</Label>
                   <Input
                     {...register('stop_premium')}
                     type="number" step="0.01" placeholder="1.00"
@@ -696,7 +698,7 @@ export function CreateTradeDialog({
           {/* Targets */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <Label className="text-gray-300 text-xs">الأهداف / Targets *</Label>
+              <Label className="text-gray-300 text-xs">الأهداف / Targets <span className="text-gray-500">(اختياري / optional)</span></Label>
               <Button
                 type="button" size="sm" variant="outline"
                 onClick={addTarget}
@@ -722,7 +724,6 @@ export function CreateTradeDialog({
                     type="button" size="icon" variant="ghost"
                     onClick={() => removeTarget(i)}
                     className="text-red-500 hover:text-red-400 hover:bg-red-900/20 w-7 h-7"
-                    disabled={targetFields.length <= 1}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>

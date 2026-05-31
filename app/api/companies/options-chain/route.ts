@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
       'strike_price.lte': maxStrike.toFixed(2),
       'expiration_date.gte': minDate,
       'expiration_date.lte': maxDateStr,
-      limit: '250',
+      limit: '1000',
     })
 
     const chainUrl = `${POLYGON_BASE_URL}/v3/snapshot/options/${symbol}?${params}`
