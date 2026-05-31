@@ -24,23 +24,23 @@ function num(v: unknown, fallback = 0): number {
 }
 function fmt(n: number): string { return n.toFixed(2) }
 
-// Asset sources. We prefer reading the bundled files from node_modules (works
-// when Netlify traces them into the Lambda), but fall back to fetching from a
-// CDN at runtime. The CDN fallback is the durable fix for the Lambda "ENOENT:
-// index_bg.wasm" failure on routes whose outputFileTracingIncludes entry is not
-// honoured — the renderer then has no hard dependency on the filesystem layout.
+// Asset sources for the satori + resvg renderer on Lambda.
+//
+// WASM: read the bundled @resvg/resvg-wasm file if Netlify traced it into the
+// Lambda, else fetch from a CDN (durable fix for the "ENOENT index_bg.wasm"
+// tracing failure).
+//
+// FONTS: satori needs TTF/OTF (it rejects WOFF2 with "Unsupported OpenType
+// signature wOF2", and the bundled @fontsource/inter v5 files are WOFF2-only).
+// Fetch per-weight TTF from the Fontsource jsDelivr CDN, which serves real TTF.
 const WASM_CDN = 'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm'
-const FONT_REG_CDN = 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-400-normal.woff2'
-const FONT_BOLD_CDN = 'https://cdn.jsdelivr.net/npm/@fontsource/inter@5.2.5/files/inter-latin-700-normal.woff2'
+const FONT_REG_CDN = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-400-normal.ttf'
+const FONT_BOLD_CDN = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-700-normal.ttf'
 
-async function readLocalOrFetch(localPath: string, cdnUrl: string): Promise<Buffer> {
-  try {
-    return readFileSync(localPath)
-  } catch {
-    const res = await fetch(cdnUrl)
-    if (!res.ok) throw new Error(`Failed to fetch asset ${cdnUrl}: HTTP ${res.status}`)
-    return Buffer.from(await res.arrayBuffer())
-  }
+async function fetchAsset(cdnUrl: string): Promise<Buffer> {
+  const res = await fetch(cdnUrl)
+  if (!res.ok) throw new Error(`Failed to fetch asset ${cdnUrl}: HTTP ${res.status}`)
+  return Buffer.from(await res.arrayBuffer())
 }
 
 let initPromise: Promise<{ fontReg: Buffer; fontBold: Buffer }> | null = null
@@ -48,12 +48,19 @@ function ensureInit(): Promise<{ fontReg: Buffer; fontBold: Buffer }> {
   if (!initPromise) {
     initPromise = (async () => {
       const wasmPath = path.join(process.cwd(), 'node_modules', '@resvg', 'resvg-wasm', 'index_bg.wasm')
-      const fontBase = path.join(process.cwd(), 'node_modules', '@fontsource', 'inter', 'files')
 
-      const [wasm, fontReg, fontBold] = await Promise.all([
-        readLocalOrFetch(wasmPath, WASM_CDN),
-        readLocalOrFetch(path.join(fontBase, 'inter-latin-400-normal.woff2'), FONT_REG_CDN),
-        readLocalOrFetch(path.join(fontBase, 'inter-latin-700-normal.woff2'), FONT_BOLD_CDN),
+      // WASM: read bundled file if traced, else fetch from CDN.
+      let wasm: Buffer
+      try {
+        wasm = readFileSync(wasmPath)
+      } catch {
+        wasm = await fetchAsset(WASM_CDN)
+      }
+
+      // Fonts: fetch real TTF from CDN (satori rejects the bundled WOFF2).
+      const [fontReg, fontBold] = await Promise.all([
+        fetchAsset(FONT_REG_CDN),
+        fetchAsset(FONT_BOLD_CDN),
       ])
 
       try {
