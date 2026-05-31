@@ -117,7 +117,9 @@ export async function GET(request: NextRequest) {
     const minStrike = stockPrice * (1 - percentBand)
     const maxStrike = stockPrice * (1 + percentBand)
 
-    // Fetch options chain from Polygon
+    // Fetch options chain from Polygon. `limit` is capped at 250 for this
+    // endpoint (1000 → "400 Bad Request"), so to cover the full 120-day window
+    // we page through results via Polygon's next_url (up to a few pages).
     const params = new URLSearchParams({
       apiKey: POLYGON_API_KEY,
       contract_type: direction,
@@ -125,13 +127,21 @@ export async function GET(request: NextRequest) {
       'strike_price.lte': maxStrike.toFixed(2),
       'expiration_date.gte': minDate,
       'expiration_date.lte': maxDateStr,
-      limit: '1000',
+      limit: '250',
     })
 
-    const chainUrl = `${POLYGON_BASE_URL}/v3/snapshot/options/${symbol}?${params}`
-    const chainData = await fetchWithRetry(chainUrl)
+    const allResults: any[] = []
+    let nextUrl: string | null = `${POLYGON_BASE_URL}/v3/snapshot/options/${symbol}?${params}`
+    const MAX_PAGES = 4
+    for (let page = 0; page < MAX_PAGES && nextUrl; page++) {
+      // next_url already carries the query cursor; append the apiKey for auth.
+      const pageUrl = nextUrl.includes('apiKey=') ? nextUrl : `${nextUrl}&apiKey=${POLYGON_API_KEY}`
+      const pageData = await fetchWithRetry(pageUrl)
+      if (pageData?.results?.length) allResults.push(...pageData.results)
+      nextUrl = pageData?.next_url ?? null
+    }
 
-    if (!chainData?.results?.length) {
+    if (allResults.length === 0) {
       return NextResponse.json({
         symbol,
         stockPrice,
@@ -143,7 +153,7 @@ export async function GET(request: NextRequest) {
 
     // Group by expiration date
     const byExpiry = new Map<string, StrikeContract[]>()
-    for (const c of chainData.results) {
+    for (const c of allResults) {
       const expDate: string = c.details?.expiration_date
       const strike: number = c.details?.strike_price
       if (!expDate || !strike) continue
@@ -190,7 +200,7 @@ export async function GET(request: NextRequest) {
         direction,
         expirations,
         metadata: {
-          totalContracts: chainData.results.length,
+          totalContracts: allResults.length,
           percentBand,
           minStrike,
           maxStrike,
