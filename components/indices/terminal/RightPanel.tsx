@@ -13,13 +13,27 @@ import {
   Minus,
   RefreshCw,
   AlertCircle,
+  Brain,
 } from 'lucide-react'
+import Link from 'next/link'
 import { usePanelData } from '@/hooks/use-panel-data'
-import type { RecentTradeItem, PulseItem } from '@/app/api/indices/panel-data/route'
+import type { PanelData, RecentTradeItem, PulseItem } from '@/app/api/indices/panel-data/route'
+
+/** Layout mode: fixed right sidebar (xl+) or stacked inline block (below xl). */
+type RightPanelVariant = 'sidebar' | 'inline'
 
 interface RightPanelProps {
   language: string
   symbol?: string
+  variant?: RightPanelVariant
+}
+
+interface RightPanelViewProps extends RightPanelProps {
+  data: PanelData | null
+  loading: boolean
+  error: string | null
+  lastUpdated: string | null
+  refresh: () => void
 }
 
 // ─── Formatters ───────────────────────────────────────────────────────────────
@@ -76,9 +90,35 @@ function fmtTime(iso: string | null): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
+/**
+ * Standalone panel that owns its own data via usePanelData.
+ * Kept for any consumer that wants a self-contained panel. The dashboard
+ * lifts the hook and renders <RightPanelView> twice (sidebar + inline) so
+ * both layouts share a single polling source.
+ */
+export function RightPanel({ language, symbol = 'SPX', variant = 'sidebar' }: RightPanelProps) {
+  const panel = usePanelData(symbol)
+  return (
+    <RightPanelView
+      language={language}
+      symbol={symbol}
+      variant={variant}
+      {...panel}
+    />
+  )
+}
+
+export function RightPanelView({
+  language,
+  symbol = 'SPX',
+  variant = 'sidebar',
+  data,
+  loading,
+  error,
+  lastUpdated,
+  refresh,
+}: RightPanelViewProps) {
   const isAr = language === 'ar'
-  const { data, loading, error, lastUpdated, refresh } = usePanelData(symbol)
 
   // Derived sentiment values
   const bullScore = data?.sentiment.bullScore ?? 50
@@ -111,8 +151,21 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
   const pulse: PulseItem[] = data?.pulse ?? []
   const recent: RecentTradeItem[] = data?.recentTrades ?? []
 
+  // Sidebar: fixed 320px right column, visible on xl+ only.
+  // Inline: full-width stacked block injected into the workspace, visible below xl.
+  const containerClass =
+    variant === 'inline'
+      ? 'xl:hidden bg-[#0b1220] border-t border-[#1a2840]'
+      : 'hidden xl:flex w-[320px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent'
+
+  // On inline (mobile/tablet) the sections flow into a responsive grid so they
+  // sit side-by-side on wider phones/tablets; `contents` keeps the sidebar's
+  // original single-column flex layout untouched.
+  const sectionsWrapperClass =
+    variant === 'inline' ? 'grid grid-cols-1 sm:grid-cols-2' : 'contents'
+
   return (
-    <div className="hidden xl:flex w-[320px] flex-shrink-0 bg-[#0b1220] border-l border-[#1a2840] flex-col overflow-y-auto scrollbar-thin scrollbar-thumb-[#1a2840] scrollbar-track-transparent">
+    <div className={containerClass}>
 
       {/* Panel Header */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-[#1a2840] flex-shrink-0">
@@ -146,6 +199,20 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
           </span>
         </div>
       )}
+
+      {/* SPX Intelligence — surfaced inline so it's reachable on mobile,
+          where the desktop sidebar (and its link) is hidden. */}
+      {variant === 'inline' && (
+        <Link href="/dashboard/indices/spx-intelligence" className="block">
+          <button className="group flex w-full items-center justify-center gap-2 px-4 py-3 border-b border-[#1a2840] text-xs font-bold tracking-[0.18em] uppercase text-slate-400 hover:text-blue-400 hover:bg-blue-500/5 transition-colors">
+            <Brain className="w-4 h-4 text-blue-500 group-hover:text-blue-400" />
+            {isAr ? 'ذكاء SPX' : 'SPX Intelligence'}
+            <ArrowUpRight className="w-3.5 h-3.5 opacity-60" />
+          </button>
+        </Link>
+      )}
+
+      <div className={sectionsWrapperClass}>
 
       {/* ── MARKET SENTIMENT ─────────────────────────────────────────────── */}
       <PanelSection
@@ -353,6 +420,8 @@ export function RightPanel({ language, symbol = 'SPX' }: RightPanelProps) {
           </div>
         )}
       </PanelSection>
+
+      </div>{/* end sections wrapper */}
     </div>
   )
 }
