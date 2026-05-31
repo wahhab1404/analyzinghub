@@ -108,7 +108,7 @@ export async function renderContractTradePng(trade: ContractTradeLike): Promise<
     React.createElement('div', {
       style: { flex: 1, background: C.card, borderRadius: 10, padding: '16px 20px', border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', gap: 4 },
     },
-      React.createElement('div', { style: { fontSize: 13, color: C.textMuted, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase' } }, label),
+      React.createElement('div', { style: { fontSize: 16, color: C.text, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' } }, label),
       React.createElement('div', { style: { fontSize: 30, fontWeight: 800, color } }, value),
     )
 
@@ -122,7 +122,7 @@ export async function renderContractTradePng(trade: ContractTradeLike): Promise<
         React.createElement('div', { style: { fontSize: 34, fontWeight: 800, color: accent } }, `$${num(trade.strike).toLocaleString()}`),
         React.createElement('div', { style: { background: 'rgba(255,255,255,0.04)', border: `1px solid ${accent}`, borderRadius: 6, padding: '4px 14px', color: accent, fontSize: 18, fontWeight: 800 } }, isCall ? '▲ CALL' : '▼ PUT'),
       ),
-      React.createElement('div', { style: { fontSize: 16, color: C.textMuted } }, expiry ? `Exp ${expiry}` : ''),
+      React.createElement('div', { style: { fontSize: 19, color: C.text, fontWeight: 700 } }, expiry ? `Exp ${expiry}` : ''),
     ),
     React.createElement('div', { style: { display: 'flex', alignItems: 'flex-end', gap: 24, marginBottom: 28 } },
       React.createElement('div', { style: { display: 'flex', flexDirection: 'column' } },
