@@ -124,13 +124,12 @@ export function buildNewStockTradeMessage(trade: TradeFull, baseUrl: string): st
 // NEW OPTION TRADE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function buildNewOptionTradeMessage(trade: TradeFull, baseUrl: string): string {
+export function buildNewOptionTradeMessage(trade: TradeFull, baseUrl: string, analysisChannelLink?: string): string {
   const details = trade.option_details
   if (!details) return buildNewStockTradeMessage(trade, baseUrl)
 
   const dir = directionEmoji(trade.direction)
   const symbol = escapeHtml(details.underlying_symbol)
-  const authorName = escapeHtml(trade.author?.full_name ?? 'محلل / Analyst')
   const optType = trade.direction === 'call' ? 'Call 🟢' : 'Put 🔴'
 
   let msg = `${dir} <b>صفقة عقد جديدة / New Contract Alert</b>\n\n`
@@ -138,12 +137,8 @@ export function buildNewOptionTradeMessage(trade: TradeFull, baseUrl: string): s
   msg += `💼 <b>النوع / Type:</b> خيارات / Options\n`
   msg += `📊 <b>الخيار / Option:</b> ${optType}\n`
   msg += `\n`
-  msg += `🎯 <b>سعر الإضراب / Strike:</b> <code>$${fmt(details.strike_price)}</code>\n`
+  msg += `🎯 <b>سترايك / Strike:</b> <code>$${fmt(details.strike_price)}</code>\n`
   msg += `📅 <b>تاريخ الانتهاء / Expiry:</b> <code>${details.expiration_date}</code>\n`
-
-  if (details.contract_symbol) {
-    msg += `🔤 <b>رمز العقد / Contract:</b> <code>${escapeHtml(details.contract_symbol)}</code>\n`
-  }
 
   msg += `\n`
   msg += `💵 <b>سعر الدخول / Entry Premium:</b> <code>$${fmt(details.entry_premium)}</code>\n`
@@ -173,9 +168,11 @@ export function buildNewOptionTradeMessage(trade: TradeFull, baseUrl: string): s
     msg += `⚠️ <b>مستوى المخاطرة / Risk:</b> ${riskLabel(trade.risk_level)}\n`
   }
 
-  msg += `\n👤 <b>المحلل / Analyst:</b> ${authorName}\n`
-
-  if (trade.analysis?.id) {
+  // Link to the analysis. Prefer the analysis post inside the channel (so it
+  // opens the original message in Telegram); otherwise fall back to the web app.
+  if (analysisChannelLink) {
+    msg += `\n🔗 <a href="${analysisChannelLink}">📊 التحليل المنشور في القناة / View Analysis Post</a>\n`
+  } else if (trade.analysis?.id) {
     msg += `\n🔗 <a href="${baseUrl}/dashboard/analysis/${trade.analysis.id}">📊 عرض التحليل / View Analysis</a>\n`
   }
 
@@ -311,14 +308,14 @@ export function buildTradeSummaryMessage(trade: TradeFull): string {
 export function buildTradeMessage(
   eventType: 'new' | 'target_hit' | 'stop_hit' | 'summary',
   trade: TradeFull,
-  opts: { targetIndex?: number; currentPrice?: number; baseUrl?: string } = {}
+  opts: { targetIndex?: number; currentPrice?: number; baseUrl?: string; analysisChannelLink?: string } = {}
 ): string {
   const base = opts.baseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://analyzinghub.com'
 
   switch (eventType) {
     case 'new':
       return trade.trade_type === 'option'
-        ? buildNewOptionTradeMessage(trade, base)
+        ? buildNewOptionTradeMessage(trade, base, opts.analysisChannelLink)
         : buildNewStockTradeMessage(trade, base)
     case 'target_hit':
       return buildTargetHitMessage(trade, opts.targetIndex ?? 0, opts.currentPrice ?? trade.current_price ?? 0)

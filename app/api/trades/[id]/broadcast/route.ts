@@ -77,10 +77,6 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!isInternal && trade.user_id !== userId && !isSuperAdmin)
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-    // Build the Telegram message
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://analyzinghub.com'
-    const message = buildTradeMessage('new', trade as TradeFull, { baseUrl })
-
     // Resolve which channel to send to
     const channelId = trade.telegram_channel_id
     let telegramChannelDbId: string | null = null
@@ -97,6 +93,32 @@ export async function POST(req: NextRequest, { params }: Params) {
         chatId = ch.channel_id
       }
     }
+
+    // If this trade's analysis was already broadcast to the same channel, link
+    // the trade alert to that analysis post (a Telegram t.me/c/<id>/<msg> deep
+    // link) so subscribers can jump straight to the original analysis message.
+    let analysisChannelLink: string | undefined
+    if (trade.analysis_id && chatId) {
+      const { data: logRow } = await db
+        .from('channel_broadcast_log')
+        .select('message_id')
+        .eq('analysis_id', trade.analysis_id)
+        .eq('channel_id', chatId)
+        .eq('status', 'sent')
+        .not('message_id', 'is', null)
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (logRow?.message_id) {
+        // Private channel id is "-100<internal>"; the t.me/c link uses <internal>.
+        const internal = String(chatId).replace(/^-100/, '')
+        analysisChannelLink = `https://t.me/c/${internal}/${logRow.message_id}`
+      }
+    }
+
+    // Build the Telegram message (with the in-channel analysis link when found)
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://analyzinghub.com'
+    const message = buildTradeMessage('new', trade as TradeFull, { baseUrl, analysisChannelLink })
 
     let telegramMsgId: string | null = null
     let alertStatus: 'sent' | 'failed' = 'failed'
