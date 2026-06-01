@@ -335,7 +335,7 @@ export function LiveEnginePanel({ className = '' }: LiveEnginePanelProps) {
           {/* ── Walls ─────────────────────────────────────────────────────── */}
           {result.walls && (
             <div className="rounded-2xl border border-white/[0.07] bg-[#0b1525] p-5">
-              <WallDisplay walls={result.walls} />
+              <WallDisplay walls={result.walls} marketMode={features?.marketMode} />
             </div>
           )}
 

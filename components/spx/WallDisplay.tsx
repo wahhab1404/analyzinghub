@@ -5,6 +5,7 @@ import type { WallEngineOutput, WallLevel } from '@/services/spx/types'
 
 interface WallDisplayProps {
   walls: WallEngineOutput
+  marketMode?: string
   className?: string
 }
 
@@ -106,8 +107,9 @@ function WallRow({
   )
 }
 
-export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
+export function WallDisplay({ walls, marketMode, className = '' }: WallDisplayProps) {
   const hasData = walls.callWall || walls.putWall
+  const isOffHours = marketMode === 'Pre-Market' || marketMode === 'Post-Market'
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -130,7 +132,7 @@ export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
             </span>
           )}
           <span className="text-xs text-slate-500">
-            Wall score: <span className="text-slate-300 font-semibold">{walls.wallScore}</span>
+            Wall score: <span className="text-slate-300 font-semibold">{hasData ? walls.wallScore : '—'}</span>
           </span>
         </div>
       </div>
@@ -138,7 +140,9 @@ export function WallDisplay({ walls, className = '' }: WallDisplayProps) {
       {!hasData ? (
         <div className="flex items-center gap-2 text-sm text-slate-500 py-6 bg-white/[0.02] rounded-xl px-4 border border-white/[0.06]">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-          Wall data unavailable — options chain may be empty outside market hours
+          {isOffHours
+            ? `${marketMode} — options chain data is not available outside regular market hours`
+            : 'Wall data unavailable — options chain may be empty outside market hours'}
         </div>
       ) : (
         <>
