@@ -9,6 +9,9 @@ primary_region = "iad"
   LOG_LEVEL = "INFO"
   UPDATE_INTERVAL_SECONDS = "1"
   HEARTBEAT_INTERVAL_SECONDS = "30"
+  # Price the cash index via CME E-mini futures (GLBX.MDP3) outside RTH.
+  # Set to "0" to disable and fall back to Polygon-only underlying pricing.
+  ENABLE_FUTURES_UNDERLYING = "1"
 
 [[services]]
   internal_port = 8080

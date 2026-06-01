@@ -1,0 +1,56 @@
+name: Deploy Databento Live Service to Fly.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'databento-live-service/**'
+  workflow_dispatch:  # allows manual trigger from GitHub UI
+
+jobs:
+  test:
+    name: Test (offline integration)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: databento-live-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run offline futures integration test
+        run: python test_futures.py
+
+  deploy:
+    name: Deploy to Fly.io
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: databento-live-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create app if it doesn't exist
+        run: |
+          flyctl apps list | grep -q "databento-live-svc" \
+            || flyctl apps create databento-live-svc --machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy
+        run: flyctl deploy --remote-only --wait-timeout 120
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
