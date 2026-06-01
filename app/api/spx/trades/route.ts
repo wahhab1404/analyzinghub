@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server';
+import { createServerClient } from '@/lib/supabase/server';
 import { runIntelligenceEngine } from '@/services/spx/intelligence-engine';
 import {
   createTradeFromSignal,
@@ -101,6 +101,34 @@ export async function POST(request: NextRequest) {
 
       const trade = await createTradeFromSignal(result.signal, result.features, result.contracts);
 
+      // Dispatch image card + set up lifecycle tracking on the configured channels
+      if (trade) {
+        try {
+          const { getSettings } = await import('@/services/spx/settings-engine');
+          const settings = await getSettings();
+          const channelIds = settings.autoTradeChannelIds ?? [];
+
+          if (channelIds.length > 0) {
+            // Persist channel IDs on the trade so lifecycle tracking can send alerts
+            const { createClient } = await import('@supabase/supabase-js');
+            const svc = createClient(
+              process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+              process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+              { auth: { autoRefreshToken: false, persistSession: false } },
+            );
+            await svc
+              .from('spx_trades')
+              .update({ auto_channel_ids: channelIds, is_auto: false })
+              .eq('id', trade.id);
+
+            const { dispatchAutoTradeNew } = await import('@/services/spx/auto-trade-dispatcher');
+            await dispatchAutoTradeNew({ ...trade, autoChannelIds: channelIds } as any);
+          }
+        } catch (dispatchErr: any) {
+          console.warn('[POST /api/spx/trades] image dispatch failed (trade still created):', dispatchErr.message);
+        }
+      }
+
       return NextResponse.json({ success: true, trade }, { status: 201 });
     }
 
@@ -138,10 +166,13 @@ export async function POST(request: NextRequest) {
       const { getTradeById } = await import('@/services/spx/trade-engine');
       const trade = await getTradeById(tradeId);
 
-      // Non-fatal telegram summary
+      // Non-fatal telegram summary — send only to the trade's configured channels
       if (trade) {
         try {
-          await sendTradeClosedSummary(trade);
+          const channelIds: string[] = Array.isArray((trade as any).autoChannelIds)
+            ? (trade as any).autoChannelIds
+            : [];
+          await sendTradeClosedSummary(trade, channelIds);
         } catch (telegramErr: any) {
           console.warn('[POST /api/spx/trades] sendTradeClosedSummary failed:', telegramErr.message);
         }

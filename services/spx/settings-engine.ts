@@ -50,6 +50,8 @@ export interface SPXSettings {
   telegramSendShock: boolean;
   telegramSendWall: boolean;
   telegramSendTrade: boolean;
+  /** Channel IDs that receive signal/shock/wall broadcast alerts (empty = none) */
+  broadcastChannelIds: string[];
   // Dedup windows (seconds)
   dedupNewSignalS: number;
   dedupShockWarningS: number;
@@ -110,6 +112,7 @@ export const DEFAULT_SETTINGS: SPXSettings = {
   telegramSendShock: true,
   telegramSendWall: true,
   telegramSendTrade: true,
+  broadcastChannelIds: [],
   // Dedup windows (seconds)
   dedupNewSignalS: 300,
   dedupShockWarningS: 180,
@@ -163,6 +166,7 @@ export function dbRowToSettings(row: any): SPXSettings {
     telegramSendShock:      row.telegram_send_shock     ?? DEFAULT_SETTINGS.telegramSendShock,
     telegramSendWall:       row.telegram_send_wall      ?? DEFAULT_SETTINGS.telegramSendWall,
     telegramSendTrade:      row.telegram_send_trade     ?? DEFAULT_SETTINGS.telegramSendTrade,
+    broadcastChannelIds:    Array.isArray(row.broadcast_channel_ids) ? row.broadcast_channel_ids : DEFAULT_SETTINGS.broadcastChannelIds,
     dedupNewSignalS:        row.dedup_new_signal_s      ?? DEFAULT_SETTINGS.dedupNewSignalS,
     dedupShockWarningS:     row.dedup_shock_warning_s   ?? DEFAULT_SETTINGS.dedupShockWarningS,
     dedupWallAlertS:        row.dedup_wall_alert_s      ?? DEFAULT_SETTINGS.dedupWallAlertS,
@@ -210,6 +214,7 @@ function settingsToDbRow(settings: Partial<SPXSettings>): Record<string, any> {
   if (settings.telegramSendShock      !== undefined) row.telegram_send_shock      = settings.telegramSendShock;
   if (settings.telegramSendWall       !== undefined) row.telegram_send_wall       = settings.telegramSendWall;
   if (settings.telegramSendTrade      !== undefined) row.telegram_send_trade      = settings.telegramSendTrade;
+  if (settings.broadcastChannelIds    !== undefined) row.broadcast_channel_ids    = settings.broadcastChannelIds;
   if (settings.dedupNewSignalS        !== undefined) row.dedup_new_signal_s       = settings.dedupNewSignalS;
   if (settings.dedupShockWarningS     !== undefined) row.dedup_shock_warning_s    = settings.dedupShockWarningS;
   if (settings.dedupWallAlertS        !== undefined) row.dedup_wall_alert_s       = settings.dedupWallAlertS;
