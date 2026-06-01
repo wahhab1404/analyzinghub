@@ -57,6 +57,7 @@ interface SPXSettings {
   autoTradeMinConfidenceClass: string
   autoTradeChannelIds: string[]
   autoTradeTrackLifecycle: boolean
+  broadcastChannelIds: string[]
   updatedAt: string
   updatedBy: string | null
 }
@@ -634,6 +635,53 @@ export default function SettingsPanel() {
               onChange={v => set('telegramSendTrade', v)}
               disabled={!draft.telegramEnabled}
             />
+
+            {/* Broadcast channel selector */}
+            <div className={`pt-2 ${!draft.telegramEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">
+                Channels to Receive Signal / Shock / Wall Alerts
+              </div>
+              {telegramChannels.length === 0 ? (
+                <p className="text-xs text-slate-600 italic">No enabled Telegram channels found. Add channels in your account settings first.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {telegramChannels.map(ch => {
+                    const selected = (draft.broadcastChannelIds ?? []).includes(ch.chatId)
+                    return (
+                      <label key={ch.id} className={`flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${selected ? 'border-blue-500/40 bg-blue-500/5' : 'border-white/[0.06] bg-white/[0.02] hover:border-white/10'}`}>
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => {
+                            const current = draft.broadcastChannelIds ?? []
+                            set('broadcastChannelIds', selected
+                              ? current.filter(id => id !== ch.chatId)
+                              : [...current, ch.chatId]
+                            )
+                          }}
+                          className="w-3.5 h-3.5 accent-blue-500"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-semibold text-slate-200 truncate">{ch.name}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{ch.chatId}</div>
+                        </div>
+                        <span className="text-[10px] text-slate-600 bg-white/5 border border-white/10 px-2 py-0.5 rounded-full capitalize">{ch.audience}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              {(draft.broadcastChannelIds?.length ?? 0) > 0 && (
+                <p className="text-[10px] text-blue-400 mt-2">
+                  {draft.broadcastChannelIds?.length} channel{(draft.broadcastChannelIds?.length ?? 0) > 1 ? 's' : ''} selected — alerts go only to these channels.
+                </p>
+              )}
+              {draft.telegramEnabled && (draft.broadcastChannelIds?.length ?? 0) === 0 && (
+                <p className="text-[10px] text-amber-400 mt-2">
+                  ⚠ No channels selected — signal/shock/wall alerts will not be sent.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </SectionCard>

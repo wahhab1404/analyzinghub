@@ -15,7 +15,6 @@ import { getBotToken, sendMessage } from '@/lib/telegram/bot-sender';
 import {
   shouldSendAlert,
   logAlert,
-  getActiveAlertChannels,
   ALERT_COOLDOWNS,
 } from './alert-controller';
 import type { SignalOutput, SPXFeatures, WallEngineOutput, ShockEngineOutput, ContractRankingOutput, ContractCandidate } from './types';
@@ -85,6 +84,7 @@ async function broadcastToChannels(
   meta?: {
     signalEventId?: string | null;
     tradeId?: string | null;
+    channelIds?: string[];
     [key: string]: any;
   },
 ): Promise<void> {
@@ -109,6 +109,14 @@ async function broadcastToChannels(
     return;
   }
 
+  // Use explicitly passed channelIds, or fall through to none
+  const channelIds: string[] = Array.isArray(meta?.channelIds) ? meta!.channelIds : [];
+  if (channelIds.length === 0) {
+    console.info('[SPXTelegram] No channels configured for broadcast — skipping');
+    await logAlert({ alertType, dedupKey, channelCount: 0, suppressed: true, suppressReason: 'no_channels_configured', messagePreview: text.slice(0, 200), metadata: meta });
+    return;
+  }
+
   const { url, key } = getSupabaseCredentials();
   const token = await getBotToken(url, key);
   if (!token) {
@@ -117,20 +125,13 @@ async function broadcastToChannels(
     return;
   }
 
-  const channels = await getActiveAlertChannels();
-  if (channels.length === 0) {
-    console.info('[SPXTelegram] No active channels to broadcast to');
-    await logAlert({ alertType, dedupKey, channelCount: 0, suppressed: false, messagePreview: text.slice(0, 200), metadata: meta });
-    return;
-  }
-
   let successCount = 0;
-  for (const ch of channels) {
+  for (const chatId of channelIds) {
     try {
-      const msgId = await sendMessage(token, ch.chatId, text);
+      const msgId = await sendMessage(token, chatId, text);
       if (msgId) successCount++;
     } catch (err: any) {
-      console.error(`[SPXTelegram] Failed to send to ${ch.chatId}:`, err.message);
+      console.error(`[SPXTelegram] Failed to send to ${chatId}:`, err.message);
     }
   }
 
@@ -342,17 +343,18 @@ function formatExitAlert(
 
 // ── EXPORTED SEND FUNCTIONS ───────────────────────────────────────────────────
 
-/** Send a new signal alert to all active Telegram channels. */
+/** Send a new signal alert to the specified Telegram channels. */
 export async function sendNewSignalAlert(
   signal: SignalOutput,
   features: SPXFeatures,
   walls: WallEngineOutput,
   contracts: ContractRankingOutput | null,
   entryPlan: EntryPlan | null,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const text = formatNewSignalAlert(signal, features, walls, contracts, entryPlan);
-    await broadcastToChannels(text, 'new_signal', `new_signal:${signal.id}`, { signalEventId: signal.id });
+    await broadcastToChannels(text, 'new_signal', `new_signal:${signal.id}`, { signalEventId: signal.id, channelIds });
   } catch (err: any) {
     console.error('[SPXTelegram] sendNewSignalAlert failed:', err.message);
   }
@@ -362,13 +364,13 @@ export async function sendNewSignalAlert(
 export async function sendShockWarning(
   shock: ShockEngineOutput,
   features: SPXFeatures,
+  channelIds: string[],
 ): Promise<void> {
   try {
     if (!['moderate', 'severe', 'extreme'].includes(shock.severity)) return;
     const text = formatShockWarning(shock, features);
-    // Deduplicate by 3-min time bucket so it can re-alert if severity worsens
     const bucket = Math.floor(Date.now() / 180_000);
-    await broadcastToChannels(text, 'shock_warning', `shock_warning:${shock.severity}:${bucket}`);
+    await broadcastToChannels(text, 'shock_warning', `shock_warning:${shock.severity}:${bucket}`, { channelIds });
   } catch (err: any) {
     console.error('[SPXTelegram] sendShockWarning failed:', err.message);
   }
@@ -378,6 +380,7 @@ export async function sendShockWarning(
 export async function sendWallBreakAlert(
   walls: WallEngineOutput,
   features: SPXFeatures,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const candidates = [walls.callWall, walls.putWall].filter(w => w?.state === 'broken');
@@ -385,7 +388,7 @@ export async function sendWallBreakAlert(
       if (!wall) continue;
       const text = formatWallBreakAlert(wall, features.underlying.price);
       const bucket = Math.floor(Date.now() / 300_000);
-      await broadcastToChannels(text, 'wall_break', `wall_break:${wall.strike}:${bucket}`);
+      await broadcastToChannels(text, 'wall_break', `wall_break:${wall.strike}:${bucket}`, { channelIds });
     }
   } catch (err: any) {
     console.error('[SPXTelegram] sendWallBreakAlert failed:', err.message);
@@ -396,6 +399,7 @@ export async function sendWallBreakAlert(
 export async function sendWallRejectionAlert(
   walls: WallEngineOutput,
   features: SPXFeatures,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const candidates = [walls.callWall, walls.putWall].filter(w => w?.state === 'rejected');
@@ -403,21 +407,22 @@ export async function sendWallRejectionAlert(
       if (!wall) continue;
       const text = formatWallRejectionAlert(wall, features.underlying.price);
       const bucket = Math.floor(Date.now() / 300_000);
-      await broadcastToChannels(text, 'wall_rejection', `wall_rejection:${wall.strike}:${bucket}`);
+      await broadcastToChannels(text, 'wall_rejection', `wall_rejection:${wall.strike}:${bucket}`, { channelIds });
     }
   } catch (err: any) {
     console.error('[SPXTelegram] sendWallRejectionAlert failed:', err.message);
   }
 }
 
-/** Send entry confirmed alert for a trade that was just entered. */
+/** Send entry confirmed alert to a trade's configured channels. */
 export async function sendEntryConfirmed(
   trade: SPXTrade,
   features: SPXFeatures,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const text = formatEntryConfirmed(trade, features);
-    await broadcastToChannels(text, 'entry_confirmed', `entry_confirmed:${trade.id}`, { tradeId: trade.id });
+    await broadcastToChannels(text, 'entry_confirmed', `entry_confirmed:${trade.id}`, { tradeId: trade.id, channelIds });
   } catch (err: any) {
     console.error('[SPXTelegram] sendEntryConfirmed failed:', err.message);
   }
@@ -429,10 +434,11 @@ export async function sendTargetHit(
   targetNumber: 1 | 2 | 3,
   currentPremium: number,
   spxPrice: number,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const text = formatTargetHit(trade, targetNumber, currentPremium, spxPrice);
-    await broadcastToChannels(text, 'target_hit', `target_hit:${trade.id}:t${targetNumber}`, { tradeId: trade.id });
+    await broadcastToChannels(text, 'target_hit', `target_hit:${trade.id}:t${targetNumber}`, { tradeId: trade.id, channelIds });
   } catch (err: any) {
     console.error('[SPXTelegram] sendTargetHit failed:', err.message);
   }
@@ -443,20 +449,22 @@ export async function sendStopHit(
   trade: SPXTrade,
   currentPremium: number,
   spxPrice: number,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const text = formatStopHit(trade, currentPremium, spxPrice);
-    await broadcastToChannels(text, 'stop_hit', `stop_hit:${trade.id}`, { tradeId: trade.id });
+    await broadcastToChannels(text, 'stop_hit', `stop_hit:${trade.id}`, { tradeId: trade.id, channelIds });
   } catch (err: any) {
     console.error('[SPXTelegram] sendStopHit failed:', err.message);
   }
 }
 
 /** Send a trade closed summary with full P/L, MFE/MAE, and outcome. */
-export async function sendTradeClosedSummary(trade: SPXTrade): Promise<void> {
+export async function sendTradeClosedSummary(trade: SPXTrade, channelIds?: string[]): Promise<void> {
   try {
     const text = formatTradeClosedSummary(trade);
-    await broadcastToChannels(text, 'trade_closed', `trade_closed:${trade.id}`, { tradeId: trade.id });
+    const ids = channelIds ?? ((trade as any).autoChannelIds ?? []);
+    await broadcastToChannels(text, 'trade_closed', `trade_closed:${trade.id}`, { tradeId: trade.id, channelIds: ids });
   } catch (err: any) {
     console.error('[SPXTelegram] sendTradeClosedSummary failed:', err.message);
   }
@@ -616,6 +624,7 @@ export async function sendExitAlert(
   exitSignal: ExitSignal,
   trade: SPXTrade,
   currentPremium: number | null,
+  channelIds: string[],
 ): Promise<void> {
   try {
     const text = formatExitAlert(exitSignal, trade, currentPremium);
@@ -624,7 +633,7 @@ export async function sendExitAlert(
       text,
       'exit_alert',
       `exit_alert:${trade.id}:${exitSignal.type}:${bucket}`,
-      { tradeId: trade.id },
+      { tradeId: trade.id, channelIds },
     );
   } catch (err: any) {
     console.error('[SPXTelegram] sendExitAlert failed:', err.message);

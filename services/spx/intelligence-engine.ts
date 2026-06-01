@@ -332,30 +332,39 @@ export async function runIntelligenceEngine(
 
   // ── 7. PHASE 3: ALERT DISPATCH ────────────────────────────────────────────────────────────
   // Non-fatal: alert failures never crash the engine
+  // Respects settings: telegramEnabled, per-type flags, and broadcastChannelIds
 
   try {
-    // Only alert for actionable signals (not NO_TRADE, MARKET_UNCLEAR)
-    const actionableTypes = ['BUY_CALL', 'BUY_PUT', 'WATCH_CALL', 'WATCH_PUT', 'WALL_SHIFT_WARNING', 'FLOW_SURGE_WARNING', 'SHOCK_WARNING', 'REVERSAL_WATCH'];
+    const { getSettings } = await import('./settings-engine');
+    const alertSettings = await getSettings();
 
-    if (signal && actionableTypes.includes(signal.signalType)) {
-      const entryPlan = contracts?.best
-        ? computeEntryPlan(signal, features, contracts.best, walls, shock)
-        : null;
-      await sendNewSignalAlert(signal, features, walls, contracts, entryPlan);
-    }
+    if (alertSettings.telegramEnabled && alertSettings.broadcastChannelIds.length > 0) {
+      const broadcastIds = alertSettings.broadcastChannelIds;
 
-    // Shock warning if moderate+
-    if (shock && ['moderate', 'severe', 'extreme'].includes(shock.severity)) {
-      await sendShockWarning(shock, features);
-    }
-
-    // Wall break/rejection alerts
-    if (walls) {
-      if (walls.callWall?.state === 'broken' || walls.putWall?.state === 'broken') {
-        await sendWallBreakAlert(walls, features);
+      // Signal alerts — only BUY signals, only if score meets threshold
+      if (alertSettings.telegramSendSignals && signal) {
+        const actionableTypes = ['BUY_CALL', 'BUY_PUT', 'WATCH_CALL', 'WATCH_PUT'];
+        if (actionableTypes.includes(signal.signalType) && signal.compositeScore >= alertSettings.minScoreToAlert) {
+          const entryPlan = contracts?.best
+            ? computeEntryPlan(signal, features, contracts.best, walls, shock)
+            : null;
+          await sendNewSignalAlert(signal, features, walls, contracts, entryPlan, broadcastIds);
+        }
       }
-      if (walls.callWall?.state === 'rejected' || walls.putWall?.state === 'rejected') {
-        await sendWallRejectionAlert(walls, features);
+
+      // Shock warning — only if setting enabled
+      if (alertSettings.telegramSendShock && shock && ['moderate', 'severe', 'extreme'].includes(shock.severity)) {
+        await sendShockWarning(shock, features, broadcastIds);
+      }
+
+      // Wall alerts — only if setting enabled
+      if (alertSettings.telegramSendWall && walls) {
+        if (walls.callWall?.state === 'broken' || walls.putWall?.state === 'broken') {
+          await sendWallBreakAlert(walls, features, broadcastIds);
+        }
+        if (walls.callWall?.state === 'rejected' || walls.putWall?.state === 'rejected') {
+          await sendWallRejectionAlert(walls, features, broadcastIds);
+        }
       }
     }
   } catch (alertErr: any) {

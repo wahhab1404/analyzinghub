@@ -16,7 +16,7 @@ import {
 import type { TradeState, SPXTrade } from '@/services/spx/trade-engine';
 import { checkExitConditions, persistExitSignal } from '@/services/spx/exit-engine';
 import type { ExitSignal } from '@/services/spx/exit-engine';
-import { sendTradeClosedSummary, sendExitAlert } from '@/services/spx/spx-telegram';
+import { sendTradeClosedSummary } from '@/services/spx/spx-telegram';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -108,33 +108,12 @@ export async function PATCH(
         { label: 'target3', value: (trade as any).target3Premium ?? null },
       ];
 
-      for (const { label, value } of targets) {
-        if (value != null && currentPremium >= value) {
-          try {
-            await sendExitAlert(trade, {
-              reason: `${label}_hit`,
-              currentPremium,
-              currentSpxPrice: currentSpxPrice ?? null,
-              targetLabel: label,
-              targetPremium: value,
-            });
-          } catch (alertErr: any) {
-            console.warn(`[PATCH /api/spx/trades/${params.id}] Target alert failed:`, alertErr.message);
-          }
-        }
-      }
-
       // Check exit conditions
       try {
         const triggered = await checkExitConditions(trade, currentPremium, currentSpxPrice);
         for (const condition of triggered) {
           const signal = await persistExitSignal(trade, condition);
           exitSignals.push(signal);
-          try {
-            await sendExitAlert(trade, condition);
-          } catch (alertErr: any) {
-            console.warn(`[PATCH /api/spx/trades/${params.id}] Exit alert failed:`, alertErr.message);
-          }
         }
       } catch (exitErr: any) {
         console.warn(`[PATCH /api/spx/trades/${params.id}] Exit condition check failed:`, exitErr.message);
@@ -160,7 +139,10 @@ export async function PATCH(
       trade = (await getTradeById(params.id)) ?? trade;
 
       try {
-        await sendTradeClosedSummary(trade);
+        const channelIds: string[] = Array.isArray((trade as any).autoChannelIds)
+          ? (trade as any).autoChannelIds
+          : [];
+        await sendTradeClosedSummary(trade, channelIds);
       } catch (telegramErr: any) {
         console.warn(
           `[PATCH /api/spx/trades/${params.id}] sendTradeClosedSummary failed:`,
