@@ -153,9 +153,9 @@ export async function POST(req: NextRequest) {
     if (isNewHigh) {
       updates.max_price_since_entry = price
 
-      // Send peak alert only if price gained ≥10% over previous peak
+      // Send peak alert only if price gained ≥0.5% over previous peak
       const gainPct = prevHigh > 0 ? ((price - prevHigh) / prevHigh) * 100 : 100
-      if (gainPct >= 10 && trade.telegram_channel_id) {
+      if (gainPct >= 0.5 && trade.telegram_channel_id) {
         const chatId = await resolveChatId(trade.telegram_channel_id)
         if (chatId) {
           queueTelegramMessage(chatId, 'company_new_high', {
