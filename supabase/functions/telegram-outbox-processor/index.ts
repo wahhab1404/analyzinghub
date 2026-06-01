@@ -83,6 +83,18 @@ Deno.serve(async (req) => {
             message.channel_id,
             message.payload
           );
+        } else if (msgType === 'company_new_high') {
+          telegramResult = await processCompanyNewHighMessage(
+            TELEGRAM_BOT_TOKEN,
+            message.channel_id,
+            message.payload
+          );
+        } else if (msgType === 'company_winning_trade') {
+          telegramResult = await processCompanyWinningTradeMessage(
+            TELEGRAM_BOT_TOKEN,
+            message.channel_id,
+            message.payload
+          );
         } else {
           const formatted = formatMessage(message);
           if (formatted.photo) {
@@ -731,6 +743,104 @@ function buildCompanyTradeCaption(trade: any, isTestingMode: boolean): string {
   if (trade?.notes) msg += `\n<i>${trade.notes}</i>\n`;
 
   return msg.length > 4000 ? msg.substring(0, 4000) + '…' : msg;
+}
+
+// ─── Company new-high message processor ──────────────────────────────────────
+
+async function processCompanyNewHighMessage(
+  botToken: string,
+  chatId: string,
+  payload: any
+): Promise<any> {
+  const trade      = payload?.trade ?? payload;
+  const highPrice  = payload?.highPrice ?? trade?.current_price ?? trade?.max_price_since_entry ?? 0;
+  const prevHigh   = payload?.prevHigh ?? trade?.entry_price ?? 0;
+  const entryPrice = Number(trade?.entry_price ?? 0);
+  const qty        = Number(trade?.contracts_qty ?? 1);
+  const multiplier = Number(trade?.contract_multiplier ?? 100);
+  const direction  = (trade?.direction ?? '').toUpperCase();
+  const symbol     = trade?.symbol ?? '';
+  const strike     = trade?.strike ? `$${Number(trade.strike).toLocaleString()}` : '';
+  const expiry     = trade?.expiry_date
+    ? new Date(trade.expiry_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+    : '';
+
+  const pnl    = (highPrice - entryPrice) * qty * multiplier;
+  const pnlPct = entryPrice > 0 ? ((highPrice - entryPrice) / entryPrice * 100) : 0;
+  const gainFromPrev = prevHigh > 0 ? ((highPrice - prevHigh) / prevHigh * 100) : 0;
+
+  const dirAr  = direction === 'CALL' ? 'شراء' : 'بيع';
+  const dirEmoji = direction === 'CALL' ? '📈' : '📉';
+
+  let msg = `🚀 <b>قمة جديدة | New Peak</b>\n\n`;
+  msg += `${dirEmoji} <b>${symbol}</b> ${direction} | ${dirAr}\n`;
+  if (strike) msg += `<b>Strike | سعر التنفيذ:</b> ${strike}\n`;
+  if (expiry) msg += `<b>Expiry | الانتهاء:</b> ${expiry}\n`;
+  msg += `\n<b>Peak Price | قمة السعر:</b> $${Number(highPrice).toFixed(2)}\n`;
+  msg += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  if (prevHigh > 0 && prevHigh !== entryPrice) {
+    msg += `<b>Prev Peak | القمة السابقة:</b> $${Number(prevHigh).toFixed(2)} (+${gainFromPrev.toFixed(1)}%)\n`;
+  }
+  msg += `\n<b>💰 P/L | الربح:</b> $${pnl.toFixed(2)} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)\n`;
+
+  return await sendTelegramMessage(botToken, chatId, msg, true);
+}
+
+// ─── Company winning-trade message processor ──────────────────────────────────
+
+async function processCompanyWinningTradeMessage(
+  botToken: string,
+  chatId: string,
+  payload: any
+): Promise<any> {
+  const trade      = payload?.trade ?? payload;
+  const closePrice = payload?.closePrice ?? Number(trade?.current_price ?? trade?.entry_price ?? 0);
+  const entryPrice = Number(trade?.entry_price ?? 0);
+  const qty        = Number(trade?.contracts_qty ?? 1);
+  const multiplier = Number(trade?.contract_multiplier ?? 100);
+  const maxPrice   = Number(trade?.max_price_since_entry ?? closePrice);
+  const direction  = (trade?.direction ?? '').toUpperCase();
+  const symbol     = trade?.symbol ?? '';
+  const strike     = trade?.strike ? `$${Number(trade.strike).toLocaleString()}` : '';
+  const expiry     = trade?.expiry_date
+    ? new Date(trade.expiry_date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+    : '';
+  const closeReason = payload?.close_reason ?? trade?.close_reason ?? 'TARGET_WIN';
+
+  const pnl    = (closePrice - entryPrice) * qty * multiplier;
+  const pnlPct = entryPrice > 0 ? ((closePrice - entryPrice) / entryPrice * 100) : 0;
+  const maxPnl = (maxPrice - entryPrice) * qty * multiplier;
+
+  const dirEmoji = direction === 'CALL' ? '📈' : '📉';
+  const dirAr    = direction === 'CALL' ? 'شراء' : 'بيع';
+  const reasonAr = closeReason === 'TARGET_WIN' ? 'وصل الهدف' : closeReason === 'STOPLOSS' ? 'وقف الخسارة' : 'مغلقة';
+  const reasonEn = closeReason === 'TARGET_WIN' ? 'Target Hit' : closeReason === 'STOPLOSS' ? 'Stop Loss' : 'Closed';
+
+  let msg = `🎉 <b>صفقة رابحة | Winning Trade!</b>\n\n`;
+  msg += `${dirEmoji} <b>${symbol}</b> ${direction} | ${dirAr}\n`;
+  if (strike) msg += `<b>Strike | سترايك:</b> ${strike}\n`;
+  if (expiry) msg += `<b>Expiry | الانتهاء:</b> ${expiry}\n`;
+  msg += `\n<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
+  msg += `<b>Close | الإغلاق:</b> $${closePrice.toFixed(2)} — ${reasonEn} | ${reasonAr}\n`;
+  msg += `<b>Peak | القمة:</b> $${maxPrice.toFixed(2)}\n`;
+  msg += `\n<b>💰 P/L | الربح:</b> +$${pnl.toFixed(2)} (+${pnlPct.toFixed(1)}%)\n`;
+  msg += `<b>🏆 Max P/L | أعلى ربح:</b> +$${maxPnl.toFixed(2)}\n`;
+
+  const imageUrl = trade?.image_url ?? null;
+  if (imageUrl) {
+    try {
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) });
+      if (res.ok) {
+        const ct = res.headers.get('content-type') ?? '';
+        const buf = await res.arrayBuffer();
+        if (ct.startsWith('image/') && buf.byteLength > 1024) {
+          return await sendTelegramPhotoBytes(botToken, chatId, buf, msg.substring(0, 1020));
+        }
+      }
+    } catch { /* fall through to text */ }
+  }
+
+  return await sendTelegramMessage(botToken, chatId, msg, true);
 }
 
 // ─── Telegram send helpers ────────────────────────────────────────────────────
