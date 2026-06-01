@@ -4,17 +4,17 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLanguage } from '@/lib/i18n/language-context'
 import { createClient } from '@/lib/supabase/client'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 import {
   TrendingUp, TrendingDown, RefreshCw, Search, Filter,
-  Calendar, DollarSign, BarChart3, Activity, Target, X, Plus, Image as ImageIcon, Loader2, Trophy
+  Calendar, BarChart3, Activity, Target, X, Plus, Image as ImageIcon,
+  Loader2, Trophy, Send, ChevronRight, Minus, DollarSign
 } from 'lucide-react'
 import Link from 'next/link'
-import { formatPnL, formatPercentage, calculatePnLPercentage } from '@/services/trades/canonical-pnl.service'
 import { CreateCompanyTradeDialog } from '@/components/companies/CreateCompanyTradeDialog'
 
 interface Trade {
@@ -40,17 +40,332 @@ interface Trade {
   analysis_id?: string
   image_url?: string
   polygon_option_ticker?: string
+  telegram_channel_id?: string | null
+  targets?: Array<{ level?: number; price?: number }> | null
+  stoploss?: { level?: number; price?: number } | null
 }
 
 interface TradeStats {
   total: number
   active: number
-  closed: number
   wins: number
   losses: number
-  totalPnL: number
   winRate: number
 }
+
+/* ── Helpers ─────────────────────────────────── */
+
+const n2 = (v: number) => v.toFixed(2)
+const n1 = (v: number) => v.toFixed(1)
+
+function fmtExpiry(expiry: string | null | undefined): string {
+  if (!expiry) return '—'
+  const d = new Date(expiry + 'T12:00:00Z')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+}
+
+function daysToExpiry(expiry: string | null | undefined): number | null {
+  if (!expiry) return null
+  const ms = new Date(expiry + 'T12:00:00Z').getTime() - Date.now()
+  return Math.ceil(ms / 86_400_000)
+}
+
+function statusBorderColor(highPct: number, status: string): string {
+  if (status === 'ACTIVE') {
+    if (highPct > 5) return 'border-l-emerald-500'
+    if (highPct < -5) return 'border-l-red-500'
+    return 'border-l-amber-500'
+  }
+  if (status === 'CLOSED' || status === 'EXPIRED') {
+    const isWinStatus = highPct >= 0
+    return isWinStatus ? 'border-l-emerald-500' : 'border-l-red-500'
+  }
+  return 'border-l-border'
+}
+
+function PnLBar({ pct }: { pct: number }) {
+  const clamped = Math.min(Math.abs(pct), 200)
+  const w = (clamped / 200) * 100
+  return (
+    <div className="h-1 bg-muted/50 overflow-hidden w-full">
+      <div className={cn('h-full transition-all', pct >= 0 ? 'bg-emerald-500' : 'bg-red-500')} style={{ width: `${w}%` }} />
+    </div>
+  )
+}
+
+/* ── Trade Card ────────────────────────────────────────────────────── */
+
+interface TradeCardProps {
+  trade: Trade
+  isOwner: boolean
+  channels: Array<{ id: string; channelName: string }>
+  onClose: (id: string) => void
+  onGenerateImage: (id: string) => void
+  onPublish: (id: string, channelId: string) => void
+  onPreviewImage: (url: string) => void
+  generatingImage: string | null
+  publishing: string | null
+}
+
+function TradeCard({
+  trade, isOwner, channels,
+  onClose, onGenerateImage, onPublish, onPreviewImage,
+  generatingImage, publishing,
+}: TradeCardProps) {
+  const [publishChannelId, setPublishChannelId] = useState<string>('')
+  const [showPublish, setShowPublish] = useState(false)
+
+  const entry = trade.entry_price
+  const current = trade.current_price ?? entry
+  const high = trade.max_price_since_entry ?? entry
+  const qty = trade.contracts_qty ?? 1
+  const mult = trade.contract_multiplier ?? 100
+
+  const highPct = entry > 0 ? ((high - entry) / entry) * 100 : 0
+  const openPct = entry > 0 ? ((current - entry) / entry) * 100 : 0
+  const highUsd = (high - entry) * qty * mult
+  const openUsd = (current - entry) * qty * mult
+
+  const isCall = trade.direction === 'CALL'
+  const isActive = trade.status === 'ACTIVE'
+  const dte = daysToExpiry(trade.expiry_date)
+  const borderClass = statusBorderColor(highPct, trade.status)
+
+  const targetPrice = trade.targets?.[0]?.level ?? trade.targets?.[0]?.price
+  const stopPrice = trade.stoploss?.level ?? trade.stoploss?.price
+
+  return (
+    <div className={cn('opt-card border-l-2 opt-card-hover', borderClass)}>
+      {/* ── Header ─────────────────────────────── */}
+      <div className="flex items-start justify-between gap-3 px-4 pt-3.5 pb-2.5">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className={cn('opt-dir-badge', isCall ? 'opt-dir-call' : 'opt-dir-put')}>
+            {isCall ? 'CALL' : 'PUT'}
+          </span>
+          <span className="text-base font-black text-foreground tracking-tight">{trade.symbol}</span>
+          <span className="text-sm font-black num text-foreground/90">${trade.strike.toLocaleString()}</span>
+          {isActive && <span className="opt-status-badge opt-status-active">LIVE</span>}
+          {!isActive && trade.close_reason === 'TARGET_WIN' && (
+            <span className="opt-status-badge opt-status-win">TARGET ✓</span>
+          )}
+          {!isActive && trade.close_reason === 'STOPLOSS' && (
+            <span className="opt-status-badge opt-status-loss">STOPPED</span>
+          )}
+          {!isActive && !trade.close_reason && (
+            <span className="opt-status-badge opt-status-neutral">CLOSED</span>
+          )}
+          {trade.avg_adjustments_count > 0 && (
+            <span className="text-[9px] text-muted-foreground border border-border/60 px-1.5 py-0.5">
+              AVG×{trade.avg_adjustments_count}
+            </span>
+          )}
+        </div>
+
+        {/* Best P&L (high watermark) */}
+        <div className="text-right flex-shrink-0">
+          {Math.abs(highPct) >= 1 ? (
+            <div className={cn('flex items-center gap-1 justify-end', highPct >= 0 ? 'text-emerald-500' : 'text-red-500')}>
+              {highPct >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+              <span className="text-xl font-black num leading-none">
+                {highPct >= 0 ? '+' : ''}{n1(highPct)}%
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 justify-end text-muted-foreground">
+              <Minus className="h-3 w-3" />
+              <span className="text-xl font-black num leading-none">FLAT</span>
+            </div>
+          )}
+          <div className={cn('text-xs font-semibold num mt-0.5', highUsd >= 0 ? 'text-emerald-500/80' : 'text-red-500/80')}>
+            {highUsd >= 0 ? '+' : ''}${Math.abs(highUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+        </div>
+      </div>
+
+      {/* P&L bar */}
+      <PnLBar pct={highPct} />
+
+      {/* Polygon ticker */}
+      {trade.polygon_option_ticker && (
+        <div className="px-4 pt-1.5 pb-0">
+          <span className="opt-ticker-text">{trade.polygon_option_ticker}</span>
+        </div>
+      )}
+
+      {/* ── Price metrics ────────────────────── */}
+      <div className="grid grid-cols-4 gap-0 px-4 py-2.5 border-t border-border/60 mt-2">
+        <div>
+          <p className="opt-metric-label">ENTRY $</p>
+          <p className="opt-metric-value text-muted-foreground">{n2(entry)}</p>
+        </div>
+        <div>
+          <p className="opt-metric-label">CURRENT $</p>
+          <p className={cn('opt-metric-value', current > entry ? 'text-emerald-500' : current < entry ? 'text-red-500' : 'text-foreground')}>
+            {n2(current)}
+          </p>
+          {isActive && Math.abs(openPct) >= 0.5 && (
+            <p className={cn('text-[9px] num', openPct >= 0 ? 'text-emerald-500/60' : 'text-red-500/60')}>
+              {openPct >= 0 ? '+' : ''}{n1(openPct)}%
+            </p>
+          )}
+        </div>
+        <div>
+          <p className="opt-metric-label flex items-center gap-0.5"><Trophy className="h-2 w-2 text-amber-500" /> HIGH $</p>
+          <p className="opt-metric-value text-emerald-500/90">{n2(high)}</p>
+          {highPct > 0 && <p className="text-[9px] text-emerald-500/60 num">+{n1(highPct)}%</p>}
+        </div>
+        <div>
+          <p className="opt-metric-label">EXPIRY</p>
+          <p className="opt-metric-value text-foreground">{fmtExpiry(trade.expiry_date)}</p>
+          {dte != null && (
+            <p className={cn('text-[9px] num', dte <= 5 ? 'text-red-500' : dte <= 14 ? 'text-amber-500' : 'text-muted-foreground')}>
+              {dte > 0 ? `${dte}d left` : dte === 0 ? 'EXP TODAY' : 'EXPIRED'}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Targets + Stop ───────────────────── */}
+      {(targetPrice != null || stopPrice != null) && (
+        <div className="px-4 py-2 border-t border-border/60 flex items-center gap-2 flex-wrap">
+          {targetPrice != null && (
+            <span className={cn(
+              'text-[10px] px-1.5 py-0.5 border font-bold num',
+              current >= targetPrice
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/25'
+                : 'bg-muted/40 text-muted-foreground border-border/60'
+            )}>
+              TP ${targetPrice.toFixed(2)}{current >= targetPrice ? ' ✓' : ''}
+            </span>
+          )}
+          {stopPrice != null && (
+            <span className="text-[10px] px-1.5 py-0.5 border font-bold num bg-red-500/10 text-red-500 border-red-500/25">
+              SL ${stopPrice.toFixed(2)}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Footer actions ───────────────────── */}
+      <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 bg-muted/5 gap-2 flex-wrap">
+        <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Calendar className="h-2.5 w-2.5" />
+            {new Date(trade.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </span>
+          {trade.contracts_qty > 1 && (
+            <span className="num">{trade.contracts_qty} contracts</span>
+          )}
+          {trade.analysis_id && (
+            <Link href={`/dashboard/analysis/${trade.analysis_id}`} className="flex items-center gap-0.5 text-primary hover:underline font-semibold">
+              Analysis <ChevronRight className="h-2.5 w-2.5" />
+            </Link>
+          )}
+        </div>
+
+        {isOwner && (
+          <div className="flex items-center gap-1">
+            {/* Generate image */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              title="Generate image"
+              onClick={() => onGenerateImage(trade.id)}
+              disabled={generatingImage === trade.id}
+            >
+              {generatingImage === trade.id
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <ImageIcon className="h-3.5 w-3.5" />}
+            </Button>
+
+            {/* Preview image */}
+            {trade.image_url && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                title="Preview image"
+                onClick={() => onPreviewImage(trade.image_url!)}
+              >
+                <Search className="h-3.5 w-3.5" />
+              </Button>
+            )}
+
+            {/* Publish to Telegram */}
+            {channels.length > 0 && (
+              <>
+                {showPublish ? (
+                  <div className="flex items-center gap-1">
+                    <Select value={publishChannelId} onValueChange={setPublishChannelId}>
+                      <SelectTrigger className="h-7 text-[10px] w-36">
+                        <SelectValue placeholder="Channel..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {channels.map(ch => (
+                          <SelectItem key={ch.id} value={ch.id} className="text-[11px]">
+                            {ch.channelName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      size="sm"
+                      className="h-7 px-2 text-[10px]"
+                      disabled={!publishChannelId || publishing === trade.id}
+                      onClick={() => {
+                        onPublish(trade.id, publishChannelId)
+                        setShowPublish(false)
+                        setPublishChannelId('')
+                      }}
+                    >
+                      {publishing === trade.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setShowPublish(false)}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0"
+                    title="Publish to Telegram"
+                    onClick={() => setShowPublish(true)}
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </>
+            )}
+
+            {/* Close trade */}
+            {isActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
+                title="Close trade"
+                onClick={() => onClose(trade.id)}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Notes */}
+      {trade.notes && (
+        <div className="px-4 pb-3 pt-1 text-xs text-muted-foreground border-t border-border/40">
+          {trade.notes}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Page ────────────────────────────────────────────────────────── */
 
 export default function CompanyDealsPage() {
   const router = useRouter()
@@ -65,14 +380,21 @@ export default function CompanyDealsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [refreshingPrices, setRefreshingPrices] = useState(false)
   const [generatingImage, setGeneratingImage] = useState<string | null>(null)
+  const [publishing, setPublishing] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [channels, setChannels] = useState<Array<{ id: string; channelName: string }>>([])
   const supabaseRef = useRef(createClient())
 
-  useEffect(() => {
-    loadTrades()
-  }, [refreshKey])
+  useEffect(() => { loadTrades() }, [refreshKey])
 
-  // Live updates: realtime price/peak changes on contract_trades (via Fly.io)
+  useEffect(() => {
+    fetch('/api/telegram/channels/list')
+      .then(r => r.json())
+      .then(d => { if (d.ok && d.channels) setChannels(d.channels) })
+      .catch(() => undefined)
+  }, [])
+
+  // Realtime updates
   useEffect(() => {
     const supabase = supabaseRef.current
     const channel = supabase
@@ -95,17 +417,12 @@ export default function CompanyDealsPage() {
     setLoading(true)
     try {
       const response = await fetch('/api/companies/contract-trades')
-      if (response.status === 401) {
-        router.push('/login')
-        return
-      }
+      if (response.status === 401) { router.push('/login'); return }
       if (response.ok) {
         const data = await response.json()
         setTrades(data.trades || [])
       }
-    } catch (error) {
-      console.error('Failed to load trades:', error)
-    }
+    } catch { /* ignore */ }
     setLoading(false)
   }
 
@@ -114,11 +431,8 @@ export default function CompanyDealsPage() {
     try {
       await fetch('/api/companies/contract-trades/update-prices', { method: 'POST' })
       await loadTrades()
-    } catch (error) {
-      console.error('Error refreshing prices:', error)
-    } finally {
-      setRefreshingPrices(false)
-    }
+    } catch { /* ignore */ }
+    setRefreshingPrices(false)
   }
 
   async function handleGenerateImage(tradeId: string) {
@@ -132,11 +446,20 @@ export default function CompanyDealsPage() {
           setPreviewImage(data.image_url)
         }
       }
-    } catch (error) {
-      console.error('Error generating image:', error)
-    } finally {
-      setGeneratingImage(null)
-    }
+    } catch { /* ignore */ }
+    setGeneratingImage(null)
+  }
+
+  async function handlePublish(tradeId: string, channelId: string) {
+    setPublishing(tradeId)
+    try {
+      await fetch(`/api/companies/contract-trades/${tradeId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel_id: channelId }),
+      })
+    } catch { /* ignore */ }
+    setPublishing(null)
   }
 
   async function handleCloseTrade(tradeId: string) {
@@ -148,399 +471,171 @@ export default function CompanyDealsPage() {
         body: JSON.stringify({ status: 'CLOSED', close_reason: 'MANUAL' })
       })
       if (response.ok) setRefreshKey(prev => prev + 1)
-    } catch (error) {
-      console.error('Error closing trade:', error)
-    }
+    } catch { /* ignore */ }
   }
 
   const filteredTrades = trades.filter(trade => {
     if (statusFilter !== 'all' && trade.status !== statusFilter) return false
     if (directionFilter !== 'all' && trade.direction !== directionFilter) return false
     if (!searchQuery) return true
-    const q = searchQuery.toLowerCase()
-    return trade.symbol.toLowerCase().includes(q)
+    return trade.symbol.toLowerCase().includes(searchQuery.toLowerCase())
   })
 
   const stats: TradeStats = {
     total: trades.length,
     active: trades.filter(t => t.status === 'ACTIVE').length,
-    closed: trades.filter(t => t.status !== 'ACTIVE').length,
     wins: trades.filter(t => t.is_win && t.status !== 'ACTIVE').length,
     losses: trades.filter(t => !t.is_win && t.status !== 'ACTIVE').length,
-    totalPnL: trades.reduce((sum, t) => sum + (t.pnl_value || 0), 0),
     winRate: 0,
   }
   const closedCount = stats.wins + stats.losses
   stats.winRate = closedCount > 0 ? (stats.wins / closedCount) * 100 : 0
-
-  function getStatusBadge(trade: Trade) {
-    if (trade.status === 'ACTIVE') return <Badge>Active</Badge>
-    if (trade.status === 'EXPIRED') {
-      return trade.is_win
-        ? <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Expired (Win)</Badge>
-        : <Badge variant="destructive">Expired (Loss)</Badge>
-    }
-    return trade.is_win
-      ? <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Win</Badge>
-      : <Badge variant="destructive">Loss</Badge>
-  }
+  const totalHighUsd = trades.reduce((sum, t) => {
+    const e = t.entry_price, h = t.max_price_since_entry ?? e
+    return sum + (h - e) * (t.contracts_qty ?? 1) * (t.contract_multiplier ?? 100)
+  }, 0)
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-7xl">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="container mx-auto px-4 py-8 max-w-5xl">
+      {/* Header */}
+      <div className="mb-8 flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <div className="flex items-center gap-3 mb-2">
-            <BarChart3 className="h-8 w-8 text-primary" />
-            <h1 className="text-3xl font-bold">Stock Deals & Contracts</h1>
+          <div className="flex items-center gap-3 mb-1">
+            <BarChart3 className="h-7 w-7 text-primary" />
+            <h1 className="text-2xl font-black">{ar ? 'صفقات الأسهم والعقود' : 'Stock Deals & Contracts'}</h1>
           </div>
-          <p className="text-muted-foreground">
-            All your options contract trades across stock analyses
-          </p>
+          <p className="text-sm text-muted-foreground">{ar ? 'جميع عقود الأوبشن عبر تحليلات الأسهم' : 'All options contract trades across stock analyses'}</p>
         </div>
         <div className="flex items-center gap-2">
           <Button onClick={() => setShowCreateDialog(true)} size="sm">
             <Plus className="h-4 w-4 mr-2" />
-            {ar ? 'صفقة عقد جديدة' : 'New Contract Deal'}
+            {ar ? 'صفقة جديدة' : 'New Trade'}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefreshPrices}
-            disabled={refreshingPrices}
-          >
-            <RefreshCw className={`h-4 w-4 mr-2 ${refreshingPrices ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="sm" onClick={handleRefreshPrices} disabled={refreshingPrices}>
+            <RefreshCw className={cn('h-4 w-4 mr-2', refreshingPrices && 'animate-spin')} />
             {ar ? 'تحديث الأسعار' : 'Update Prices'}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setRefreshKey(prev => prev + 1)}
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button variant="outline" size="sm" onClick={() => setRefreshKey(k => k + 1)} disabled={loading}>
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
           </Button>
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                <Activity className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">{stats.active}</div>
-                <div className="text-sm text-muted-foreground">Active Trades</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
-                <Target className="h-5 w-5 text-green-600 dark:text-green-400" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">{stats.winRate.toFixed(0)}%</div>
-                <div className="text-sm text-muted-foreground">Win Rate</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center">
-                <BarChart3 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-              </div>
-              <div>
-                <div className="text-2xl font-bold">{stats.wins}W / {stats.losses}L</div>
-                <div className="text-sm text-muted-foreground">Wins / Losses</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                stats.totalPnL >= 0
-                  ? 'bg-green-100 dark:bg-green-900'
-                  : 'bg-red-100 dark:bg-red-900'
-              }`}>
-                <DollarSign className={`h-5 w-5 ${
-                  stats.totalPnL >= 0
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-red-600 dark:text-red-400'
-                }`} />
-              </div>
-              <div>
-                <div className={`text-2xl font-bold ${
-                  stats.totalPnL >= 0
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {formatPnL(stats.totalPnL)}
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {[
+          { icon: Activity, label: ar ? 'نشطة' : 'Active', value: stats.active, color: 'text-blue-500' },
+          { icon: Target, label: ar ? 'معدل الفوز' : 'Win Rate', value: `${stats.winRate.toFixed(0)}%`, color: 'text-emerald-500' },
+          { icon: Trophy, label: ar ? 'فوز / خسارة' : 'W / L', value: `${stats.wins}W ${stats.losses}L`, color: 'text-amber-500' },
+          { icon: DollarSign, label: ar ? 'أفضل ربح' : 'Best P&L', value: `${totalHighUsd >= 0 ? '+' : ''}$${Math.abs(totalHighUsd).toFixed(0)}`, color: totalHighUsd >= 0 ? 'text-emerald-500' : 'text-red-500' },
+        ].map(({ icon: Icon, label, value, color }) => (
+          <Card key={label}>
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center gap-2">
+                <Icon className={cn('h-4 w-4', color)} />
+                <div>
+                  <div className={cn('text-xl font-black num', color)}>{value}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
                 </div>
-                <div className="text-sm text-muted-foreground">Total P/L</div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
       {/* Filters */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Filter className="h-4 w-4" />
-            Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Search Symbol</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="e.g. AAPL, TSLA..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
+      <Card className="mb-5">
+        <CardContent className="pt-4 pb-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder={ar ? 'رمز السهم...' : 'Symbol (e.g. TSLA)'}
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="pl-9 h-8 text-sm"
+              />
             </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Status</label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="ACTIVE">Active</SelectItem>
-                  <SelectItem value="CLOSED">Closed</SelectItem>
-                  <SelectItem value="EXPIRED">Expired</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium mb-2 block">Direction</label>
-              <Select value={directionFilter} onValueChange={setDirectionFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All directions" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Directions</SelectItem>
-                  <SelectItem value="CALL">Call</SelectItem>
-                  <SelectItem value="PUT">Put</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{ar ? 'كل الحالات' : 'All Statuses'}</SelectItem>
+                <SelectItem value="ACTIVE">{ar ? 'نشطة' : 'Active'}</SelectItem>
+                <SelectItem value="CLOSED">{ar ? 'مغلقة' : 'Closed'}</SelectItem>
+                <SelectItem value="EXPIRED">{ar ? 'منتهية' : 'Expired'}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={directionFilter} onValueChange={setDirectionFilter}>
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue placeholder="All directions" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{ar ? 'الكل' : 'All'}</SelectItem>
+                <SelectItem value="CALL">Call</SelectItem>
+                <SelectItem value="PUT">Put</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Trades List */}
+      {/* Trades */}
       {loading ? (
         <div className="text-center py-16">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent" />
-          <p className="mt-4 text-muted-foreground">Loading trades...</p>
+          <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
+          <p className="mt-4 text-sm text-muted-foreground">{ar ? 'جاري التحميل...' : 'Loading trades...'}</p>
         </div>
       ) : filteredTrades.length === 0 ? (
         <Card>
           <CardContent className="text-center py-16">
             <BarChart3 className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-lg font-semibold mb-2">No Trades Found</h3>
-            <p className="text-muted-foreground mb-6">
+            <h3 className="text-lg font-semibold mb-2">{ar ? 'لا توجد صفقات' : 'No Trades Found'}</h3>
+            <p className="text-muted-foreground mb-6 text-sm">
               {trades.length === 0
-                ? 'You have not created any stock contract trades yet.'
-                : 'No trades match the current filters.'}
+                ? (ar ? 'لم تقم بإنشاء أي صفقة بعد.' : 'No stock contract trades yet.')
+                : (ar ? 'لا توجد صفقات تطابق الفلاتر.' : 'No trades match the current filters.')}
             </p>
             {trades.length === 0 && (
               <div className="flex items-center justify-center gap-2">
                 <Button onClick={() => setShowCreateDialog(true)}>
                   <Plus className="h-4 w-4 mr-2" />
-                  {ar ? 'صفقة عقد جديدة' : 'New Contract Deal'}
+                  {ar ? 'صفقة جديدة' : 'New Trade'}
                 </Button>
                 <Link href="/dashboard/companies/analyses">
-                  <Button variant="outline">{ar ? 'تصفح التحليلات' : 'Browse Stock Analyses'}</Button>
+                  <Button variant="outline">{ar ? 'تصفح التحليلات' : 'Browse Analyses'}</Button>
                 </Link>
               </div>
             )}
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-3">
-          <div className="text-sm text-muted-foreground mb-2">
-            Showing {filteredTrades.length} of {trades.length} trade{trades.length !== 1 ? 's' : ''}
-          </div>
-          {filteredTrades.map((trade) => {
-            const pnlPercentage = calculatePnLPercentage(trade.pnl_value, trade.entry_cost_total)
-            const pnlColor = trade.pnl_value >= 0
-              ? 'text-green-600 dark:text-green-400'
-              : 'text-red-600 dark:text-red-400'
-
-            return (
-              <Card key={trade.id} className="hover:shadow-md transition-shadow">
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      {trade.direction === 'CALL' ? (
-                        <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center flex-shrink-0">
-                          <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
-                        </div>
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center flex-shrink-0">
-                          <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400" />
-                        </div>
-                      )}
-                      <div>
-                        <div className="font-bold text-lg">
-                          {trade.symbol}
-                          {' '}
-                          <span className={trade.direction === 'CALL' ? 'text-green-600' : 'text-red-600'}>
-                            {trade.direction}
-                          </span>
-                          {' '}
-                          <span className="text-muted-foreground font-normal text-base">
-                            ${trade.strike}
-                          </span>
-                        </div>
-                        <div className="text-sm text-muted-foreground">
-                          {trade.contracts_qty} contract{trade.contracts_qty > 1 ? 's' : ''} @ ${trade.entry_price.toFixed(2)}
-                          {trade.avg_adjustments_count > 0 && (
-                            <span className="ml-2 text-xs">(Averaged {trade.avg_adjustments_count}x)</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {getStatusBadge(trade)}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleGenerateImage(trade.id)}
-                        disabled={generatingImage === trade.id}
-                        className="h-8 w-8 p-0"
-                        title={ar ? 'إنشاء صورة' : 'Generate image'}
-                      >
-                        {generatingImage === trade.id
-                          ? <Loader2 className="h-4 w-4 animate-spin" />
-                          : <ImageIcon className="h-4 w-4" />}
-                      </Button>
-                      {trade.image_url && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setPreviewImage(trade.image_url!)}
-                          className="h-8 w-8 p-0"
-                          title={ar ? 'عرض الصورة' : 'View image'}
-                        >
-                          <Search className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {trade.status === 'ACTIVE' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCloseTrade(trade.id)}
-                          className="h-8 w-8 p-0"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-3">
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">Entry Cost</div>
-                      <div className="font-semibold">${trade.entry_cost_total.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">{ar ? 'السعر الحالي' : 'Current'}</div>
-                      <div className="font-semibold">{trade.current_price != null ? `$${trade.current_price.toFixed(2)}` : '—'}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1">
-                        <Trophy className="h-3 w-3 text-amber-500" /> {ar ? 'القمة' : 'Peak'}
-                      </div>
-                      <div className="font-semibold text-amber-600">${trade.max_price_since_entry.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">Max Profit</div>
-                      <div className="font-semibold">${trade.max_profit_value.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground mb-1">P/L</div>
-                      <div className={`font-bold ${pnlColor}`}>
-                        {formatPnL(trade.pnl_value)} ({formatPercentage(pnlPercentage)})
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        <span>Exp: {new Date(trade.expiry_date).toLocaleDateString()}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        <span>Opened: {new Date(trade.created_at).toLocaleDateString()}</span>
-                      </div>
-                      {trade.close_reason && (
-                        <span>Closed: {trade.close_reason.replace(/_/g, ' ')}</span>
-                      )}
-                    </div>
-
-                    {trade.analysis_id && (
-                      <Link
-                        href={`/dashboard/analysis/${trade.analysis_id}`}
-                        className="text-primary hover:underline"
-                      >
-                        View Analysis →
-                      </Link>
-                    )}
-                  </div>
-
-                  {trade.status === 'ACTIVE' && (
-                    <div className="mt-3 p-2 bg-blue-50 dark:bg-blue-900/20 rounded text-xs">
-                      <strong>Win Threshold:</strong> Need ${(100 / (trade.contracts_qty * trade.contract_multiplier) + trade.entry_price).toFixed(2)} contract price to reach $100 profit
-                    </div>
-                  )}
-
-                  {trade.notes && (
-                    <div className="mt-3 pt-3 border-t text-sm text-muted-foreground">
-                      {trade.notes}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )
-          })}
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground mb-1">
+            {filteredTrades.length} / {trades.length} {ar ? 'صفقة' : 'trade(s)'}
+          </p>
+          {filteredTrades.map(trade => (
+            <TradeCard
+              key={trade.id}
+              trade={trade}
+              isOwner
+              channels={channels}
+              onClose={handleCloseTrade}
+              onGenerateImage={handleGenerateImage}
+              onPublish={handlePublish}
+              onPreviewImage={setPreviewImage}
+              generatingImage={generatingImage}
+              publishing={publishing}
+            />
+          ))}
         </div>
       )}
 
       <CreateCompanyTradeDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
-        onTradeCreated={() => {
-          setShowCreateDialog(false)
-          setRefreshKey(prev => prev + 1)
-        }}
+        onTradeCreated={() => { setShowCreateDialog(false); setRefreshKey(k => k + 1) }}
       />
 
       {previewImage && (
