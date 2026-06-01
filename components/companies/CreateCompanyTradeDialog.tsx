@@ -8,10 +8,11 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 import {
   TrendingUp, TrendingDown, RefreshCw, Loader2, ChevronDown,
-  ChevronUp, DollarSign, Activity, BarChart3, Clock, Check
+  ChevronUp, DollarSign, Activity, BarChart3, Clock, Check, Search
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -43,18 +44,28 @@ interface OptionsChainData {
   metadata: { totalContracts: number }
 }
 
+interface SymbolResult { symbol: string; name: string }
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  analysisId: string
-  symbol: string
+  /** Pre-filled symbol (from analysis page). If omitted, a search step is shown first. */
+  symbol?: string
+  /** Optional analysis link. */
+  analysisId?: string | null
   onTradeCreated: () => void
 }
 
-type Step = 'direction' | 'chain' | 'confirm'
+type Step = 'search' | 'direction' | 'chain' | 'confirm'
 
-export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbol, onTradeCreated }: Props) {
-  const [step, setStep] = useState<Step>('direction')
+export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbol: symbolProp, onTradeCreated }: Props) {
+  const [step, setStep] = useState<Step>(symbolProp ? 'direction' : 'search')
+
+  // Symbol search state (used when symbolProp is not provided)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<SymbolResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [symbol, setSymbol] = useState(symbolProp ?? '')
   const [direction, setDirection] = useState<'CALL' | 'PUT'>('CALL')
   const [chainData, setChainData] = useState<OptionsChainData | null>(null)
   const [loadingChain, setLoadingChain] = useState(false)
@@ -81,14 +92,53 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
   const [showAveragePrompt, setShowAveragePrompt] = useState(false)
   const [existingTrade, setExistingTrade] = useState<any>(null)
 
+  // Telegram channels
+  const [channels, setChannels] = useState<Array<{ id: string; channelName: string }>>([])
+  const [publishChannelId, setPublishChannelId] = useState<string>('none')
+
   // Price refresh countdown
   const [refreshCountdown, setRefreshCountdown] = useState(10)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
 
+  // Load Telegram channels
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/telegram/channels/list')
+        if (res.ok) {
+          const data = await res.json()
+          if (!cancelled && data.ok && data.channels) setChannels(data.channels)
+        }
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [open])
+
+  // Symbol search debounce
+  useEffect(() => {
+    if (symbolProp || !searchQuery || searchQuery.length < 1) { setSearchResults([]); return }
+    const t = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await fetch(`/api/search-symbols?q=${encodeURIComponent(searchQuery)}&market=stocks`)
+        if (res.ok) {
+          const data = await res.json()
+          setSearchResults(data.results || data.symbols || [])
+        }
+      } catch { /* ignore */ } finally { setSearching(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchQuery, symbolProp])
+
   // Reset on open
   useEffect(() => {
     if (open) {
-      setStep('direction')
+      setStep(symbolProp ? 'direction' : 'search')
+      setSymbol(symbolProp ?? '')
+      setSearchQuery('')
+      setSearchResults([])
       setDirection('CALL')
       setChainData(null)
       setChainError(null)
@@ -100,10 +150,11 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
       setNotes('')
       setStoploss('')
       setLiveQuote(null)
+      setPublishChannelId('none')
     } else {
       stopQuotePolling()
     }
-  }, [open])
+  }, [open, symbolProp])
 
   // ── Options Chain ─────────────────────────────────────────────────────────
 
@@ -245,7 +296,7 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
     try {
       const payload = {
         scope: 'company',
-        analysis_id: analysisId,
+        analysis_id: analysisId ?? null,
         symbol,
         direction,
         strike: selectedContract!.strike,
@@ -257,6 +308,8 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
         notes,
         is_average_entry: isAverage,
         existing_trade_id: isAverage ? existingTrade?.id : null,
+        auto_publish_telegram: publishChannelId !== 'none',
+        telegram_channel_id: publishChannelId !== 'none' ? publishChannelId : null,
       }
       const res = await fetch('/api/companies/trades', {
         method: 'POST',
@@ -314,31 +367,72 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
         <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col overflow-hidden p-0">
           <DialogHeader className="px-6 pt-5 pb-3 border-b flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
-              <span className="font-bold text-lg">{symbol}</span>
-              <span className="text-muted-foreground font-normal">— Add Contract Trade</span>
+              {symbol
+                ? <><span className="font-bold text-lg">{symbol}</span><span className="text-muted-foreground font-normal">— Add Contract Trade</span></>
+                : <span className="font-bold text-lg">New Contract Deal</span>
+              }
             </DialogTitle>
-            {/* Step indicator */}
-            <div className="flex items-center gap-1 mt-2">
-              {(['direction', 'chain', 'confirm'] as Step[]).map((s, i) => (
-                <div key={s} className="flex items-center gap-1">
-                  <div className={cn(
-                    'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
-                    step === s ? 'bg-primary text-primary-foreground' :
-                    ['direction', 'chain', 'confirm'].indexOf(step) > i ? 'bg-green-500 text-white' :
-                    'bg-muted text-muted-foreground'
-                  )}>
-                    {['direction', 'chain', 'confirm'].indexOf(step) > i ? <Check className="w-3 h-3" /> : i + 1}
+            {/* Step indicator — only show after symbol is chosen */}
+            {step !== 'search' && (
+              <div className="flex items-center gap-1 mt-2">
+                {(['direction', 'chain', 'confirm'] as Step[]).map((s, i) => (
+                  <div key={s} className="flex items-center gap-1">
+                    <div className={cn(
+                      'w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold',
+                      step === s ? 'bg-primary text-primary-foreground' :
+                      ['direction', 'chain', 'confirm'].indexOf(step) > i ? 'bg-green-500 text-white' :
+                      'bg-muted text-muted-foreground'
+                    )}>
+                      {['direction', 'chain', 'confirm'].indexOf(step) > i ? <Check className="w-3 h-3" /> : i + 1}
+                    </div>
+                    <span className={cn('text-xs', step === s ? 'text-foreground font-medium' : 'text-muted-foreground')}>
+                      {s === 'direction' ? 'Direction' : s === 'chain' ? 'Select Contract' : 'Confirm'}
+                    </span>
+                    {i < 2 && <div className="w-4 h-px bg-border mx-1" />}
                   </div>
-                  <span className={cn('text-xs', step === s ? 'text-foreground font-medium' : 'text-muted-foreground')}>
-                    {s === 'direction' ? 'Direction' : s === 'chain' ? 'Select Contract' : 'Confirm'}
-                  </span>
-                  {i < 2 && <div className="w-4 h-px bg-border mx-1" />}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-6 py-4">
+
+            {/* ── STEP 0: Symbol Search (when no symbol prop) ── */}
+            {step === 'search' && (
+              <div className="space-y-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    autoFocus
+                    className="pl-10"
+                    placeholder="Search company (e.g. AAPL, TSLA)"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                {searching && (
+                  <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+                )}
+                {!searching && searchResults.length > 0 && (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {searchResults.map((r) => (
+                      <button key={r.symbol}
+                        onClick={() => { setSymbol(r.symbol); setStep('direction') }}
+                        className="w-full flex items-center justify-between p-3 rounded-lg border hover:bg-accent transition-colors text-left"
+                      >
+                        <div>
+                          <div className="font-semibold">{r.symbol}</div>
+                          <div className="text-sm text-muted-foreground">{r.name}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!searching && searchQuery.length > 0 && searchResults.length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">No results found</p>
+                )}
+              </div>
+            )}
 
             {/* ── STEP 1: Direction ── */}
             {step === 'direction' && (
@@ -711,6 +805,24 @@ export function CreateCompanyTradeDialog({ open, onOpenChange, analysisId, symbo
                     className="mt-1"
                   />
                 </div>
+
+                {/* Telegram publishing */}
+                {channels.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Publish to Telegram</Label>
+                    <Select value={publishChannelId} onValueChange={setPublishChannelId}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Do not publish" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Do not publish</SelectItem>
+                        {channels.map((ch) => (
+                          <SelectItem key={ch.id} value={ch.id}>{ch.channelName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {/* Win threshold preview */}
                 {entryPrice && qty && (

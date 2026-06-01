@@ -108,8 +108,9 @@ async function publishContractDealToTelegram(
 
 /**
  * GET /api/companies/contract-trades
- * List the authenticated user's company option-contract deals (standalone +
- * analysis-linked) from the unified `contract_trades` table.
+ * List the authenticated user's company option-contract deals from both the
+ * unified `contract_trades` table AND the legacy `trades` table so that
+ * trades created before the migration are still visible.
  */
 export async function GET() {
   try {
@@ -120,19 +121,93 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { data: trades, error } = await supabase
+    // Fetch from unified contract_trades table (new system)
+    const { data: contractTrades, error: ctError } = await supabase
       .from('contract_trades')
       .select('*')
       .eq('author_id', user.id)
       .eq('scope', 'company')
       .order('created_at', { ascending: false })
 
-    if (error) {
-      console.error('[contract-trades] list error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
+    if (ctError) {
+      console.error('[contract-trades] list error:', ctError)
+      return NextResponse.json({ error: ctError.message }, { status: 500 })
     }
 
-    return NextResponse.json({ trades: trades || [] })
+    // Also fetch from legacy `trades` table (old system) to avoid missing old data
+    const { data: legacyTrades } = await supabase
+      .from('trades')
+      .select('*, option_trade_details(*)')
+      .eq('user_id', user.id)
+      .eq('trade_type', 'option')
+      .eq('is_testing', false)
+      .order('created_at', { ascending: false })
+
+    // Normalize legacy trades to the same shape expected by the deals page
+    const normalizedLegacy = (legacyTrades || []).map((t: any) => {
+      const od = Array.isArray(t.option_trade_details)
+        ? t.option_trade_details[0]
+        : t.option_trade_details
+      const entryPremium  = od?.entry_premium ?? t.entry_price ?? 0
+      const currentPremium = od?.current_premium ?? entryPremium
+      const qty            = od?.quantity ?? 1
+      const multiplier     = od?.contract_multiplier ?? 100
+      const entryTotal     = od?.entry_cost_total ?? entryPremium * qty * multiplier
+      const maxProfit      = od?.max_profit_value ?? 0
+      const maxPrice       = od?.highest_premium_since_entry ?? entryPremium
+      const pnlValue       = (currentPremium - entryPremium) * qty * multiplier
+      const rawStatus      = t.status ?? 'active'
+      let mappedStatus = 'CLOSED'
+      if (rawStatus === 'active' || rawStatus === 'published') mappedStatus = 'ACTIVE'
+      else if (rawStatus === 'expired') mappedStatus = 'EXPIRED'
+
+      return {
+        id:                    t.id,
+        symbol:                t.symbol,
+        direction:             (t.direction ?? '').toUpperCase(),
+        strike:                od?.strike_price ?? 0,
+        expiry_date:           od?.expiration_date ?? '',
+        entry_price:           entryPremium,
+        contracts_qty:         qty,
+        contract_multiplier:   multiplier,
+        status:                mappedStatus,
+        max_price_since_entry: maxPrice,
+        current_price:         currentPremium,
+        pnl_value:             pnlValue,
+        is_win:                pnlValue >= 0,
+        entry_cost_total:      entryTotal,
+        max_profit_value:      maxProfit,
+        created_at:            t.created_at,
+        notes:                 t.notes ?? null,
+        close_reason:          t.stop_status === 'hit' ? 'STOP_HIT' : null,
+        avg_adjustments_count: 0,
+        analysis_id:           t.analysis_id ?? null,
+        image_url:             null,
+        polygon_option_ticker: od?.polygon_option_ticker ?? null,
+        _source:               'legacy',
+      }
+    })
+
+    // Merge: new trades take priority; exclude legacy entries already in contract_trades
+    const newIds = new Set((contractTrades || []).map((t: any) => t.id))
+    // Also deduplicate by polygon_option_ticker + status to avoid showing the same contract twice
+    const newTickers = new Set(
+      (contractTrades || [])
+        .filter((t: any) => t.polygon_option_ticker && t.status === 'ACTIVE')
+        .map((t: any) => t.polygon_option_ticker)
+    )
+
+    const filteredLegacy = normalizedLegacy.filter((t: any) => {
+      if (newIds.has(t.id)) return false
+      if (t.polygon_option_ticker && newTickers.has(t.polygon_option_ticker)) return false
+      return true
+    })
+
+    const allTrades = [...(contractTrades || []), ...filteredLegacy].sort(
+      (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+
+    return NextResponse.json({ trades: allTrades })
   } catch (error) {
     console.error('[contract-trades] GET error:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
