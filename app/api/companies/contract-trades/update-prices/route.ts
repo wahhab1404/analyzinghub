@@ -13,10 +13,15 @@ interface ContractTradeRow {
   direction: string
   polygon_option_ticker: string | null
   entry_price: number
+  contracts_qty: number
+  contract_multiplier: number
   max_price_since_entry: number | null
   targets: Array<{ level?: number; price?: number }> | null
   stoploss: { level?: number; price?: number } | null
   status: string
+  telegram_channel_id: string | null
+  strike: number
+  expiry_date: string
 }
 
 async function fetchOptionPrice(underlying: string, ticker: string): Promise<number | null> {
@@ -57,7 +62,7 @@ export async function POST(req: NextRequest) {
 
   const { data: trades, error } = await supabase
     .from('contract_trades')
-    .select('id, symbol, direction, polygon_option_ticker, entry_price, max_price_since_entry, targets, stoploss, status')
+    .select('id, symbol, direction, polygon_option_ticker, entry_price, contracts_qty, contract_multiplier, max_price_since_entry, targets, stoploss, status, telegram_channel_id, strike, expiry_date')
     .eq('scope', 'company')
     .eq('status', 'ACTIVE')
     .not('polygon_option_ticker', 'is', null)
@@ -73,6 +78,56 @@ export async function POST(req: NextRequest) {
 
   const priceCache = new Map<string, number | null>()
   let updated = 0
+
+  // Resolve telegram chat IDs for channels (cache by UUID)
+  const channelCache = new Map<string, string | null>()
+  async function resolveChatId(channelId: string | null): Promise<string | null> {
+    if (!channelId) return null
+    if (channelCache.has(channelId)) return channelCache.get(channelId) ?? null
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (uuidRe.test(channelId)) {
+      const { data } = await supabase.from('telegram_channels').select('channel_id').eq('id', channelId).single()
+      const chat = data?.channel_id ?? null
+      channelCache.set(channelId, chat)
+      return chat
+    }
+    channelCache.set(channelId, channelId)
+    return channelId
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  async function sendNewHighAlert(trade: ContractTradeRow, price: number, prevHigh: number): Promise<void> {
+    if (!trade.telegram_channel_id || !supabaseUrl || !serviceRoleKey) return
+    const chatId = await resolveChatId(trade.telegram_channel_id)
+    if (!chatId) return
+
+    // Deduplicate: only send if this price is at least 10% above previous high
+    const gainPct = prevHigh > 0 ? ((price - prevHigh) / prevHigh) * 100 : 0
+    if (gainPct < 10) return
+
+    const qty = trade.contracts_qty ?? 1
+    const multiplier = trade.contract_multiplier ?? 100
+    const pnl = (price - trade.entry_price) * qty * multiplier
+    const pnlPct = trade.entry_price > 0 ? ((price - trade.entry_price) / trade.entry_price) * 100 : 0
+
+    const dir = trade.direction === 'CALL' ? '📈 CALL' : '📉 PUT'
+    const message = `🏆 *New Peak Alert!*\n\n${dir} *${trade.symbol}* $${trade.strike}\nExp: ${trade.expiry_date}\n\n📊 Contract price: *$${price.toFixed(2)}* (prev peak: $${prevHigh.toFixed(2)})\n💰 P/L: *${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}* (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`
+
+    try {
+      await fetch(`${supabaseUrl}/functions/v1/telegram-outbox-processor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceRoleKey}` },
+        body: JSON.stringify({
+          triggered_by: 'company_new_high',
+          direct_message: { chat_id: chatId, text: message, parse_mode: 'Markdown' },
+        }),
+      })
+    } catch (e) {
+      console.error('[update-prices] failed to send new-high alert:', e)
+    }
+  }
 
   for (const trade of open) {
     const ticker = trade.polygon_option_ticker!
@@ -90,9 +145,12 @@ export async function POST(req: NextRequest) {
       last_price_update_at: new Date().toISOString(),
     }
 
-    // High-watermark peak (القمة)
+    // High-watermark peak (القمة) — send Telegram alert on new high
+    const prevHigh = trade.max_price_since_entry ?? trade.entry_price
     if (trade.max_price_since_entry == null || price > trade.max_price_since_entry) {
       updates.max_price_since_entry = price
+      // Send alert (fire-and-forget)
+      sendNewHighAlert(trade, price, prevHigh).catch(() => undefined)
     }
 
     // Target / stop auto-close (option premium semantics)

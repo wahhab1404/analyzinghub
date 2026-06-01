@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { formatPnL, formatPercentage, calculatePnLPercentage } from '@/services/trades/canonical-pnl.service'
-import { CreateCompanyContractDealDialog } from '@/components/companies/CreateCompanyContractDealDialog'
+import { CreateCompanyTradeDialog } from '@/components/companies/CreateCompanyTradeDialog'
 
 interface Trade {
   id: string
@@ -534,7 +534,7 @@ export default function CompanyDealsPage() {
         </div>
       )}
 
-      <CreateCompanyContractDealDialog
+      <CreateCompanyTradeDialog
         open={showCreateDialog}
         onOpenChange={setShowCreateDialog}
         onTradeCreated={() => {

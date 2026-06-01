@@ -25,35 +25,53 @@ export async function GET(request: Request) {
     const statusFilter = searchParams.get('status')
     const includeTesting = searchParams.get('include_testing') === 'true'
 
-    let query = supabase
+    // Read from the unified contract_trades table (new system)
+    let ctQuery = supabase
+      .from('contract_trades')
+      .select('*')
+      .eq('author_id', user.id)
+      .eq('scope', 'company')
+      .order('created_at', { ascending: false })
+
+    if (!includeTesting) {
+      ctQuery = ctQuery.eq('is_testing', false)
+    }
+    if (analysisId) {
+      ctQuery = ctQuery.eq('analysis_id', analysisId)
+    }
+    if (symbol) {
+      ctQuery = ctQuery.eq('symbol', symbol.toUpperCase())
+    }
+
+    const { data: ctRows, error: ctError } = await ctQuery
+    if (ctError) throw ctError
+
+    // Also read from the legacy `trades` table to surface old trades
+    let legacyQuery = supabase
       .from('trades')
-      .select(`*, option_trade_details(*)`)
+      .select('*, option_trade_details(*)')
       .eq('user_id', user.id)
       .eq('trade_type', 'option')
       .order('created_at', { ascending: false })
 
     if (!includeTesting) {
-      query = query.eq('is_testing', false)
+      legacyQuery = legacyQuery.eq('is_testing', false)
     }
-
     if (analysisId) {
-      query = query.eq('analysis_id', analysisId)
+      legacyQuery = legacyQuery.eq('analysis_id', analysisId)
     }
-
     if (symbol) {
-      query = query.eq('symbol', symbol.toUpperCase())
+      legacyQuery = legacyQuery.eq('symbol', symbol.toUpperCase())
     }
 
-    const { data: rows, error } = await query
-    if (error) throw error
+    const { data: legacyRows } = await legacyQuery
 
-    // Normalize to the shape the deals page expects
-    const trades = (rows ?? []).map((t: any) => {
+    // Normalize legacy rows
+    const normalizedLegacy = (legacyRows ?? []).map((t: any) => {
       const od = Array.isArray(t.option_trade_details)
         ? t.option_trade_details[0]
         : t.option_trade_details
-
-      const entryPremium  = od?.entry_premium ?? t.entry_price ?? 0
+      const entryPremium   = od?.entry_premium ?? t.entry_price ?? 0
       const currentPremium = od?.current_premium ?? entryPremium
       const qty            = od?.quantity ?? 1
       const multiplier     = od?.contract_multiplier ?? 100
@@ -61,38 +79,43 @@ export async function GET(request: Request) {
       const maxProfit      = od?.max_profit_value ?? 0
       const maxPrice       = od?.highest_premium_since_entry ?? entryPremium
       const pnlValue       = (currentPremium - entryPremium) * qty * multiplier
-      const mappedStatus   = mapStatus(t.status)
-
-      const normalized: any = {
-        id:                   t.id,
-        symbol:               t.symbol,
-        direction:            (t.direction ?? '').toUpperCase(),
-        strike:               od?.strike_price ?? 0,
-        expiry_date:          od?.expiration_date ?? '',
-        entry_price:          entryPremium,
-        contracts_qty:        qty,
-        contract_multiplier:  multiplier,
-        status:               mappedStatus,
+      return {
+        id:                    t.id,
+        symbol:                t.symbol,
+        direction:             (t.direction ?? '').toUpperCase(),
+        strike:                od?.strike_price ?? 0,
+        expiry_date:           od?.expiration_date ?? '',
+        entry_price:           entryPremium,
+        contracts_qty:         qty,
+        contract_multiplier:   multiplier,
+        status:                mapStatus(t.status),
         max_price_since_entry: maxPrice,
-        pnl_value:            pnlValue,
-        is_win:               pnlValue >= 0,
-        entry_cost_total:     entryTotal,
-        max_profit_value:     maxProfit,
-        created_at:           t.created_at,
-        notes:                t.notes ?? null,
-        close_reason:         t.stop_status === 'hit' ? 'STOP_HIT' : null,
+        current_price:         currentPremium,
+        pnl_value:             pnlValue,
+        is_win:                pnlValue >= 0,
+        entry_cost_total:      entryTotal,
+        max_profit_value:      maxProfit,
+        created_at:            t.created_at,
+        notes:                 t.notes ?? null,
+        close_reason:          t.stop_status === 'hit' ? 'STOP_HIT' : null,
         avg_adjustments_count: 0,
-        analysis_id:          t.analysis_id ?? null,
+        analysis_id:           t.analysis_id ?? null,
+        image_url:             null,
       }
-
-      // Apply status filter after mapping (caller passes uppercase like 'ACTIVE')
-      return normalized
-    }).filter((t: any) => {
-      if (!statusFilter || statusFilter === 'all') return true
-      return t.status === statusFilter.toUpperCase()
     })
 
-    return NextResponse.json({ trades })
+    // Merge: new trades take priority; skip legacy entries already present
+    const newIds = new Set((ctRows || []).map((t: any) => t.id))
+    const filteredLegacy = normalizedLegacy.filter((t: any) => !newIds.has(t.id))
+
+    const allTrades = [...(ctRows || []), ...filteredLegacy]
+      .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .filter((t: any) => {
+        if (!statusFilter || statusFilter === 'all') return true
+        return t.status === statusFilter.toUpperCase()
+      })
+
+    return NextResponse.json({ trades: allTrades })
   } catch (error) {
     console.error('[Company Trades] Error fetching trades:', error)
     return NextResponse.json(
@@ -134,9 +157,9 @@ export async function POST(request: Request) {
       testing_channel_ids,
     } = body
 
-    if (!analysis_id || !symbol || !direction || !strike || !expiry_date || !entry_price) {
+    if (!symbol || !direction || !strike || !expiry_date || !entry_price) {
       return NextResponse.json(
-        { error: 'Missing required fields: analysis_id, symbol, direction, strike, expiry_date, entry_price' },
+        { error: 'Missing required fields: symbol, direction, strike, expiry_date, entry_price' },
         { status: 400 }
       )
     }
