@@ -90,8 +90,15 @@ function linearSlope(values: number[]): number {
 function getSessionType(now: Date): SessionType {
   const day = now.getUTCDay(); // 0=Sun, 6=Sat
   if (day === 0 || day === 6) return 'weekend';
-  // ET offset (EST = UTC-5, EDT = UTC-4); use simple approximation
-  const etHour = (now.getUTCHours() - 5 + 24) % 24;
+  // Determine ET offset: EDT (UTC-4) Mar 2nd Sun – Nov 1st Sun, EST (UTC-5) otherwise
+  const year = now.getUTCFullYear();
+  // DST starts: 2nd Sunday of March at 2:00 ET
+  const dstStart = new Date(Date.UTC(year, 2, 8 - ((new Date(Date.UTC(year, 2, 1)).getUTCDay() + 6) % 7), 7)); // 07:00 UTC = 2:00 EST
+  // DST ends: 1st Sunday of November at 2:00 ET
+  const dstEnd = new Date(Date.UTC(year, 10, 1 + ((7 - new Date(Date.UTC(year, 10, 1)).getUTCDay()) % 7), 6)); // 06:00 UTC = 2:00 EDT
+  const isDST = now >= dstStart && now < dstEnd;
+  const etOffset = isDST ? 4 : 5;
+  const etHour = (now.getUTCHours() - etOffset + 24) % 24 + now.getUTCMinutes() / 60;
   if (etHour >= 9.5 && etHour < 16) return 'regular';
   if (etHour >= 4 && etHour < 9.5) return 'pre_market';
   if (etHour >= 16 && etHour < 20) return 'after_hours';
