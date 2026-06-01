@@ -29,10 +29,34 @@ logger = logging.getLogger(__name__)
 
 
 class DatabentoLiveService:
+    # Map a cash index (Polygon "I:" ticker, prefix stripped) to its CME
+    # front-month continuous future on the GLBX.MDP3 dataset. Continuous
+    # symbology ("<root>.c.0") always points at the active front-month, so we
+    # never have to roll contracts manually. These futures trade ~23h/day on
+    # CME Globex, which is what lets us price the underlying outside RTH.
+    INDEX_TO_FUTURE = {
+        'SPX': 'ES.c.0',    # E-mini S&P 500
+        'NDX': 'NQ.c.0',    # E-mini Nasdaq-100
+        'DJI': 'YM.c.0',    # E-mini Dow
+        'RUT': 'RTY.c.0',   # E-mini Russell 2000
+    }
+
+    # Reverse lookup keyed by futures root so we can map a live record back to
+    # the cash index ticker, whether the gateway hands us the continuous
+    # symbol ("ES.c.0") or a resolved raw contract ("ESM5").
+    FUTURE_ROOT_TO_INDEX = {
+        'ES': 'I:SPX',
+        'NQ': 'I:NDX',
+        'YM': 'I:DJI',
+        'RTY': 'I:RUT',
+    }
+
     def __init__(self):
         self.databento_key = os.getenv('DATABENTO_API_KEY')
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+        # Allow disabling futures-backed underlying pricing without a code change.
+        self.futures_underlying_enabled = os.getenv('ENABLE_FUTURES_UNDERLYING', '1') not in ('0', 'false', 'False')
 
         if not all([self.databento_key, self.supabase_url, self.supabase_key]):
             raise ValueError("Missing required environment variables")
@@ -199,16 +223,49 @@ class DatabentoLiveService:
 
         return databento_symbol
 
+    def _futures_to_underlying_ticker(self, symbol: str) -> Optional[str]:
+        """Map a CME futures symbol (continuous 'ES.c.0' or raw 'ESM5') back to
+        its cash index Polygon ticker (e.g. 'I:SPX'). Returns None if not a
+        recognised future."""
+        if not symbol:
+            return None
+        root = symbol.split('.')[0]  # 'ES.c.0' -> 'ES'
+        if root in self.FUTURE_ROOT_TO_INDEX:
+            return self.FUTURE_ROOT_TO_INDEX[root]
+        # Raw contract fallback ('ESM5', 'NQM5', ...): match longest root first.
+        for r in sorted(self.FUTURE_ROOT_TO_INDEX, key=len, reverse=True):
+            if symbol.startswith(r):
+                return self.FUTURE_ROOT_TO_INDEX[r]
+        return None
+
+    def _is_cash_market_open(self) -> bool:
+        """True during US equity regular trading hours (Mon-Fri 9:30-16:00 ET).
+        Outside this window the cash index is stale, so futures take over."""
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo('America/New_York'))
+        except Exception:
+            # If tz data is unavailable, fail open so we never silently drop
+            # the only live price source we have.
+            return False
+        if now.weekday() >= 5:  # Saturday/Sunday
+            return False
+        minutes = now.hour * 60 + now.minute
+        return (9 * 60 + 30) <= minutes < (16 * 60)
+
     def _process_quote(self, record: DBNRecord):
         """Process incoming trade from Databento"""
         try:
-            symbol = getattr(record, 'symbol', None)
-            if not symbol:
-                instrument_id = getattr(record, 'instrument_id', None)
-                if instrument_id:
-                    symbol = str(instrument_id)
+            # Live trade/quote records carry only an instrument_id; resolve it to
+            # the input symbol via the client's symbology map (populated from the
+            # SymbolMappingMsg the gateway sends on subscribe).
+            instrument_id = getattr(record, 'instrument_id', None)
+            symbol = None
+            if instrument_id is not None and self.client is not None:
+                symbol = self.client.symbology_map.get(instrument_id)
 
-            if not symbol:
+            # Skip non-data records (e.g. SymbolMappingMsg) and unmapped ids.
+            if not isinstance(symbol, str) or not symbol:
                 return
 
             # For trades schema, get the trade price
@@ -243,8 +300,18 @@ class DatabentoLiveService:
     def _update_database(self, databento_symbol: str, mid_price: float, bid: float, ask: float):
         """Update Supabase with new price"""
         try:
-            polygon_ticker = self._convert_databento_to_polygon(databento_symbol)
-            is_option = polygon_ticker.startswith('O:')
+            # A CME future feeds the cash index's underlying price, but only
+            # outside regular trading hours — during RTH the Polygon cash index
+            # is authoritative and we let it win to avoid basis-driven flicker.
+            underlying_from_future = self._futures_to_underlying_ticker(databento_symbol)
+            if underlying_from_future:
+                if self._is_cash_market_open():
+                    return
+                polygon_ticker = underlying_from_future
+                is_option = False
+            else:
+                polygon_ticker = self._convert_databento_to_polygon(databento_symbol)
+                is_option = polygon_ticker.startswith('O:')
 
             if is_option:
                 response = self.supabase.table('index_trades') \
@@ -300,34 +367,42 @@ class DatabentoLiveService:
         failed = []
         unresolvable = []
 
-        # Subscribe to index symbols (try GLBX.MDP3 for indices)
-        # Note: SPX, NDX, DJI may not be available via Databento - will fallback to Polygon cron
+        # Subscribe each cash index to its CME front-month future on GLBX.MDP3.
+        # The cash index (SPX/NDX/DJI) itself is not tradeable and has no live
+        # feed outside RTH, so we ride the corresponding E-mini future, which
+        # trades ~23h/day. _update_database only writes these prices to the
+        # underlying when the cash market is closed.
         for symbol in index_symbols:
+            clean_symbol = symbol[2:] if symbol.startswith('I:') else symbol  # 'I:SPX' -> 'SPX'
+
+            if not self.futures_underlying_enabled:
+                logger.info(f"   ℹ️  Futures underlying disabled; {symbol} via Polygon cron")
+                unresolvable.append(symbol)
+                continue
+
+            future = self.INDEX_TO_FUTURE.get(clean_symbol)
+            if not future:
+                logger.info(f"   ℹ️  No CME futures mapping for {symbol}; will use Polygon cron")
+                unresolvable.append(symbol)
+                continue
+
             try:
-                # Remove I: prefix for Databento
-                clean_symbol = symbol[2:] if symbol.startswith('I:') else symbol
-                logger.info(f"   Attempting to subscribe to index {clean_symbol}...")
-
-                # Try GLBX.MDP3 first (CME futures indices)
-                try:
-                    self.client.subscribe(
-                        dataset='GLBX.MDP3',
-                        schema='trades',
-                        symbols=[clean_symbol],
-                        stype_in='raw_symbol'
-                    )
-                    successful.append(symbol)
-                    self.subscribed_symbols.add(symbol)
-                    logger.info(f"   ✅ Subscribed to {symbol} on GLBX.MDP3")
-                except Exception as glbx_error:
-                    # Indices may not be available - fallback to Polygon
-                    logger.info(f"   ℹ️  {symbol} not available in Databento live feed")
-                    logger.info(f"   → Will use Polygon API (updates every 1 min)")
-                    unresolvable.append(symbol)
-
-            except Exception as e:
-                logger.warning(f"   ⚠️  Failed to subscribe to index {symbol}: {e}")
-                failed.append(symbol)
+                logger.info(f"   Subscribing to {clean_symbol} via CME future {future} (GLBX.MDP3)...")
+                self.client.subscribe(
+                    dataset='GLBX.MDP3',
+                    schema='trades',
+                    symbols=[future],
+                    stype_in='continuous'
+                )
+                successful.append(future)
+                self.subscribed_symbols.add(future)
+                logger.info(f"   ✅ Subscribed to {future} — covers {symbol} ~23h/day (off-hours)")
+            except Exception as glbx_error:
+                # Most likely a missing GLBX.MDP3 entitlement on the Databento
+                # account; fall back to the Polygon cash-index cron during RTH.
+                logger.warning(f"   ⚠️  GLBX subscribe failed for {future}: {glbx_error}")
+                logger.info(f"   → Check GLBX.MDP3 entitlement; {symbol} will use Polygon cron")
+                unresolvable.append(symbol)
 
         # Subscribe to option symbols (OPRA.PILLAR)
         if option_symbols:
@@ -377,7 +452,7 @@ class DatabentoLiveService:
         logger.info("="*60)
         logger.info(f"📍 Supabase: {self.supabase_url}")
         logger.info(f"🔑 API Key: {self.databento_key[:8]}...{self.databento_key[-4:]}")
-        logger.info(f"⏰ Extended Hours: ENABLED (24/5 SPX trading)")
+        logger.info(f"⏰ Off-hours underlying via CME futures: {'ENABLED' if self.futures_underlying_enabled else 'DISABLED'}")
         logger.info("="*60)
 
         self.running = True
@@ -408,7 +483,7 @@ class DatabentoLiveService:
                 logger.info("🎬 Starting live data stream...")
                 self.client.start()
 
-                logger.info("🟢 Service is LIVE! Streaming real-time prices for 18 SPX options...")
+                logger.info(f"🟢 Service is LIVE! Streaming {len(self.subscribed_symbols)} symbols (options + off-hours futures)...")
                 logger.info("📊 Press Ctrl+C to stop")
                 logger.info("")
 

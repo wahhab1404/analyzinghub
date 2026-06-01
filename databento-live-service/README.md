@@ -10,7 +10,36 @@ Real-time options and indices data streaming service using Databento's Live API.
 - **Reconnection Logic**: Automatic reconnection with exponential backoff
 - **Trade Monitoring**: Detects target hits, stop losses, and new highs
 - **Multi-Symbol Support**: Handles both options (OPRA.PILLAR) and indices (XNAS.ITCH)
+- **Off-Hours Underlying Pricing**: Streams CME E-mini futures (GLBX.MDP3) to keep the cash index moving when the equity market is closed
 - **Graceful Shutdown**: Handles SIGTERM/SIGINT for clean shutdowns
+
+## Off-Hours Underlying Pricing (CME Futures)
+
+A cash index (SPX/NDX/DJI) is computed from its constituent stocks, so it has
+**no live value outside regular trading hours** — providers can only return the
+frozen last close. To keep the underlying moving overnight, the service
+subscribes to the matching CME E-mini **front-month continuous future**, which
+trades ~23h/day:
+
+| Cash index | CME future (continuous) |
+|------------|-------------------------|
+| `I:SPX`    | `ES.c.0` (E-mini S&P 500)   |
+| `I:NDX`    | `NQ.c.0` (E-mini Nasdaq-100)|
+| `I:DJI`    | `YM.c.0` (E-mini Dow)       |
+| `I:RUT`    | `RTY.c.0` (E-mini Russell 2000) |
+
+Behavior:
+
+- Futures prices are written to `current_underlying` **only when the cash
+  market is closed** (outside Mon–Fri 9:30–16:00 ET). During RTH the Polygon
+  cash-index cron remains authoritative, avoiding basis-driven flicker.
+- The future's price is a close proxy for the index (same point scale) but
+  carries a small basis/premium vs the cash value.
+- Requires a **GLBX.MDP3 entitlement** on the Databento account (CME charges a
+  small market-data license fee). If the subscription fails, the service logs a
+  warning and falls back to the Polygon cron.
+- Set `ENABLE_FUTURES_UNDERLYING=0` to disable this and revert to Polygon-only
+  underlying pricing.
 
 ## Architecture
 
