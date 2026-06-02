@@ -70,8 +70,44 @@ const WS_URL = 'wss://socket.polygon.io/options';
 const AUTH_TIMEOUT_MS       = 15_000;
 const BASE_RECONNECT_MS     = 2_000;
 const MAX_RECONNECT_MS      = 60_000;
+// Soft threshold: after this many attempts we stop escalating the backoff, but
+// we NEVER give up — a silent/zombie Polygon connection (auth ok, zero events)
+// would otherwise require a manual restart to recover.
 const MAX_RECONNECT_ATTEMPTS = 15;
 const FLUSH_INTERVAL_MS     = 250; // Batch events → flush to Supabase every 250 ms
+
+// ── DATA-STALENESS WATCHDOG ─────────────────────────────────────────────────
+// Polygon occasionally leaves a connection authenticated and "subscribed" but
+// delivers zero market events after a reconnect (e.g. a stuck/duplicate
+// connection slot). The socket never closes, so the close-based reconnect never
+// fires and prices silently freeze until someone restarts the service. The
+// watchdog detects this — subscribed + market open + no ticks for too long —
+// and forces a fresh reconnect so the service self-heals.
+const WATCHDOG_INTERVAL_MS  = 30_000; // how often to check for data staleness
+const DATA_STALE_TIMEOUT_MS = 90_000; // force reconnect after this much silence
+
+/**
+ * True during the US options regular session (Mon–Fri, 9:30 AM–4:15 PM ET),
+ * computed via the America/New_York timezone so EST/EDT (DST) is handled
+ * automatically. Used only to avoid the watchdog reconnect-looping off-hours,
+ * when zero events is normal.
+ */
+function isOptionsMarketOpenET(): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  const weekday = get('weekday');
+  if (weekday === 'Sat' || weekday === 'Sun') return false;
+  let hour = parseInt(get('hour'), 10);
+  if (hour === 24) hour = 0;
+  const etMinutes = hour * 60 + parseInt(get('minute'), 10);
+  return etMinutes >= 570 && etMinutes <= 975; // 9:30 AM – 4:15 PM ET
+}
 
 /**
  * Normalise a Polygon event timestamp to epoch-milliseconds.
@@ -165,6 +201,10 @@ export class PolygonOptionsWebSocket {
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
 
+  /** Epoch-ms of the last market event (Q/T) received — drives the watchdog. */
+  private lastEventAt = 0;
+  private watchdogTimer: NodeJS.Timeout | null = null;
+
   /** Pending price data per ticker, flushed to Supabase every FLUSH_INTERVAL_MS */
   private pendingUpdates = new Map<string, PendingTickerState>();
   private flushTimer: NodeJS.Timeout | null = null;
@@ -256,6 +296,11 @@ export class PolygonOptionsWebSocket {
     if (this.destroyed || this.isConnecting || this.ws) return;
     this.isConnecting = true;
 
+    // Grace period: don't let the watchdog flag a brand-new connection before it
+    // has had a chance to receive its first tick.
+    this.lastEventAt = Date.now();
+    this.startWatchdog();
+
     console.log(`[OptionsWS] Connecting to ${WS_URL}...`);
     streamHealth.setConnected('options', false);
 
@@ -320,6 +365,7 @@ export class PolygonOptionsWebSocket {
   destroy(): void {
     this.destroyed = true;
     this.stopFlush();
+    this.stopWatchdog();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -341,35 +387,96 @@ export class PolygonOptionsWebSocket {
 
   private scheduleReconnect(): void {
     if (this.destroyed) return;
-
-    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      console.error(
-        `[OptionsWS] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. ` +
-        'Edge function REST fallback is now the primary price source.'
-      );
-      return;
-    }
+    if (this.reconnectTimer) return; // a reconnect is already scheduled
 
     this.reconnectAttempts++;
     streamHealth.recordReconnect('options');
 
-    // Exponential backoff with jitter
-    const base = Math.min(
-      BASE_RECONNECT_MS * Math.pow(2, this.reconnectAttempts - 1),
-      MAX_RECONNECT_MS
-    );
+    // Past the soft threshold we keep retrying — just at the capped interval —
+    // so the stream always recovers on its own without a manual restart.
+    if (this.reconnectAttempts === MAX_RECONNECT_ATTEMPTS) {
+      console.warn(
+        `[OptionsWS] ${MAX_RECONNECT_ATTEMPTS} reconnect attempts reached — ` +
+        `continuing to retry every ${(MAX_RECONNECT_MS / 1000)}s. ` +
+        'REST fallback is covering prices meanwhile.'
+      );
+    }
+
+    // Exponential backoff with jitter, capped. Clamp the exponent so the math
+    // can't overflow once attempts grow large.
+    const expo = Math.min(this.reconnectAttempts - 1, 10);
+    const base = Math.min(BASE_RECONNECT_MS * Math.pow(2, expo), MAX_RECONNECT_MS);
     const jitter = Math.random() * 0.3 * base;
     const delay  = Math.floor(base + jitter);
 
     console.log(
-      `[OptionsWS] Reconnecting in ${(delay / 1000).toFixed(1)}s ` +
-      `(attempt ${this.reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`
+      `[OptionsWS] Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${this.reconnectAttempts})...`
     );
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  // ── PRIVATE: DATA-STALENESS WATCHDOG ───────────────────────────────────────
+
+  private startWatchdog(): void {
+    if (this.watchdogTimer) return; // single watchdog for the service lifetime
+    this.watchdogTimer = setInterval(() => this.checkDataStaleness(), WATCHDOG_INTERVAL_MS);
+  }
+
+  private stopWatchdog(): void {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
+  }
+
+  /**
+   * Detects a "silent" connection: authenticated and subscribed to live tickers,
+   * market open, yet no Q/T event for DATA_STALE_TIMEOUT_MS. Polygon sometimes
+   * leaves a connection in this zombie state after a reconnect; the socket never
+   * closes so the normal reconnect path never triggers. Forcing a fresh
+   * reconnect here is what lets the stream self-heal.
+   */
+  private checkDataStaleness(): void {
+    if (this.destroyed || !this.isAuthenticated || this.ws === null) return;
+
+    const subscribed = this.tickerToTradeId.size + this.spxAutoTradeMeta.size;
+    if (subscribed === 0) return;        // nothing subscribed → no events expected
+    if (!isOptionsMarketOpenET()) return; // off-hours silence is normal
+
+    const idleMs = Date.now() - this.lastEventAt;
+    if (idleMs <= DATA_STALE_TIMEOUT_MS) return;
+
+    console.error(
+      `[OptionsWS] ⚠️ Watchdog: authenticated & subscribed to ${subscribed} ticker(s) but ` +
+      `received 0 market events for ${Math.round(idleMs / 1000)}s during market hours — ` +
+      'forcing a fresh reconnect.'
+    );
+
+    // Treat this as a brand-new problem so backoff starts low, and reset the
+    // grace clock so the new connection isn't immediately flagged again.
+    this.reconnectAttempts = 0;
+    this.lastEventAt = Date.now();
+    this.forceReconnect();
+  }
+
+  /** Tear down the current socket; the 'close' handler schedules the reconnect. */
+  private forceReconnect(): void {
+    const ws = this.ws;
+    if (!ws) {
+      this.scheduleReconnect();
+      return;
+    }
+    try {
+      // terminate() destroys the socket immediately even if it's a zombie that
+      // won't respond to a graceful close.
+      ws.terminate();
+    } catch {
+      try { ws.close(); } catch { /* ignore */ }
+    }
   }
 
   // ── PRIVATE: EVENT HANDLING ────────────────────────────────────────────────
@@ -382,6 +489,7 @@ export class PolygonOptionsWebSocket {
 
     if (event.ev === 'Q') {
       const q = event as PolygonQuoteEvent;
+      this.lastEventAt = Date.now();
       streamHealth.recordEvent('options');
       this.accumulatePriceData(q.sym, {
         bid: q.bp,
@@ -395,6 +503,7 @@ export class PolygonOptionsWebSocket {
 
     if (event.ev === 'T') {
       const t = event as PolygonTradeEvent;
+      this.lastEventAt = Date.now();
       streamHealth.recordEvent('options');
       this.accumulatePriceData(t.sym, {
         bid: null,
@@ -413,6 +522,7 @@ export class PolygonOptionsWebSocket {
     if (event.status === 'auth_success') {
       this.isAuthenticated = true;
       this.reconnectAttempts = 0; // reset on successful auth
+      this.lastEventAt = Date.now(); // reset watchdog grace on (re)auth
       streamHealth.setAuthenticated('options', true);
 
       // Subscribe to all active trades
