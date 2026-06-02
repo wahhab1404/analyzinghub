@@ -352,6 +352,12 @@ Deno.serve(async (req) => {
         end_date:   endOfDay.toISOString().split('T')[0],
         file_path: fileName, file_url: urlData?.signedUrl,
         file_size_bytes: html.length, status: 'generated',
+        // Bump created_at on every (re)generation so the report surfaces at the
+        // top of the history list immediately after generating. Re-generating an
+        // existing period is an upsert UPDATE, which would otherwise keep the
+        // original timestamp and leave the "new" report buried in the list
+        // (the history dedupes each period to its newest-created_at row).
+        created_at: new Date().toISOString(),
       }, {
         onConflict: 'report_date,author_id,language_mode,period_type,channel_key',
         returning: 'representation',
