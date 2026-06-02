@@ -43,11 +43,31 @@ const corsHeaders = {
 // ── MARKET HOURS ──────────────────────────────────────────────────────────────
 
 function isMarketOpen(): boolean {
-  const now = new Date();
-  const utcDay = now.getUTCDay();
-  if (utcDay === 0 || utcDay === 6) return false;
-  const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return totalMinutes >= 870 && totalMinutes < 1260; // 14:30–21:00 UTC
+  // Compute the current time in US Eastern, correctly accounting for EST/EDT.
+  // A hardcoded UTC window is wrong half the year: during EDT (summer) the NYSE
+  // regular session is 13:30–20:00 UTC, during EST (winter) it is 14:30–21:00 UTC.
+  // Using America/New_York lets the runtime apply the right DST offset, so the
+  // tracker no longer treats the first hour of summer trading (9:30–10:30 ET) as
+  // closed — which previously froze all prices when streaming was also down.
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const weekday = get("weekday");
+  if (weekday === "Sat" || weekday === "Sun") return false;
+
+  let hour = parseInt(get("hour"), 10);
+  if (hour === 24) hour = 0; // some runtimes emit "24" at midnight
+  const minute = parseInt(get("minute"), 10);
+  const etMinutes = hour * 60 + minute;
+
+  // Regular session: 9:30 AM (570) – 4:00 PM (960) ET.
+  return etMinutes >= 570 && etMinutes < 960;
 }
 
 // ── FRESHNESS CHECK ───────────────────────────────────────────────────────────
