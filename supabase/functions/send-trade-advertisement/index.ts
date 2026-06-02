@@ -120,7 +120,7 @@ Deno.serve(async (req: Request) => {
 🚀 <b>أعلى سعر:</b> $${highPrice.toFixed(2)}
 💰 <b>المكسب:</b> +$${profitDollars.toFixed(2)} (+${profitPercent}%)
 
-✅ <b>انضم لقناتنا للحصول على التحليلات الفائزة!</b>
+✅ <b>انضم لقناتنا لتحصل على الصفقات الرابحة!</b>
     `.trim();
 
     // Generate a fresh "winning trade" image card (shows Entry + High + P/L).
