@@ -143,7 +143,8 @@ Deno.serve(async (req: Request) => {
       const ep = safeNum(t.entry_contract_snapshot?.price ?? t.entry_contract_snapshot?.mid ?? t.entry_contract_snapshot?.last);
       const hp = safeNum(t.contract_high_since ?? t.current_contract, ep);
       const qtyN = safeNum(t.qty, 1); const multN = safeNum(t.contract_multiplier, 100);
-      const peak = (hp - ep) * qtyN * multN;
+      // Round to whole cents so float dust can't flip the win badge at $100.
+      const peak = Math.round(((hp - ep) * qtyN * multN + Number.EPSILON) * 100) / 100;
       const isActive = t.status === 'active';
       const isWin = peak >= 100;
       const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);

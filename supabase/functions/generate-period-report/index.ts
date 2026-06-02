@@ -24,6 +24,11 @@ function fmtUSD(v: number, d = 0): string {
 function fmtPlain(v: number, d = 0): string {
   return `${v >= 0 ? '$' : '-$'}${fmt(Math.abs(v), d)}`;
 }
+// Money is rounded to whole cents so IEEE-754 dust (e.g. 110.00000000000001)
+// never flips a win/loss classification or skews a summed total.
+function round2(v: number): number {
+  return Math.round((v + Number.EPSILON) * 100) / 100;
+}
 
 // ─── Price / profit helpers ───────────────────────────────────────────────────
 function getEntryPrice(trade: any): number {
@@ -41,21 +46,26 @@ function getTradeProfit(trade: any): number {
   if (trade.max_profit   != null) return +trade.max_profit    || 0;
   const entry = getEntryPrice(trade);
   const high  = getHighestPrice(trade, entry);
-  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2((high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 
 // Peak profit entry -> highest (drives win classification & winner profit).
 function getMaxProfit(trade: any): number {
   const entry = getEntryPrice(trade);
   const high  = getHighestPrice(trade, entry);
-  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2((high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 function isWinner(trade: any): boolean {
   return getMaxProfit(trade) >= 100;
 }
+// A still-open position is never finalised as a loss — only closed/expired
+// trades can be booked as losers.
+function isActiveTrade(trade: any): boolean {
+  return (trade.status ?? '') === 'active';
+}
 // Full premium paid (entry x qty x multiplier) — the loss for a non-winner.
 function getContractValue(trade: any): number {
-  return getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2(getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 // Winner/active -> peak profit; finalised loser -> full premium lost.
 function getReportProfit(trade: any, isActive = false): number {
@@ -264,17 +274,25 @@ Deno.serve(async (req) => {
       (t.expiry && new Date(t.expiry) >= startDate && new Date(t.expiry) <= endDate)
     );
 
-    // Win = reached >= $100 peak profit (entry -> highest). Loss = full premium.
+    // Win = reached >= $100 peak profit (entry -> highest), locked in even while
+    // still active. Loss = full premium, but only for *finalised* trades — an
+    // open trade that's still running is never booked as a loss, even when its
+    // expiry date falls inside the report window. This keeps the summary counts
+    // and net profit consistent with the per-trade list (active trades show
+    // their running peak as "نشطة", never a loss).
     const winningTrades = completedTrades.filter(t => isWinner(t));
-    const losingTrades = completedTrades.filter(t => !isWinner(t));
+    const losingTrades = completedTrades.filter(t => !isWinner(t) && !isActiveTrade(t));
 
     const totalProfit = winningTrades.reduce((sum, t) => sum + getMaxProfit(t), 0);
     const totalLoss   = losingTrades.reduce((sum, t) => sum + getContractValue(t), 0);
 
     const netProfit = totalProfit - totalLoss;
 
-    const winRate = completedTrades.length > 0
-      ? (winningTrades.length / completedTrades.length * 100)
+    // Win rate over *decided* trades only (wins + realised losses); running
+    // active trades don't dilute it.
+    const decidedTrades = winningTrades.length + losingTrades.length;
+    const winRate = decidedTrades > 0
+      ? (winningTrades.length / decidedTrades * 100)
       : 0;
 
     const avgProfitPerWinningTrade = winningTrades.length > 0

@@ -26,6 +26,11 @@ function fmtUSD(v: number, d = 0): string {
 function fmtPlain(v: number, d = 0): string {
   return `${v >= 0 ? '$' : '-$'}${fmt(Math.abs(v), d)}`;
 }
+// Money is rounded to whole cents so IEEE-754 dust (e.g. 110.00000000000001)
+// never flips a win/loss classification or skews a summed total.
+function round2(v: number): number {
+  return Math.round((v + Number.EPSILON) * 100) / 100;
+}
 
 // ─── UNIFIED price / profit helpers ──────────────────────────────────────────
 // Single source of truth: price > mid > last > 0
@@ -47,14 +52,14 @@ function getTradeProfit(trade: any): number {
   if (trade.max_profit   != null) return +trade.max_profit    || 0;
   const entry = getEntryPrice(trade);
   const high  = getHighestPrice(trade, entry);
-  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2((high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 
 // Max potential profit entry → highest (used for win classification).
 function getMaxProfit(trade: any): number {
   const entry = getEntryPrice(trade);
   const high  = getHighestPrice(trade, entry);
-  return (high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2((high - entry) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 
 // Win: reached ≥ $100 max profit from entry (single consistent definition).
@@ -62,9 +67,16 @@ function isWinner(trade: any): boolean {
   return getMaxProfit(trade) >= 100;
 }
 
+// A still-open position is never finalised as a loss — only closed/expired
+// trades can be booked as losers. (`status` may be absent on legacy rows; only
+// an explicit 'active' keeps a trade out of the loss bucket.)
+function isActiveTrade(trade: any): boolean {
+  return (trade.status ?? '') === 'active';
+}
+
 // Full premium paid for the contract (entry × qty × multiplier).
 function getContractValue(trade: any): number {
-  return getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100);
+  return round2(getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100));
 }
 
 // Reported P&L (analyst-defined model):
@@ -220,9 +232,16 @@ Deno.serve(async (req) => {
     const completedTrades = [...closedTrades, ...expiredTrades];
 
     // ── Win classification — single path, used everywhere ───────────────────
+    // A win locks in as soon as the peak clears $100 (a still-active trade that
+    // already hit the target counts as a win). A loss is only *realised* once a
+    // trade is finalised (closed/expired) below the threshold — an open trade
+    // that is still running is never booked as a loss, even if its expiry date
+    // happens to fall inside the report window. This keeps the per-trade card
+    // (which shows running active trades as "نشطة", never a loss) consistent
+    // with the summary counts and the net-profit total.
     const winnerIds         = new Set(completedTrades.filter(isWinner).map(t => t.id));
     const winningTradesList = completedTrades.filter(t =>  winnerIds.has(t.id));
-    const losingTradesList  = completedTrades.filter(t => !winnerIds.has(t.id));
+    const losingTradesList  = completedTrades.filter(t => !winnerIds.has(t.id) && !isActiveTrade(t));
 
     // ── Core metrics ────────────────────────────────────────────────────────
     const totalTrades   = trades.length;
@@ -232,9 +251,12 @@ Deno.serve(async (req) => {
     const winningTrades = winningTradesList.length;
     const losingTrades  = losingTradesList.length;
 
-    // Win rate uses the same winner list — consistent with winning_trades count
-    const winRate = completedTrades.length > 0
-      ? (winningTrades / completedTrades.length) * 100 : 0;
+    // Win rate is measured over *decided* trades only (wins + realised losses).
+    // Running active trades that haven't reached the target yet are neither, so
+    // they don't dilute the rate (a book of 2 wins / 0 losses is 100%, not 67%).
+    const decidedTrades = winningTrades + losingTrades;
+    const winRate = decidedTrades > 0
+      ? (winningTrades / decidedTrades) * 100 : 0;
 
     // Winner profit = peak (entry → highest); loser loss = full contract value.
     const totalProfit = winningTradesList.reduce((s, t) => s + getMaxProfit(t), 0);
