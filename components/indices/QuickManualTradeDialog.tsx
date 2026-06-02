@@ -1,18 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { AlertCircle, TrendingUp, Calculator } from 'lucide-react';
+import { AlertCircle, TrendingUp, Calculator, Send } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface QuickManualTradeDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess: () => void;
+}
+
+interface ChannelOption {
+  id: string;
+  name: string;
 }
 
 export function QuickManualTradeDialog({ open, onOpenChange, onSuccess }: QuickManualTradeDialogProps) {
@@ -25,6 +31,34 @@ export function QuickManualTradeDialog({ open, onOpenChange, onSuccess }: QuickM
     high: '',
     direction: 'call' as 'call' | 'put',
   });
+
+  const [channels, setChannels] = useState<ChannelOption[]>([]);
+  const [autoPublish, setAutoPublish] = useState(false);
+  const [channelId, setChannelId] = useState<string>('');
+
+  // Load the analyst's Telegram channels when the dialog opens so a manual trade
+  // can be broadcast to a channel, just like a live trade.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/telegram/channels/list');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !data.ok || !Array.isArray(data.channels)) return;
+        const opts: ChannelOption[] = data.channels.map((ch: any) => ({
+          id: ch.id,
+          name: ch.linkedPlanName ? `${ch.channelName} (${ch.linkedPlanName})` : ch.channelName,
+        }));
+        setChannels(opts);
+        if (opts.length > 0) setChannelId((prev) => prev || opts[0].id);
+      } catch (err) {
+        console.error('Error loading channels:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   const calculateProfit = () => {
     const entry = parseFloat(formData.entry);
@@ -55,6 +89,8 @@ export function QuickManualTradeDialog({ open, onOpenChange, onSuccess }: QuickM
           entry_price: parseFloat(formData.entry),
           high_price: parseFloat(formData.high),
           direction: formData.direction,
+          auto_publish_telegram: autoPublish && !!channelId,
+          telegram_channel_id: autoPublish ? channelId : null,
         }),
       });
 
@@ -186,6 +222,41 @@ export function QuickManualTradeDialog({ open, onOpenChange, onSuccess }: QuickM
               </div>
             </div>
           )}
+
+          <div className="space-y-3 rounded-lg border p-4">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="auto_publish_manual"
+                checked={autoPublish}
+                onCheckedChange={(checked) => setAutoPublish(checked === true)}
+                disabled={channels.length === 0}
+              />
+              <Label htmlFor="auto_publish_manual" className="flex items-center gap-2 cursor-pointer">
+                <Send className="h-4 w-4" />
+                Send to Telegram
+              </Label>
+            </div>
+
+            {channels.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No Telegram channels available. Set up channels in Settings to broadcast manual trades.
+              </p>
+            ) : autoPublish && (
+              <div className="space-y-2">
+                <Label htmlFor="manual_channel">Channel</Label>
+                <Select value={channelId} onValueChange={setChannelId}>
+                  <SelectTrigger id="manual_channel">
+                    <SelectValue placeholder="Select a channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channels.map((ch) => (
+                      <SelectItem key={ch.id} value={ch.id}>{ch.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
 
           {error && (
             <Alert variant="destructive">
