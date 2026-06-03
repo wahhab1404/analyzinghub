@@ -145,7 +145,12 @@ Deno.serve(async (req: Request) => {
       const qtyN = safeNum(t.qty, 1); const multN = safeNum(t.contract_multiplier, 100);
       // Round to whole cents so float dust can't flip the win badge at $100.
       const peak = Math.round(((hp - ep) * qtyN * multN + Number.EPSILON) * 100) / 100;
-      const isActive = t.status === 'active';
+      // A trade whose expiry lands inside the report window is finalised (win or
+      // loss) even if its DB status is still 'active' — keep the per-trade badge
+      // consistent with the summary counts, which already book it as decided.
+      const expiry = t.expiry ? new Date(t.expiry) : null;
+      const finalisedByExpiry = !!expiry && expiry >= periodStart && expiry <= periodEnd;
+      const isActive = t.status === 'active' && !finalisedByExpiry;
       const isWin = peak >= 100;
       const profit = (isActive || isWin) ? peak : -(ep * qtyN * multN);
       const pct = (isActive || isWin) ? (ep > 0 ? ((hp - ep) / ep) * 100 : 0) : -100;
