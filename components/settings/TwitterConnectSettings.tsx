@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Loader2, Twitter, CheckCircle, AlertCircle, Link2Off } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,6 +25,7 @@ export function TwitterConnectSettings() {
   const [status, setStatus] = useState<TwitterStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [savingAutoPost, setSavingAutoPost] = useState(false);
 
   useEffect(() => {
     fetchStatus();
@@ -60,6 +63,28 @@ export function TwitterConnectSettings() {
   const connect = () => {
     // Full-page redirect into the OAuth flow.
     window.location.href = '/api/twitter/connect';
+  };
+
+  const toggleAutoPost = async (next: boolean) => {
+    setSavingAutoPost(true);
+    try {
+      const res = await fetch('/api/twitter/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoPost: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Failed to update setting');
+        return;
+      }
+      setStatus((s) => (s && s.account ? { ...s, account: { ...s.account, autoPost: next } } : s));
+      toast.success(next ? 'تم تفعيل النشر التلقائي' : 'تم إيقاف النشر التلقائي');
+    } catch {
+      toast.error('Failed to update setting');
+    } finally {
+      setSavingAutoPost(false);
+    }
   };
 
   const disconnect = async () => {
@@ -152,6 +177,20 @@ export function TwitterConnectSettings() {
                 )}
                 فك الربط - Disconnect
               </Button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-medium">النشر التلقائي - Auto-post</Label>
+                <p className="text-xs text-muted-foreground">
+                  انشر الصفقة تلقائيًا على X عند إغلاقها بربح - Automatically post a trade to X when it closes in profit
+                </p>
+              </div>
+              <Switch
+                checked={status.account.autoPost}
+                disabled={savingAutoPost}
+                onCheckedChange={toggleAutoPost}
+              />
             </div>
           </>
         ) : (
