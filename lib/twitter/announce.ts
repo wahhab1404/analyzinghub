@@ -1,9 +1,10 @@
 /**
  * Shared core for announcing a winning trade on the owner's X account.
  *
- * Used by both the manual route (POST /api/trades/[id]/post-to-twitter) and the
- * auto-post hook on trade completion. Handles: profit gate, dedup, token
- * refresh, image render/upload, posting, and social_posts logging.
+ * A single `runAnnouncement` core works off a NormalizedAnnouncement; thin
+ * adapters load each trade system (trades / index_trades / contract_trades) and
+ * map it in. Handles: profit gate, dedup, token refresh, image render/upload,
+ * posting, and social_posts logging.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -11,8 +12,8 @@ import type { TradeFull } from '@/lib/types/trades'
 import { calcStockPnL, calcOptionPnL } from '@/lib/types/trades'
 import { renderContractTradePng } from '@/lib/companies/contract-trade-image'
 import { getValidAccessToken } from './account'
-import { buildTradeTweet } from './tweet-builder'
 import { uploadMedia, postTweet } from './client'
+import { buildTweetText, type NormalizedAnnouncement } from './normalized'
 
 export interface AnnounceResult {
   ok: boolean
@@ -20,37 +21,17 @@ export interface AnnounceResult {
   body: Record<string, unknown>
 }
 
-function peakGainPct(trade: TradeFull): number | null {
-  const details = Array.isArray(trade.option_details) ? trade.option_details[0] : trade.option_details
-  if (trade.trade_type === 'option' && details) return calcOptionPnL(details).highest_pct
-  return calcStockPnL(trade).highest_pct
-}
+// ─── Core ─────────────────────────────────────────────────────────────────────
 
 /**
- * Post the trade to the owner's X account. `db` must be a service-role client
- * (the caller is responsible for any auth/ownership checks).
+ * Post a normalized trade to its owner's X account. `db` must be a service-role
+ * client (callers are responsible for auth/ownership checks).
  */
-export async function announceTradeOnTwitter(
+export async function runAnnouncement(
   db: SupabaseClient,
-  tradeId: string,
+  n: NormalizedAnnouncement,
 ): Promise<AnnounceResult> {
-  const { data: trade, error } = await db
-    .from('trades')
-    .select(`
-      *,
-      author:profiles!user_id(id, full_name, avatar_url),
-      option_details:option_trade_details(*)
-    `)
-    .eq('id', tradeId)
-    .single()
-
-  if (error || !trade) {
-    return { ok: false, status: 404, body: { error: 'Trade not found' } }
-  }
-
-  // Only announce winning trades.
-  const gain = peakGainPct(trade as TradeFull)
-  if (gain == null || gain <= 0) {
+  if (n.gainPct == null || n.gainPct <= 0) {
     return { ok: false, status: 400, body: { error: 'Only profitable trades can be announced on X' } }
   }
 
@@ -58,17 +39,16 @@ export async function announceTradeOnTwitter(
   const { data: existing } = await db
     .from('social_posts')
     .select('id, status')
-    .eq('trade_id', tradeId)
+    .eq('trade_id', n.id)
     .eq('platform', 'twitter')
     .maybeSingle()
   if (existing && existing.status === 'sent') {
     return { ok: false, status: 409, body: { error: 'Trade already announced on X', duplicate: true } }
   }
 
-  // Usable access token for the trade owner (refresh if needed).
   let token
   try {
-    token = await getValidAccessToken(db, trade.user_id)
+    token = await getValidAccessToken(db, n.userId)
   } catch {
     return { ok: false, status: 401, body: { error: 'X token expired. Please reconnect your X account.' } }
   }
@@ -76,28 +56,33 @@ export async function announceTradeOnTwitter(
     return { ok: false, status: 400, body: { error: 'No X account connected.' } }
   }
 
-  // Build text + (option trades only) the alert-card image.
-  const text = buildTradeTweet(trade as TradeFull)
+  const text = buildTweetText(n)
 
+  // Render the alert-card image for option contracts (best-effort).
   let mediaIds: string[] | undefined
-  if (trade.trade_type === 'option') {
-    const od = Array.isArray(trade.option_details) ? trade.option_details[0] : trade.option_details
+  if (n.isOption && n.strike != null) {
     try {
       const png = await renderContractTradePng({
-        symbol: trade.symbol,
-        strike: od?.strike_price ?? null,
-        direction: trade.direction,
-        expiry_date: od?.expiration_date ?? null,
-        entry_price: trade.entry_price ?? od?.entry_premium ?? 0,
-        current_price: trade.current_price ?? null,
-        max_price_since_entry: od?.highest_premium_since_entry ?? null,
-        status: trade.status,
+        symbol: n.symbol,
+        strike: n.strike,
+        direction: n.direction,
+        expiry_date: n.expiry,
+        entry_price: n.entryPrice,
+        current_price: n.currentPrice,
+        max_price_since_entry: n.highPrice,
+        status: n.status,
       })
       mediaIds = [await uploadMedia(token.accessToken, new Uint8Array(png))]
     } catch (imgErr: any) {
-      // Image is best-effort; fall back to text-only.
       console.error('[announce] image/upload failed (text-only):', imgErr?.message)
     }
+  }
+
+  const logBase = {
+    trade_id: n.id,
+    user_id: n.userId,
+    platform: 'twitter' as const,
+    trade_source: n.source,
   }
 
   try {
@@ -105,30 +90,106 @@ export async function announceTradeOnTwitter(
     const postUrl = `https://x.com/${token.handle ?? 'i'}/status/${tweet.id}`
 
     await db.from('social_posts').upsert(
-      {
-        trade_id: tradeId,
-        user_id: trade.user_id,
-        platform: 'twitter',
-        post_id: tweet.id,
-        post_url: postUrl,
-        status: 'sent',
-        error: null,
-      },
+      { ...logBase, post_id: tweet.id, post_url: postUrl, status: 'sent', error: null },
       { onConflict: 'trade_id,platform' },
     )
-
     return { ok: true, status: 200, body: { success: true, tweet_id: tweet.id, url: postUrl, with_image: Boolean(mediaIds) } }
   } catch (postErr: any) {
     await db.from('social_posts').upsert(
-      {
-        trade_id: tradeId,
-        user_id: trade.user_id,
-        platform: 'twitter',
-        status: 'failed',
-        error: String(postErr?.message ?? postErr).slice(0, 500),
-      },
+      { ...logBase, status: 'failed', error: String(postErr?.message ?? postErr).slice(0, 500) },
       { onConflict: 'trade_id,platform' },
     )
     return { ok: false, status: 502, body: { error: postErr?.message ?? 'Failed to post to X' } }
   }
+}
+
+// ─── Adapters ───────────────────────────────────────────────────────────────
+
+function num(v: unknown): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Unified trades module (`trades` + `option_trade_details`). */
+export async function announceTradeOnTwitter(db: SupabaseClient, tradeId: string): Promise<AnnounceResult> {
+  const { data: trade, error } = await db
+    .from('trades')
+    .select(`*, option_details:option_trade_details(*)`)
+    .eq('id', tradeId)
+    .single()
+  if (error || !trade) return { ok: false, status: 404, body: { error: 'Trade not found' } }
+
+  const details = Array.isArray(trade.option_details) ? trade.option_details[0] : trade.option_details
+  const isOption = trade.trade_type === 'option'
+  const gainPct = isOption && details ? calcOptionPnL(details).highest_pct : calcStockPnL(trade as TradeFull).highest_pct
+
+  return runAnnouncement(db, {
+    source: 'trades',
+    id: trade.id,
+    userId: trade.user_id,
+    symbol: isOption && details ? details.underlying_symbol : trade.symbol,
+    isOption,
+    strike: isOption && details ? num(details.strike_price) : null,
+    direction: trade.direction,
+    expiry: isOption && details ? details.expiration_date : null,
+    entryPrice: (isOption && details ? num(details.entry_premium) : num(trade.entry_price)) ?? 0,
+    currentPrice: isOption && details ? num(details.current_premium) : num(trade.current_price),
+    highPrice: isOption && details ? num(details.highest_premium_since_entry) : num(trade.highest_price_since_entry),
+    status: trade.status,
+    gainPct,
+  })
+}
+
+/** Indices system (`index_trades`). Premium-based option contracts. */
+export async function announceIndexTradeOnTwitter(db: SupabaseClient, tradeId: string): Promise<AnnounceResult> {
+  const { data: t, error } = await db.from('index_trades').select('*').eq('id', tradeId).single()
+  if (error || !t) return { ok: false, status: 404, body: { error: 'Trade not found' } }
+
+  const snapshot = (t.entry_contract_snapshot ?? {}) as { price?: number; mid?: number }
+  const entry = num(t.entry_price) ?? num(snapshot.price) ?? num(snapshot.mid) ?? 0
+  const high = num(t.contract_high_since) ?? num(t.max_contract_price) ?? num(t.peak_price_after_entry)
+  const gainPct = entry > 0 && high != null ? ((high - entry) / entry) * 100 : null
+
+  return runAnnouncement(db, {
+    source: 'index_trades',
+    id: t.id,
+    userId: t.author_id,
+    symbol: t.underlying_index_symbol,
+    isOption: t.instrument_type === 'options' && t.strike != null,
+    strike: num(t.strike),
+    direction: t.option_type ?? t.direction,
+    expiry: t.expiry,
+    entryPrice: entry,
+    currentPrice: num(t.current_contract),
+    highPrice: high,
+    status: t.status,
+    gainPct,
+  })
+}
+
+/** Company standalone contracts (`contract_trades`). */
+export async function announceContractTradeOnTwitter(db: SupabaseClient, tradeId: string): Promise<AnnounceResult> {
+  const { data: t, error } = await db.from('contract_trades').select('*').eq('id', tradeId).single()
+  if (error || !t) return { ok: false, status: 404, body: { error: 'Trade not found' } }
+
+  const entry = num(t.entry_price) ?? 0
+  const high = num(t.max_price_since_entry)
+  const gainPct = entry > 0 && high != null ? ((high - entry) / entry) * 100 : null
+
+  return runAnnouncement(db, {
+    source: 'contract_trades',
+    id: t.id,
+    userId: t.author_id ?? t.created_by,
+    symbol: t.symbol,
+    isOption: t.strike != null,
+    strike: num(t.strike),
+    direction: t.direction,
+    expiry: t.expiry_date,
+    entryPrice: entry,
+    currentPrice: num(t.current_price),
+    highPrice: high,
+    status: t.status,
+    gainPct,
+  })
 }

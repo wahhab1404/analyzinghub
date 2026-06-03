@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity,
   Target, CircleDot, Info, Edit, Trash2, Send, Plus, RefreshCw,
-  AlertTriangle, Eye, BarChart2, ChevronDown, ChevronUp
+  AlertTriangle, Eye, BarChart2, ChevronDown, ChevronUp, Twitter
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
@@ -107,6 +107,24 @@ function TradeCard({
   onDeleteRequest: (t: Trade) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [postingX, setPostingX] = useState(false)
+
+  async function handlePostToX() {
+    setPostingX(true)
+    try {
+      const res = await fetch(`/api/indices/trades/${trade.id}/post-to-twitter`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to post to X')
+      } else {
+        toast.success('تم النشر على X / Posted to X')
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setPostingX(false)
+    }
+  }
 
   // Entry price — use nullish coalescing (fixes the || bug)
   const entryPrice = trade.entry_contract_snapshot.price ?? trade.entry_contract_snapshot.mid ?? 0
@@ -407,6 +425,19 @@ function TradeCard({
               title="Send as advertisement"
             >
               <Send className="h-3 w-3" />
+            </Button>
+          )}
+
+          {isPositive && pnlPct > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-7 p-0 text-sky-500 hover:text-sky-400"
+              onClick={handlePostToX}
+              disabled={postingX}
+              title="نشر على X / Post to X"
+            >
+              {postingX ? <Loader2 className="h-3 w-3 animate-spin" /> : <Twitter className="h-3 w-3" />}
             </Button>
           )}
 
