@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServerClient } from '@/lib/supabase/server'
+import { createServerClient, createServiceRoleClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { z } from 'zod'
+import { announceTradeOnTwitter } from '@/lib/twitter/announce'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -149,7 +150,32 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
-    return NextResponse.json({ trade })
+    // Auto-post to X on completion when the owner enabled it. Best-effort: a
+    // failure here must never break the trade update, and the announce core
+    // re-checks profit + dedup so a missed/duplicate call is harmless.
+    let twitterAutoPost: { ok: boolean; error?: string } | undefined
+    const justCompleted =
+      updates.status === 'completed' && existing.status !== 'completed'
+    if (justCompleted) {
+      try {
+        const admin = createServiceRoleClient()
+        const { data: twAccount } = await admin
+          .from('twitter_accounts')
+          .select('auto_post, is_active')
+          .eq('user_id', existing.user_id)
+          .maybeSingle()
+
+        if (twAccount?.is_active && twAccount.auto_post) {
+          const result = await announceTradeOnTwitter(admin, id)
+          twitterAutoPost = { ok: result.ok, error: result.ok ? undefined : String(result.body.error ?? '') }
+        }
+      } catch (e: any) {
+        console.error('[PATCH /api/trades/[id]] auto-post to X failed:', e?.message)
+        twitterAutoPost = { ok: false, error: e?.message }
+      }
+    }
+
+    return NextResponse.json({ trade, twitter_auto_post: twitterAutoPost })
   } catch (err: any) {
     console.error('[PATCH /api/trades/[id]]', err)
     return NextResponse.json({ error: err.message }, { status: 500 })

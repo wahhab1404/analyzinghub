@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { calcStockPnL, calcOptionPnL, type TradeFull, type TradeTarget } from '@/lib/types/trades'
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Clock, TestTube2,
-  Lock, LinkIcon, BarChart2, Send, Loader2
+  Lock, LinkIcon, BarChart2, Send, Loader2, Twitter
 } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
@@ -68,6 +68,7 @@ export function TradeCard({
   onPublish, onBroadcast, onClose, className,
 }: TradeCardProps) {
   const [broadcasting, setBroadcasting] = useState(false)
+  const [postingX, setPostingX] = useState(false)
 
   const status    = statusConfig(trade.status)
   const direction = directionConfig(trade.direction)
@@ -110,6 +111,26 @@ export function TradeCard({
       toast.error('Network error')
     } finally {
       setBroadcasting(false)
+    }
+  }
+
+  // A trade is announceable on X once it has shown a positive peak gain.
+  const canAnnounceX = pnl.highest_pct != null && pnl.highest_pct > 0
+
+  async function handlePostToX() {
+    setPostingX(true)
+    try {
+      const res = await fetch(`/api/trades/${trade.id}/post-to-twitter`, { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to post to X')
+      } else {
+        toast.success('تم النشر على X / Posted to X')
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setPostingX(false)
     }
   }
 
@@ -297,6 +318,19 @@ export function TradeCard({
             >
               {broadcasting ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Send className="w-3 h-3 mr-1" />}
               تيليجرام / Telegram
+            </Button>
+          )}
+
+          {canAnnounceX && ['published', 'active', 'completed'].includes(trade.status) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-sky-700 text-sky-400 hover:bg-sky-900/30"
+              onClick={handlePostToX}
+              disabled={postingX}
+            >
+              {postingX ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Twitter className="w-3 h-3 mr-1" />}
+              نشر على X
             </Button>
           )}
 

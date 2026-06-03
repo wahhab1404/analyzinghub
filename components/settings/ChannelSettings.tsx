@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, Send, CheckCircle, AlertCircle, Radio, Languages } from 'lucide-react';
 import { toast } from 'sonner';
 import { AdChannelsSettings } from './AdChannelsSettings';
+import { TwitterConnectSettings } from './TwitterConnectSettings';
 
 interface Channel {
   id: string;
@@ -623,6 +624,10 @@ export function ChannelSettings() {
 
     <div className="mt-6">
       <AdChannelsSettings />
+    </div>
+
+    <div className="mt-6">
+      <TwitterConnectSettings />
     </div>
   </>
   );
