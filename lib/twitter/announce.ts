@@ -14,6 +14,7 @@ import { renderContractTradePng } from '@/lib/companies/contract-trade-image'
 import { getValidAccessToken } from './account'
 import { uploadMedia, postTweet } from './client'
 import { buildTweetText, type NormalizedAnnouncement } from './normalized'
+import { friendlyTwitterError } from './errors'
 
 export interface AnnounceResult {
   ok: boolean
@@ -32,7 +33,7 @@ export async function runAnnouncement(
   n: NormalizedAnnouncement,
 ): Promise<AnnounceResult> {
   if (n.gainPct == null || n.gainPct <= 0) {
-    return { ok: false, status: 400, body: { error: 'Only profitable trades can be announced on X' } }
+    return { ok: false, status: 400, body: { error: 'يمكن نشر الصفقات الرابحة فقط على X. (Only profitable trades can be announced on X.)' } }
   }
 
   // Dedup: one announcement per trade.
@@ -43,17 +44,17 @@ export async function runAnnouncement(
     .eq('platform', 'twitter')
     .maybeSingle()
   if (existing && existing.status === 'sent') {
-    return { ok: false, status: 409, body: { error: 'Trade already announced on X', duplicate: true } }
+    return { ok: false, status: 409, body: { error: 'تم نشر هذه الصفقة على X مسبقًا. (Trade already announced on X.)', duplicate: true } }
   }
 
   let token
   try {
     token = await getValidAccessToken(db, n.userId)
   } catch {
-    return { ok: false, status: 401, body: { error: 'X token expired. Please reconnect your X account.' } }
+    return { ok: false, status: 401, body: { error: 'انتهت صلاحية ربط X — أعد ربط حسابك من الإعدادات. (X authorization expired; please reconnect.)' } }
   }
   if (!token) {
-    return { ok: false, status: 400, body: { error: 'No X account connected.' } }
+    return { ok: false, status: 400, body: { error: 'لا يوجد حساب X مرتبط — اربطه من الإعدادات → القناة. (No X account connected.)' } }
   }
 
   const text = buildTweetText(n)
@@ -95,11 +96,13 @@ export async function runAnnouncement(
     )
     return { ok: true, status: 200, body: { success: true, tweet_id: tweet.id, url: postUrl, with_image: Boolean(mediaIds) } }
   } catch (postErr: any) {
+    const raw = String(postErr?.message ?? postErr)
+    // Log the raw error for diagnostics; show the analyst a friendly message.
     await db.from('social_posts').upsert(
-      { ...logBase, status: 'failed', error: String(postErr?.message ?? postErr).slice(0, 500) },
+      { ...logBase, status: 'failed', error: raw.slice(0, 500) },
       { onConflict: 'trade_id,platform' },
     )
-    return { ok: false, status: 502, body: { error: postErr?.message ?? 'Failed to post to X' } }
+    return { ok: false, status: 502, body: { error: friendlyTwitterError(raw) } }
   }
 }
 
