@@ -9,7 +9,10 @@
 
 import crypto from 'crypto'
 
-export const TWITTER_AUTHORIZE_URL = 'https://twitter.com/i/oauth2/authorize'
+// Use the x.com authorize host (not twitter.com): the user's login session
+// lives on x.com, and routing the consent screen through twitter.com can leave
+// it unable to see that session — producing a "you have to be logged in" loop.
+export const TWITTER_AUTHORIZE_URL = 'https://x.com/i/oauth2/authorize'
 export const TWITTER_TOKEN_URL = 'https://api.twitter.com/2/oauth2/token'
 
 // tweet.write → post; users.read → resolve handle; offline.access → refresh
