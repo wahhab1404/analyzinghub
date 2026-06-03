@@ -12,9 +12,10 @@ import { cn } from '@/lib/utils'
 import {
   TrendingUp, TrendingDown, RefreshCw, Search, Filter,
   Calendar, BarChart3, Activity, Target, X, Plus, Image as ImageIcon,
-  Loader2, Trophy, Send, ChevronRight, Minus, DollarSign
+  Loader2, Trophy, Send, ChevronRight, Minus, DollarSign, Twitter
 } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { CreateCompanyTradeDialog } from '@/components/companies/CreateCompanyTradeDialog'
 
 interface Trade {
@@ -114,9 +115,28 @@ function TradeCard({
 }: TradeCardProps) {
   const [publishChannelId, setPublishChannelId] = useState<string>('')
   const [showPublish, setShowPublish] = useState(false)
+  const [postingX, setPostingX] = useState(false)
+
+  async function handlePostToX() {
+    setPostingX(true)
+    try {
+      const res = await fetch(`/api/companies/contract-trades/${trade.id}/post-to-twitter`, { method: 'POST' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(json.error || 'Failed to post to X')
+      } else {
+        toast.success('تم النشر على X / Posted to X')
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setPostingX(false)
+    }
+  }
 
   const entry = trade.entry_price
   const current = trade.current_price ?? entry
+  const isWinningTrade = (trade.max_price_since_entry ?? 0) > (trade.entry_price ?? 0)
   const high = trade.max_price_since_entry ?? entry
   const qty = trade.contracts_qty ?? 1
   const mult = trade.contract_multiplier ?? 100
@@ -337,6 +357,20 @@ function TradeCard({
                   </Button>
                 )}
               </>
+            )}
+
+            {/* Post to X */}
+            {isWinningTrade && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0 text-sky-500 hover:text-sky-400"
+                title="نشر على X / Post to X"
+                onClick={handlePostToX}
+                disabled={postingX}
+              >
+                {postingX ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Twitter className="h-3.5 w-3.5" />}
+              </Button>
             )}
 
             {/* Close trade */}

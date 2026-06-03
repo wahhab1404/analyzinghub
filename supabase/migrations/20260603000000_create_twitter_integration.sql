@@ -101,8 +101,12 @@ END $$;
 CREATE TABLE IF NOT EXISTS social_posts (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 
-  trade_id    uuid NOT NULL REFERENCES trades(id) ON DELETE CASCADE,
+  trade_id    uuid NOT NULL,
   user_id     uuid NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+
+  -- Which trade system trade_id refers to: trades | index_trades | contract_trades.
+  -- (No FK on trade_id because it is polymorphic across those tables.)
+  trade_source text NOT NULL DEFAULT 'trades',
 
   platform    social_platform_enum NOT NULL DEFAULT 'twitter',
 
