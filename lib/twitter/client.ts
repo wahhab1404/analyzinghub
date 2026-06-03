@@ -103,3 +103,62 @@ export async function getMe(accessToken: string): Promise<TwitterUser> {
   }
   return json.data as TwitterUser
 }
+
+/**
+ * Upload a PNG image and return its media id.
+ *
+ * Uses the X API v2 media upload endpoint, which accepts OAuth 2.0 user-context
+ * bearer tokens (requires the `media.write` scope). Returns the string media id
+ * to attach when creating the tweet.
+ */
+export async function uploadMedia(accessToken: string, png: Uint8Array): Promise<string> {
+  const form = new FormData()
+  form.append('media', new Blob([png], { type: 'image/png' }), 'trade.png')
+  form.append('media_category', 'tweet_image')
+
+  const res = await fetch('https://api.x.com/2/media/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: form,
+  })
+
+  const json = await res.json()
+  if (!res.ok) {
+    throw new Error(`Media upload failed: ${json.title || json.detail || JSON.stringify(json)}`)
+  }
+  // v2 returns { data: { id } }; tolerate the legacy media_id_string shape too.
+  const mediaId = json?.data?.id ?? json?.media_id_string
+  if (!mediaId) throw new Error('Media upload returned no media id')
+  return String(mediaId)
+}
+
+export interface PostedTweet {
+  id: string
+}
+
+/** Create a tweet with optional attached media. */
+export async function postTweet(
+  accessToken: string,
+  text: string,
+  mediaIds?: string[],
+): Promise<PostedTweet> {
+  const payload: Record<string, unknown> = { text }
+  if (mediaIds && mediaIds.length > 0) {
+    payload.media = { media_ids: mediaIds }
+  }
+
+  const res = await fetch('https://api.twitter.com/2/tweets', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  const json = await res.json()
+  if (!res.ok) {
+    throw new Error(`Tweet failed: ${json.title || json.detail || JSON.stringify(json)}`)
+  }
+  return { id: String(json.data.id) }
+}
