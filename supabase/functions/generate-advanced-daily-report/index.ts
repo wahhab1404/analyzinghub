@@ -67,13 +67,6 @@ function isWinner(trade: any): boolean {
   return getMaxProfit(trade) >= 100;
 }
 
-// A still-open position is never finalised as a loss — only closed/expired
-// trades can be booked as losers. (`status` may be absent on legacy rows; only
-// an explicit 'active' keeps a trade out of the loss bucket.)
-function isActiveTrade(trade: any): boolean {
-  return (trade.status ?? '') === 'active';
-}
-
 // Full premium paid for the contract (entry × qty × multiplier).
 function getContractValue(trade: any): number {
   return round2(getEntryPrice(trade) * (trade.qty || 1) * (trade.contract_multiplier || 100));
@@ -219,7 +212,8 @@ Deno.serve(async (req) => {
     console.log(`[Report] reportable=${reportable.length} period=${periodTrades.length} deduped=${trades.length}`);
 
     // ── Categorise ──────────────────────────────────────────────────────────
-    const activeTrades  = trades.filter(t => t.status === 'active');
+    // A trade is "finalised" once it is closed, or once its expiry lands inside
+    // the report window — at that point its outcome is locked in (win or loss).
     const closedTrades  = trades.filter(t =>
       t.status === 'closed' && t.closed_at &&
       new Date(t.closed_at) >= startOfDay && new Date(t.closed_at) <= endOfDay,
@@ -230,18 +224,26 @@ Deno.serve(async (req) => {
       new Date(t.expiry) >= startOfDay && new Date(t.expiry) <= endOfDay,
     );
     const completedTrades = [...closedTrades, ...expiredTrades];
+    const finalisedIds  = new Set(completedTrades.map(t => t.id));
 
-    // ── Win classification — single path, used everywhere ───────────────────
-    // A win locks in as soon as the peak clears $100 (a still-active trade that
-    // already hit the target counts as a win). A loss is only *realised* once a
-    // trade is finalised (closed/expired) below the threshold — an open trade
-    // that is still running is never booked as a loss, even if its expiry date
-    // happens to fall inside the report window. This keeps the per-trade card
-    // (which shows running active trades as "نشطة", never a loss) consistent
-    // with the summary counts and the net-profit total.
+    // Only genuinely-running trades count as "active": still flagged active AND
+    // not yet finalised by expiry in this window. A position whose expiry has
+    // arrived is booked as expired/closed even if the background closer has not
+    // flipped its status row yet, so it must not linger in the active bucket
+    // (otherwise it is counted as a win but skipped as a loss — see below).
+    const activeTrades  = trades.filter(t => t.status === 'active' && !finalisedIds.has(t.id));
+    const activeIds     = new Set(activeTrades.map(t => t.id));
+
+    // ── Win / loss classification — single path, used everywhere ────────────
+    // A win locks in as soon as the peak clears $100. Every finalised trade that
+    // did NOT reach the target is a realised loss — the full premium is lost
+    // (the analyst-defined +$100 rule, no break-evens). Genuinely-running active
+    // trades (future expiry) are in neither bucket; they show as "نشطة" and stay
+    // out of the win-rate until they finalise. This keeps the per-trade cards,
+    // the summary counts and the net-profit total perfectly consistent.
     const winnerIds         = new Set(completedTrades.filter(isWinner).map(t => t.id));
     const winningTradesList = completedTrades.filter(t =>  winnerIds.has(t.id));
-    const losingTradesList  = completedTrades.filter(t => !winnerIds.has(t.id) && !isActiveTrade(t));
+    const losingTradesList  = completedTrades.filter(t => !winnerIds.has(t.id));
 
     // ── Core metrics ────────────────────────────────────────────────────────
     const totalTrades   = trades.length;
@@ -302,7 +304,7 @@ Deno.serve(async (req) => {
       const preview = trades.map(t => {
         const entry   = getEntryPrice(t);
         const high    = getHighestPrice(t, entry);
-        const isActive = t.status === 'active';
+        const isActive = activeIds.has(t.id);
         const win     = winnerIds.has(t.id);
         const profit  = getReportProfit(t, isActive);
         const pct     = (isActive || win)
@@ -312,7 +314,8 @@ Deno.serve(async (req) => {
                  strike: t.strike, entry_price: entry, highest_price: high,
                  current_price: t.current_contract || 0, qty: t.qty || 1,
                  profit, profit_percent: pct, status: t.status,
-                 created_at: t.created_at, expiry: t.expiry, is_winner: win };
+                 created_at: t.created_at, expiry: t.expiry,
+                 is_winner: win, is_active: isActive };
       });
       return new Response(
         JSON.stringify({ success: true, metrics, trades: preview, analyzer: analyzerProfile, dry_run: true }),
@@ -322,7 +325,7 @@ Deno.serve(async (req) => {
 
     // ── Generate HTML ────────────────────────────────────────────────────────
     const html = generateReportHTML({
-      date: reportDate, trades, winnerIds, metrics, language_mode,
+      date: reportDate, trades, winnerIds, activeIds, metrics, language_mode,
       analyzer: analyzerProfile, period_type,
       startDate: startOfDay.toISOString().split('T')[0],
       endDate:   endOfDay.toISOString().split('T')[0],
@@ -379,11 +382,11 @@ Deno.serve(async (req) => {
 // Premium dark-mode design, PDF/print-safe, bilingual-ready.
 // Visually unified with generate-report-image PNG.
 function generateReportHTML(data: {
-  date: string; trades: any[]; winnerIds: Set<string>; metrics: any;
+  date: string; trades: any[]; winnerIds: Set<string>; activeIds: Set<string>; metrics: any;
   language_mode: string; analyzer: any; period_type: string;
   startDate: string; endDate: string;
 }): string {
-  const { date, trades, winnerIds, metrics, language_mode, analyzer, period_type, startDate, endDate } = data;
+  const { date, trades, winnerIds, activeIds, metrics, language_mode, analyzer, period_type, startDate, endDate } = data;
 
   const isAr   = language_mode === 'ar';
   const isDual = language_mode === 'dual';
@@ -432,7 +435,7 @@ function generateReportHTML(data: {
         const current = t.current_contract ? +t.current_contract : 0;
         const win     = winnerIds.has(t.id);
         const isCall  = (t.option_type ?? '').toLowerCase() === 'call';
-        const isActive = t.status === 'active';
+        const isActive = activeIds.has(t.id);
         const symRoot = symbolRoot(t);
         // Winner/active → peak profit & peak %; finalised loser → full premium lost & -100%.
         const profit  = getReportProfit(t, isActive);

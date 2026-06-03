@@ -1460,14 +1460,16 @@ export default function IndicesHubPage() {
                                     {trade.type?.toUpperCase()}
                                   </Badge>
                                   <Badge variant={
-                                    trade.status === 'active' ? 'default' :
-                                    trade.status === 'closed' ? 'secondary' :
-                                    'outline'
+                                    trade.is_active ? 'default' :
+                                    trade.is_winner ? 'secondary' :
+                                    'destructive'
                                   } className="text-xs">
-                                    {trade.expired_status || (language === 'ar'
-                                      ? trade.status === 'active' ? 'نشط' : trade.status === 'closed' ? 'مغلق' : trade.status
-                                      : trade.status
-                                    )}
+                                    {trade.is_active
+                                      ? (language === 'ar' ? 'نشط' : 'Active')
+                                      : trade.is_winner
+                                        ? (language === 'ar' ? 'رابحة' : 'Win')
+                                        : (language === 'ar' ? 'خاسرة' : 'Loss')
+                                    }
                                   </Badge>
                                 </div>
                                 <p className="text-sm text-gray-500">
