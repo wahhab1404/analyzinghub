@@ -574,6 +574,9 @@ function formatMessage(message: any): { text?: string; photo?: string; caption?:
     case 'trade_entry_averaged': return formatTradeEntryAveragedMessage(payload);
     case 'analysis_update':
     case 'trade_update':   return formatUpdateMessage(payload, message.message_type);
+    // Suspension / resume notices carry a pre-built bilingual message string.
+    case 'trade_suspended':
+    case 'trade_resumed':  return { text: payload.message || JSON.stringify(payload) };
     default:               return { text: JSON.stringify(payload) };
   }
 }

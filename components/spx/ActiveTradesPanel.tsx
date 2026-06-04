@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertCircle, Activity, Target } from 'lucide-react'
+import { RefreshCw, TrendingUp, TrendingDown, Clock, AlertCircle, Activity, Target, PauseCircle, Loader2 } from 'lucide-react'
 
 interface SPXTrade {
   id: string
@@ -81,6 +81,7 @@ const STATE_BADGE: Record<string, string> = {
   expired:          'text-gray-500    bg-gray-500/10    border-gray-500/20',
   invalidated:      'text-gray-500    bg-gray-500/10    border-gray-500/20',
   cancelled:        'text-gray-500    bg-gray-500/10    border-gray-500/20',
+  suspended:        'text-orange-400  bg-orange-500/10  border-orange-500/20',
 }
 
 const OUTCOME_BADGE: Record<string, string> = {
@@ -138,9 +139,34 @@ function PnlBar({ pct }: { pct: number | null }) {
   )
 }
 
-function ActiveTradeCard({ trade }: { trade: SPXTrade }) {
+function ActiveTradeCard({ trade, onChanged }: { trade: SPXTrade; onChanged?: () => void }) {
   const hasEntry = trade.entryPremium !== null
   const stateCls = STATE_BADGE[trade.state] ?? 'text-slate-500 bg-white/5 border-white/10'
+  const [suspending, setSuspending] = useState(false)
+
+  async function handleSuspend() {
+    if (!window.confirm('وقف متابعة هذا العقد وإرسال تنبيه بالوقف؟\nSuspend tracking for this contract and send a suspension alert?')) {
+      return
+    }
+    setSuspending(true)
+    try {
+      const res = await fetch(`/api/spx/trades/${trade.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'suspend' }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        alert(body.error || `HTTP ${res.status}`)
+      } else {
+        onChanged?.()
+      }
+    } catch (err: any) {
+      alert(err?.message || 'Network error')
+    } finally {
+      setSuspending(false)
+    }
+  }
 
   return (
     <div className="bg-[#0b1525] border border-white/[0.07] rounded-2xl p-5 space-y-4">
@@ -151,9 +177,20 @@ function ActiveTradeCard({ trade }: { trade: SPXTrade }) {
           {trade.state.replace(/_/g, ' ')}
         </span>
         <DirectionBadge bias={trade.directionBias} optionType={trade.optionType} />
-        {trade.dte != null && (
-          <span className="text-xs text-slate-500 ml-auto">DTE: {trade.dte}</span>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {trade.dte != null && (
+            <span className="text-xs text-slate-500">DTE: {trade.dte}</span>
+          )}
+          <button
+            onClick={handleSuspend}
+            disabled={suspending}
+            title="وقف متابعة العقد / Suspend tracking"
+            className="flex items-center gap-1 text-[11px] text-orange-400 hover:text-orange-300 border border-orange-500/30 hover:border-orange-500/50 bg-orange-500/10 hover:bg-orange-500/15 px-2 py-1 rounded-lg transition-all disabled:opacity-40"
+          >
+            {suspending ? <Loader2 className="w-3 h-3 animate-spin" /> : <PauseCircle className="w-3 h-3" />}
+            وقف / Suspend
+          </button>
+        </div>
       </div>
 
       {/* P&L section */}
@@ -384,7 +421,7 @@ export function ActiveTradesPanel({ className = '' }: { className?: string }) {
           ) : (
             <div className="space-y-3">
               {activeTrades.map(trade => (
-                <ActiveTradeCard key={trade.id} trade={trade} />
+                <ActiveTradeCard key={trade.id} trade={trade} onChanged={fetchTrades} />
               ))}
             </div>
           )}

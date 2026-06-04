@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, TrendingUp, TrendingDown, Trash2, Eye } from 'lucide-react'
+import { Loader2, TrendingUp, TrendingDown, Trash2, Eye, PauseCircle, PlayCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { formatNumber, formatCurrencySimple } from '@/lib/format-utils'
 import {
@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input'
 
 interface Trade {
   id: string
-  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled'
+  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended'
   instrument_type: 'options' | 'futures'
   direction: 'call' | 'put' | 'long' | 'short'
   underlying_index_symbol: string
@@ -61,6 +61,11 @@ export default function TradesManagement() {
   const [tradeToDelete, setTradeToDelete] = useState<Trade | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
+  const [suspendDialogOpen, setSuspendDialogOpen] = useState(false)
+  const [tradeToSuspend, setTradeToSuspend] = useState<Trade | null>(null)
+  const [suspendReason, setSuspendReason] = useState('')
+  const [suspending, setSuspending] = useState(false)
+  const [resumingId, setResumingId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchTrades()
@@ -114,6 +119,62 @@ export default function TradesManagement() {
     }
   }
 
+  const handleSuspendTrade = async () => {
+    if (!tradeToSuspend) return
+    try {
+      setSuspending(true)
+      const response = await fetch(`/api/indices/trades/${tradeToSuspend.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'suspend', reason: suspendReason }),
+      })
+      const data = await response.json().catch(() => null)
+      if (response.ok) {
+        toast.success(
+          data?.telegram_queued
+            ? 'تم وقف العقد وإرسال التنبيه / Contract suspended and alert sent'
+            : 'تم وقف العقد / Contract suspended'
+        )
+        setSuspendDialogOpen(false)
+        setTradeToSuspend(null)
+        setSuspendReason('')
+        await fetchTrades()
+      } else {
+        toast.error(data?.error || 'Failed to suspend contract')
+      }
+    } catch (error) {
+      console.error('Error suspending trade:', error)
+      toast.error('Network error: Failed to suspend contract')
+    } finally {
+      setSuspending(false)
+    }
+  }
+
+  const handleResumeTrade = async (trade: Trade) => {
+    try {
+      setResumingId(trade.id)
+      const response = await fetch(`/api/indices/trades/${trade.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'resume' }),
+      })
+      const data = await response.json().catch(() => null)
+      if (response.ok) {
+        toast.success('تم استئناف متابعة العقد / Contract tracking resumed')
+        await fetchTrades()
+      } else {
+        toast.error(data?.error || 'Failed to resume contract')
+      }
+    } catch (error) {
+      console.error('Error resuming trade:', error)
+      toast.error('Network error: Failed to resume contract')
+    } finally {
+      setResumingId(null)
+    }
+  }
+
   const calculatePnL = (trade: Trade) => {
     const entryPrice = trade.original_entry_price || trade.entry_contract_snapshot.mid
     const profitPercentage = trade.status === 'active' ? (trade.max_profit || 0) : (trade.final_profit || 0)
@@ -135,6 +196,7 @@ export default function TradesManagement() {
       sl_hit: { variant: 'destructive', label: 'Stop Loss Hit' },
       closed: { variant: 'outline', label: 'Closed' },
       canceled: { variant: 'secondary', label: 'Canceled' },
+      suspended: { variant: 'destructive', label: 'موقوف / Suspended' },
     }
     const config = variants[status]
     return <Badge variant={config.variant}>{config.label}</Badge>
@@ -277,6 +339,37 @@ export default function TradesManagement() {
                         <Eye className="h-4 w-4 mr-1" />
                         View
                       </Button>
+                      {trade.status === 'active' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-amber-600 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
+                          onClick={() => {
+                            setTradeToSuspend(trade)
+                            setSuspendReason('')
+                            setSuspendDialogOpen(true)
+                          }}
+                        >
+                          <PauseCircle className="h-4 w-4 mr-1" />
+                          وقف / Suspend
+                        </Button>
+                      )}
+                      {trade.status === 'suspended' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950"
+                          onClick={() => handleResumeTrade(trade)}
+                          disabled={resumingId === trade.id}
+                        >
+                          {resumingId === trade.id ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <PlayCircle className="h-4 w-4 mr-1" />
+                          )}
+                          استئناف / Resume
+                        </Button>
+                      )}
                       <Button
                         variant="destructive"
                         size="sm"
@@ -350,6 +443,61 @@ export default function TradesManagement() {
                 </>
               ) : (
                 'Delete Trade'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={suspendDialogOpen} onOpenChange={setSuspendDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>وقف متابعة العقد / Suspend Contract</AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتوقف النظام عن متابعة هذا العقد وتحديث سعره، وسيُرسل تنبيه بالوقف إلى قناة تيليجرام.
+              <br />
+              The platform will stop tracking this contract and a suspension alert will be sent to its Telegram channel.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {tradeToSuspend && (
+            <div className="mt-2 p-3 bg-muted rounded-md text-sm">
+              <div className="font-medium">
+                {tradeToSuspend.instrument_type === 'options' ? (
+                  <>
+                    {tradeToSuspend.underlying_index_symbol} ${tradeToSuspend.strike} {tradeToSuspend.option_type?.toUpperCase()}
+                  </>
+                ) : (
+                  <>
+                    {tradeToSuspend.underlying_index_symbol} {tradeToSuspend.direction.toUpperCase()}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="mt-3">
+            <label className="text-sm text-muted-foreground mb-1 block">
+              السبب (اختياري) / Reason (optional)
+            </label>
+            <Input
+              placeholder="مثال: عدم وضوح الاتجاه / e.g. unclear direction"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={suspending}>إلغاء / Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleSuspendTrade}
+              disabled={suspending}
+              className="bg-amber-600 text-white hover:bg-amber-700"
+            >
+              {suspending ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  جارٍ الوقف...
+                </>
+              ) : (
+                'وقف العقد / Suspend'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

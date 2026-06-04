@@ -55,6 +55,8 @@ export const ALERT_COOLDOWNS: Record<string, number> = {
   stop_hit:          0,               // always send — one-time per trade
   trade_closed:      0,               // always send — one-time per trade
   exit_alert:        2 * 60 * 1000,   // 2 min per (trade × type) bucket
+  trade_suspended:   0,               // always send — one-time per suspension
+  trade_resumed:     0,               // always send — one-time per resume
 };
 
 // ── SHOULD SEND ───────────────────────────────────────────────────────────────

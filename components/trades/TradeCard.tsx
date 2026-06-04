@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { calcStockPnL, calcOptionPnL, type TradeFull, type TradeTarget } from '@/lib/types/trades'
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Clock, TestTube2,
-  Lock, LinkIcon, BarChart2, Send, Loader2, Twitter
+  Lock, LinkIcon, BarChart2, Send, Loader2, Twitter, PauseCircle, PlayCircle
 } from 'lucide-react'
 import Link from 'next/link'
 import { useState } from 'react'
@@ -47,6 +47,7 @@ function statusConfig(status: string) {
     completed: { label: 'Completed', labelAr: 'مكتملة',   color: 'bg-teal-600 text-white' },
     cancelled: { label: 'Cancelled', labelAr: 'ملغاة',    color: 'bg-gray-500 text-white' },
     expired:   { label: 'Expired',   labelAr: 'منتهية',   color: 'bg-amber-600 text-white' },
+    suspended: { label: 'Suspended', labelAr: 'موقوفة',   color: 'bg-orange-600 text-white' },
   }
   return map[status] ?? { label: status, labelAr: status, color: 'bg-gray-600 text-gray-100' }
 }
@@ -69,6 +70,7 @@ export function TradeCard({
 }: TradeCardProps) {
   const [broadcasting, setBroadcasting] = useState(false)
   const [postingX, setPostingX] = useState(false)
+  const [suspending, setSuspending] = useState(false)
 
   const status    = statusConfig(trade.status)
   const direction = directionConfig(trade.direction)
@@ -111,6 +113,34 @@ export function TradeCard({
       toast.error('Network error')
     } finally {
       setBroadcasting(false)
+    }
+  }
+
+  async function handleSuspend(action: 'suspend' | 'resume') {
+    if (action === 'suspend' && !window.confirm('وقف متابعة هذه الصفقة وإرسال تنبيه بالوقف؟\nSuspend tracking for this trade and send a suspension alert?')) {
+      return
+    }
+    setSuspending(true)
+    try {
+      const res = await fetch(`/api/trades/${trade.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        toast.error(json.error || 'Failed')
+      } else if (action === 'suspend') {
+        toast.success('تم وقف الصفقة / Trade suspended')
+        onBroadcast?.(trade.id)
+      } else {
+        toast.success('تم استئناف المتابعة / Tracking resumed')
+        onBroadcast?.(trade.id)
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setSuspending(false)
     }
   }
 
@@ -331,6 +361,32 @@ export function TradeCard({
             >
               {postingX ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Twitter className="w-3 h-3 mr-1" />}
               نشر على X
+            </Button>
+          )}
+
+          {['published', 'active'].includes(trade.status) && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-orange-700 text-orange-400 hover:bg-orange-900/30"
+              onClick={() => handleSuspend('suspend')}
+              disabled={suspending}
+            >
+              {suspending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <PauseCircle className="w-3 h-3 mr-1" />}
+              وقف / Suspend
+            </Button>
+          )}
+
+          {trade.status === 'suspended' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs border-emerald-700 text-emerald-400 hover:bg-emerald-900/30"
+              onClick={() => handleSuspend('resume')}
+              disabled={suspending}
+            >
+              {suspending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+              استئناف / Resume
             </Button>
           )}
 
