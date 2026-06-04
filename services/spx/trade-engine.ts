@@ -43,7 +43,8 @@ export type TradeState =
   | 'closed_loss'
   | 'expired'
   | 'invalidated'
-  | 'cancelled';
+  | 'cancelled'
+  | 'suspended';
 
 export type FinalScoreOutcome =
   | 'big_win'

@@ -7,7 +7,8 @@ export type IndexSymbol = 'SPX' | 'NDX' | 'DJI';
 export type AnalysisVisibility = 'public' | 'subscribers' | 'admin_only';
 export type AnalysisStatus = 'draft' | 'published' | 'archived';
 
-export type TradeStatus = 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled';
+export type TradeStatus = 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended';
+export type SuspensionMode = 'manual' | 'auto';
 export type InstrumentType = 'options' | 'futures';
 export type TradeDirection = 'call' | 'put' | 'long' | 'short';
 export type OptionType = 'call' | 'put';
@@ -140,6 +141,11 @@ export interface IndexTrade {
   published_at: string | null;
   closed_at: string | null;
   updated_at: string;
+  // Suspension (manual stop of tracking)
+  suspended_at: string | null;
+  suspended_by: string | null;
+  suspension_reason: string | null;
+  suspension_mode: SuspensionMode | null;
 }
 
 export interface IndexTradeWithAuthor extends IndexTrade {

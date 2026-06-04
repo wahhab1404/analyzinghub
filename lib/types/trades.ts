@@ -4,12 +4,13 @@
 
 export type TradeType = 'stock' | 'option'
 export type TradeDirection = 'long' | 'short' | 'call' | 'put'
-export type TradeStatus = 'draft' | 'published' | 'active' | 'stopped' | 'completed' | 'cancelled' | 'expired'
+export type TradeStatus = 'draft' | 'published' | 'active' | 'stopped' | 'completed' | 'cancelled' | 'expired' | 'suspended'
 export type OptionType = 'call' | 'put'
 export type StopStatus = 'active' | 'hit' | 'adjusted' | 'cancelled'
 export type ExpirationStatus = 'active' | 'expired' | 'closed'
 export type TradeVisibility = 'public' | 'followers' | 'subscribers' | 'plan_only' | 'private'
-export type TradeAlertType = 'published' | 'target_hit' | 'new_high' | 'stop_hit' | 'completed' | 'expired' | 'update'
+export type TradeAlertType = 'published' | 'target_hit' | 'new_high' | 'stop_hit' | 'completed' | 'expired' | 'update' | 'suspended' | 'resumed'
+export type SuspensionMode = 'manual' | 'auto'
 export type TradeAlertStatus = 'sent' | 'failed' | 'pending'
 export type RiskLevel = 'low' | 'medium' | 'high' | 'very_high'
 
@@ -70,6 +71,12 @@ export interface Trade {
   completed_at: string | null
   created_at: string
   updated_at: string
+
+  // Suspension (manual stop of tracking)
+  suspended_at: string | null
+  suspended_by: string | null
+  suspension_reason: string | null
+  suspension_mode: SuspensionMode | null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -302,13 +302,50 @@ export function buildTradeSummaryMessage(trade: TradeFull): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SUSPENDED / RESUMED
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function buildSuspendedTradeMessage(trade: TradeFull, reason?: string | null): string {
+  const symbol = escapeHtml(
+    trade.trade_type === 'option'
+      ? trade.option_details?.underlying_symbol ?? trade.symbol
+      : trade.symbol
+  )
+
+  let msg = `⛔️ <b>وقف متابعة الصفقة / Trade Suspended</b>\n\n`
+  msg += `📌 <b>الرمز / Symbol:</b> <code>${symbol}</code>\n`
+  msg += `↕️ <b>الاتجاه / Direction:</b> ${directionLabel(trade.direction)}\n\n`
+  msg += `تم إيقاف متابعة هذه الصفقة ولن تصدر تحديثات بعد الآن.\n`
+  msg += `Tracking for this trade has been stopped — no further updates will be sent.\n`
+  if (reason && reason.trim()) {
+    msg += `\n📝 <b>السبب / Reason:</b> ${escapeHtml(reason.trim())}`
+  }
+  return msg
+}
+
+export function buildResumedTradeMessage(trade: TradeFull): string {
+  const symbol = escapeHtml(
+    trade.trade_type === 'option'
+      ? trade.option_details?.underlying_symbol ?? trade.symbol
+      : trade.symbol
+  )
+
+  let msg = `✅ <b>استئناف متابعة الصفقة / Trade Resumed</b>\n\n`
+  msg += `📌 <b>الرمز / Symbol:</b> <code>${symbol}</code>\n`
+  msg += `↕️ <b>الاتجاه / Direction:</b> ${directionLabel(trade.direction)}\n\n`
+  msg += `تمت إعادة تفعيل متابعة هذه الصفقة.\n`
+  msg += `Tracking for this trade has been re-enabled.`
+  return msg
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Dispatcher
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildTradeMessage(
-  eventType: 'new' | 'target_hit' | 'stop_hit' | 'summary',
+  eventType: 'new' | 'target_hit' | 'stop_hit' | 'summary' | 'suspended' | 'resumed',
   trade: TradeFull,
-  opts: { targetIndex?: number; currentPrice?: number; baseUrl?: string; analysisChannelLink?: string } = {}
+  opts: { targetIndex?: number; currentPrice?: number; baseUrl?: string; analysisChannelLink?: string; reason?: string | null } = {}
 ): string {
   const base = opts.baseUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://analyzinghub.com'
 
@@ -323,6 +360,10 @@ export function buildTradeMessage(
       return buildStopHitMessage(trade, opts.currentPrice ?? trade.current_price ?? 0)
     case 'summary':
       return buildTradeSummaryMessage(trade)
+    case 'suspended':
+      return buildSuspendedTradeMessage(trade, opts.reason)
+    case 'resumed':
+      return buildResumedTradeMessage(trade)
     default:
       return ''
   }

@@ -459,6 +459,64 @@ export async function sendStopHit(
   }
 }
 
+/** Format a contract-suspended notice. */
+function formatContractSuspended(trade: SPXTrade, reason?: string | null): string {
+  const lines = [
+    `⛔️ <b>CONTRACT SUSPENDED | وقف متابعة العقد</b>`,
+    `<code>${escapeHtml(trade.ticker ?? '?')}</code> | Strike <code>${trade.strike ?? '?'}</code> | ${trade.dte ?? '?'}DTE`,
+  ];
+  if (trade.entryPremium != null) {
+    lines.push(`Entry: <code>${fp(trade.entryPremium)}</code> → Current: <code>${fp(trade.currentPremium)}</code>`);
+  }
+  lines.push('');
+  lines.push('Tracking for this contract has been stopped — no further updates.');
+  lines.push('تم إيقاف متابعة هذا العقد ولن تصدر تحديثات بعد الآن.');
+  if (reason && reason.trim()) {
+    lines.push(`\n📝 Reason | السبب: ${escapeHtml(reason.trim())}`);
+  }
+  return lines.join('\n');
+}
+
+/** Format a contract-resumed notice. */
+function formatContractResumed(trade: SPXTrade): string {
+  return [
+    `✅ <b>CONTRACT RESUMED | استئناف متابعة العقد</b>`,
+    `<code>${escapeHtml(trade.ticker ?? '?')}</code> | Strike <code>${trade.strike ?? '?'}</code> | ${trade.dte ?? '?'}DTE`,
+    '',
+    'Tracking for this contract has been re-enabled.',
+    'تمت إعادة تفعيل متابعة هذا العقد.',
+  ].join('\n');
+}
+
+/** Send a contract-suspended alert (manual stop of tracking). */
+export async function sendContractSuspendedAlert(
+  trade: SPXTrade,
+  reason: string | null,
+  channelIds?: string[],
+): Promise<void> {
+  try {
+    const text = formatContractSuspended(trade, reason);
+    const ids = channelIds ?? ((trade as any).autoChannelIds ?? []);
+    await broadcastToChannels(text, 'trade_suspended', `trade_suspended:${trade.id}`, { tradeId: trade.id, channelIds: ids });
+  } catch (err: any) {
+    console.error('[SPXTelegram] sendContractSuspendedAlert failed:', err.message);
+  }
+}
+
+/** Send a contract-resumed alert. */
+export async function sendContractResumedAlert(
+  trade: SPXTrade,
+  channelIds?: string[],
+): Promise<void> {
+  try {
+    const text = formatContractResumed(trade);
+    const ids = channelIds ?? ((trade as any).autoChannelIds ?? []);
+    await broadcastToChannels(text, 'trade_resumed', `trade_resumed:${trade.id}:${Date.now()}`, { tradeId: trade.id, channelIds: ids });
+  } catch (err: any) {
+    console.error('[SPXTelegram] sendContractResumedAlert failed:', err.message);
+  }
+}
+
 /** Send a trade closed summary with full P/L, MFE/MAE, and outcome. */
 export async function sendTradeClosedSummary(trade: SPXTrade, channelIds?: string[]): Promise<void> {
   try {
