@@ -127,7 +127,9 @@ export async function GET(req: NextRequest) {
       query = query
         .eq('is_public', true)
         .eq('is_testing', false)
-        .in('status', ['published', 'active', 'completed', 'stopped', 'expired'])
+        // 'suspended' is included so a manually-stopped contract stays visible
+        // as a full loss (it is only hidden once deleted).
+        .in('status', ['published', 'active', 'completed', 'stopped', 'expired', 'suspended'])
     }
 
     // Testing trades: only show to owners/admins

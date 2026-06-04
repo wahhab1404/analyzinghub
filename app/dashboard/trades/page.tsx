@@ -21,6 +21,7 @@ const STATUS_FILTERS = [
   { value: 'published', label: 'منشورة / Published' },
   { value: 'completed', label: 'مكتملة / Completed' },
   { value: 'stopped',   label: 'موقوفة / Stopped' },
+  { value: 'suspended', label: 'موقوفة (خسارة) / Suspended' },
   { value: 'draft',     label: 'مسودة / Draft' },
   { value: 'expired',   label: 'منتهية / Expired' },
 ]
@@ -48,6 +49,7 @@ export default function TradesPage() {
   const [showFilters, setShowFilters]     = useState(false)
   const [isOwner, setIsOwner]             = useState(false)
   const [userRole, setUserRole]           = useState<string>('')
+  const [myUserId, setMyUserId]           = useState<string>('')
 
   const [filters, setFilters]             = useState<TradeFilters>({ status: '', trade_type: '', direction: '', linked: '' })
   const [symbolSearch, setSymbolSearch]   = useState('')
@@ -95,6 +97,7 @@ export default function TradesPage() {
     fetch('/api/me').then(r => r.json()).then(data => {
       const role = data?.profile?.role?.name ?? ''
       setUserRole(role)
+      setMyUserId(data?.profile?.id ?? '')
       setIsOwner(['SuperAdmin', 'Analyzer'].includes(role))
     }).catch(() => {})
   }, [])
@@ -272,8 +275,9 @@ export default function TradesPage() {
                   trade={trade}
                   showAuthor
                   showActions={isOwner}
-                  isOwner={isOwner && trade.user_id === undefined}
+                  isOwner={userRole === 'SuperAdmin' || trade.user_id === myUserId}
                   onPublish={handlePublish}
+                  onBroadcast={() => fetchTrades(true)}
                   onClose={(id) => setClosingTrade(trades.find(t => t.id === id) ?? null)}
                 />
               ))}
