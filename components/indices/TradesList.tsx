@@ -7,7 +7,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Loader2, TrendingUp, TrendingDown, Clock, DollarSign, Activity,
   Target, CircleDot, Info, Edit, Trash2, Send, Plus, RefreshCw,
-  AlertTriangle, Eye, BarChart2, ChevronDown, ChevronUp, Twitter
+  AlertTriangle, Eye, BarChart2, ChevronDown, ChevronUp, Twitter,
+  PauseCircle, PlayCircle
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
@@ -30,7 +31,7 @@ import { cn } from '@/lib/utils'
 
 interface Trade {
   id: string
-  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled'
+  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended'
   instrument_type: 'options' | 'futures'
   direction: 'call' | 'put' | 'long' | 'short'
   underlying_index_symbol: string
@@ -81,6 +82,7 @@ const STATUS_CONFIG: Record<Trade['status'], StatusConfig> = {
   sl_hit:   { label: 'Stop Loss',   className: 'badge-loss' },
   closed:   { label: 'Closed',      className: 'badge-closed' },
   canceled: { label: 'Canceled',    className: 'badge-canceled' },
+  suspended:{ label: 'Suspended',   className: 'badge-loss' },
 }
 
 function StatusBadge({ status }: { status: Trade['status'] }) {
@@ -97,6 +99,7 @@ function TradeCard({
   onEditHigh,
   onSendAd,
   onDeleteRequest,
+  onChanged,
 }: {
   trade: Trade
   isAdmin: boolean
@@ -105,9 +108,38 @@ function TradeCard({
   onEditHigh: (t: Trade) => void
   onSendAd: (t: Trade) => void
   onDeleteRequest: (t: Trade) => void
+  onChanged: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [postingX, setPostingX] = useState(false)
+  const [suspending, setSuspending] = useState(false)
+
+  async function handleSuspend(action: 'suspend' | 'resume') {
+    if (action === 'suspend' &&
+        !window.confirm('وقف متابعة هذا العقد؟ سيُحتسب خسارة كاملة ويُرسَل تنبيه بالوقف ما لم تستأنفه.\nSuspend this contract? It will count as a full loss and a suspension alert will be sent, until you resume it.')) {
+      return
+    }
+    setSuspending(true)
+    try {
+      const res = await fetch(`/api/indices/trades/${trade.id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(json.error || 'Failed')
+      } else {
+        toast.success(action === 'suspend' ? 'تم وقف العقد / Suspended' : 'تم استئناف المتابعة / Resumed')
+        onChanged()
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setSuspending(false)
+    }
+  }
 
   async function handlePostToX() {
     setPostingX(true)
@@ -142,10 +174,15 @@ function TradeCard({
   const pnlPct = isOptions
     ? (entryPrice > 0 ? ((bestPrice - entryPrice) / entryPrice) * 100 : 0)
     : (entryPrice > 0 ? ((bestPrice - entryPrice) / entryPrice) * 100 * (isCall ? 1 : -1) : 0)
-  const pnlDollars = isOptions
+  const pnlDollarsRaw = isOptions
     ? (bestPrice - entryPrice) * qty * multiplier
     : (bestPrice - entryPrice) * qty * multiplier * (isCall ? 1 : -1)
-  const isPositive = pnlPct > 0
+
+  // A suspended contract counts as a FULL LOSS (entire entry cost / -100%) until resumed.
+  const isSuspended = trade.status === 'suspended'
+  const pnlDollars = isSuspended ? -(entryPrice * qty * multiplier) : pnlDollarsRaw
+  const effectivePnlPct = isSuspended ? -100 : pnlPct
+  const isPositive = !isSuspended && pnlPct > 0
 
   // Current move from entry
   const currentPct = entryPrice > 0 ? ((trade.current_contract - entryPrice) / entryPrice) * 100 * (isCall ? 1 : -1) : 0
@@ -160,6 +197,7 @@ function TradeCard({
     closed: '',
     draft: '',
     canceled: '',
+    suspended: 'loss',
   }[trade.status] || ''
 
   return (
@@ -207,9 +245,11 @@ function TradeCard({
               </span>
             </div>
             <p className={cn('text-sm font-semibold trade-number mt-0.5', isPositive ? 'profit-positive' : 'profit-negative')}>
-              {pnlPct > 0 ? '+' : ''}{formatNumber(pnlPct, 2)}%
+              {effectivePnlPct > 0 ? '+' : ''}{formatNumber(effectivePnlPct, 2)}%
             </p>
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">Best P&L</p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">
+              {isSuspended ? 'خسارة كاملة / Full Loss' : 'Best P&L'}
+            </p>
           </div>
         </div>
       </div>
@@ -391,6 +431,34 @@ function TradeCard({
             >
               <Eye className="h-3 w-3" />
               Monitor
+            </Button>
+          )}
+
+          {trade.status === 'active' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs px-2.5 gap-1 border-orange-500/40 text-orange-500 hover:text-orange-400"
+              onClick={() => handleSuspend('suspend')}
+              disabled={suspending}
+              title="وقف متابعة العقد / Suspend tracking"
+            >
+              {suspending ? <Loader2 className="h-3 w-3 animate-spin" /> : <PauseCircle className="h-3 w-3" />}
+              وقف
+            </Button>
+          )}
+
+          {trade.status === 'suspended' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs px-2.5 gap-1 border-emerald-500/40 text-emerald-500 hover:text-emerald-400"
+              onClick={() => handleSuspend('resume')}
+              disabled={suspending}
+              title="استئناف المتابعة / Resume tracking"
+            >
+              {suspending ? <Loader2 className="h-3 w-3 animate-spin" /> : <PlayCircle className="h-3 w-3" />}
+              استئناف
             </Button>
           )}
 
@@ -656,6 +724,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
             onEditHigh={(t) => { setTradeToEditHigh(t); setEditHighDialogOpen(true) }}
             onSendAd={(t) => { setTradeToSendAd(t); setSendAdDialogOpen(true) }}
             onDeleteRequest={(t) => { setTradeToDelete(t); setDeleteDialogOpen(true) }}
+            onChanged={fetchTrades}
           />
         ))}
       </div>
