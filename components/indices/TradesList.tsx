@@ -31,6 +31,7 @@ import { cn } from '@/lib/utils'
 
 interface Trade {
   id: string
+  author_id?: string
   status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended'
   instrument_type: 'options' | 'futures'
   direction: 'call' | 'put' | 'long' | 'short'
@@ -94,6 +95,7 @@ function StatusBadge({ status }: { status: Trade['status'] }) {
 function TradeCard({
   trade,
   isAdmin,
+  canManage,
   onSelectTrade,
   onManualUpdate,
   onEditHigh,
@@ -103,6 +105,7 @@ function TradeCard({
 }: {
   trade: Trade
   isAdmin: boolean
+  canManage: boolean
   onSelectTrade: (id: string) => void
   onManualUpdate: (t: Trade) => void
   onEditHigh: (t: Trade) => void
@@ -434,7 +437,7 @@ function TradeCard({
             </Button>
           )}
 
-          {trade.status === 'active' && (
+          {canManage && trade.status === 'active' && (
             <Button
               size="sm"
               variant="outline"
@@ -448,7 +451,7 @@ function TradeCard({
             </Button>
           )}
 
-          {trade.status === 'suspended' && (
+          {canManage && trade.status === 'suspended' && (
             <Button
               size="sm"
               variant="outline"
@@ -534,6 +537,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
   const [manualUpdateDialogOpen, setManualUpdateDialogOpen] = useState(false)
   const [selectedTradeForUpdate, setSelectedTradeForUpdate] = useState<Trade | null>(null)
   const [isAdmin, setIsAdmin] = useState(false)
+  const [myUserId, setMyUserId] = useState<string>('')
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [tradeToDelete, setTradeToDelete] = useState<Trade | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -561,6 +565,10 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
 
   useEffect(() => {
     checkAdminStatus()
+    fetch('/api/me')
+      .then(r => r.json())
+      .then(data => setMyUserId(data?.profile?.id ?? ''))
+      .catch(() => {})
   }, [])
 
   const checkAdminStatus = async () => {
@@ -719,6 +727,7 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
             key={trade.id}
             trade={trade}
             isAdmin={isAdmin}
+            canManage={isAdmin || (!!myUserId && trade.author_id === myUserId)}
             onSelectTrade={onSelectTrade}
             onManualUpdate={(t) => { setSelectedTradeForUpdate(t); setManualUpdateDialogOpen(true) }}
             onEditHigh={(t) => { setTradeToEditHigh(t); setEditHighDialogOpen(true) }}
