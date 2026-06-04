@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { calcStockPnL, calcOptionPnL, type TradeFull, type TradeTarget } from '@/lib/types/trades'
+import { calcEffectivePnL, type TradeFull, type TradeTarget } from '@/lib/types/trades'
 import {
   TrendingUp, TrendingDown, Target, ShieldAlert, Clock, TestTube2,
   Lock, LinkIcon, BarChart2, Send, Loader2, Twitter, PauseCircle, PlayCircle
@@ -77,14 +77,14 @@ export function TradeCard({
   const isOption  = trade.trade_type === 'option'
   const details   = trade.option_details
 
-  const pnl = isOption && details
-    ? calcOptionPnL(details)
-    : calcStockPnL(trade)
+  // Effective P/L treats a SUSPENDED contract as a full loss until resumed.
+  const pnl = calcEffectivePnL(trade)
 
   const hitCount  = trade.targets.filter((t: TradeTarget) => t.hit).length
   const totalTgts = trade.targets.length
 
-  const isStopped   = trade.status === 'stopped'
+  const isSuspended = trade.status === 'suspended'
+  const isStopped   = trade.status === 'stopped' || isSuspended
   const isCompleted = trade.status === 'completed'
   const isWinning   = pnl.is_winning && (trade.status === 'active' || trade.status === 'published')
 
@@ -233,8 +233,13 @@ export function TradeCard({
             </div>
           </div>
 
-          {/* P/L indicator */}
-          {pnl.highest_pct != null && (
+          {/* P/L indicator — suspended contracts show a full loss until resumed */}
+          {isSuspended ? (
+            <div className="text-right shrink-0 text-red-400">
+              <div className="text-sm font-bold">-100%</div>
+              <div className="text-[10px] text-red-400/80">خسارة كاملة / Full Loss</div>
+            </div>
+          ) : pnl.highest_pct != null && (
             <div className={cn(
               'text-right shrink-0',
               pnl.is_winning ? 'text-emerald-400' : (isStopped ? 'text-red-400' : 'text-gray-400')

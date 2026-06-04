@@ -297,3 +297,38 @@ export function calcOptionPnL(details: OptionTradeDetails): TradePnL {
     is_winning: (highPnl ?? 0) >= 100,
   }
 }
+
+/**
+ * Effective P/L for a trade, honouring the suspension rule:
+ * a SUSPENDED contract counts as a FULL LOSS (the entire entry cost / -100%)
+ * until it is resumed. For every other status it returns the normal
+ * price-based P/L. Use this anywhere a trade's win/loss should reflect a
+ * manual suspension (cards, detail view, stats).
+ */
+export function calcEffectivePnL(trade: TradeFull): TradePnL {
+  if (trade.status === 'suspended') {
+    if (trade.trade_type === 'option' && trade.option_details) {
+      const d = trade.option_details
+      const cost = d.entry_premium * (d.quantity ?? 1) * (d.contract_multiplier ?? 100)
+      return {
+        unrealized_pnl: -+cost.toFixed(2),
+        unrealized_pct: -100,
+        highest_pnl: -+cost.toFixed(2),
+        highest_pct: -100,
+        is_winning: false,
+      }
+    }
+    const entry = trade.entry_price ?? 0
+    return {
+      unrealized_pnl: entry ? -entry : null,
+      unrealized_pct: entry ? -100 : null,
+      highest_pnl: entry ? -entry : null,
+      highest_pct: entry ? -100 : null,
+      is_winning: false,
+    }
+  }
+
+  return trade.trade_type === 'option' && trade.option_details
+    ? calcOptionPnL(trade.option_details)
+    : calcStockPnL(trade)
+}

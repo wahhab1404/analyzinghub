@@ -11,12 +11,13 @@ import { CreateTradeDialog } from '@/components/trades/CreateTradeDialog'
 import {
   ArrowLeft, TrendingUp, TrendingDown, Target, ShieldAlert, Send,
   Loader2, Edit, ExternalLink, TestTube2, RefreshCw, LinkIcon, Unlink,
+  PauseCircle, PlayCircle,
 } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { TradeFull, TradeTarget, TradeAlert } from '@/lib/types/trades'
-import { calcStockPnL, calcOptionPnL } from '@/lib/types/trades'
+import { calcEffectivePnL } from '@/lib/types/trades'
 
 function fmt(n: number | null | undefined, d = 2) {
   if (n == null) return '—'
@@ -37,6 +38,7 @@ const statusColors: Record<string, string> = {
   completed: 'bg-teal-700 text-white',
   cancelled: 'bg-gray-600 text-white',
   expired:   'bg-amber-700 text-white',
+  suspended: 'bg-orange-700 text-white',
 }
 
 export default function TradeDetailPage() {
@@ -51,6 +53,7 @@ export default function TradeDetailPage() {
   const [broadcasting, setBroadcasting] = useState(false)
   const [sendingUpdate, setSendingUpdate] = useState(false)
   const [unlinking, setUnlinking]     = useState(false)
+  const [suspending, setSuspending]   = useState(false)
 
   async function load() {
     setLoading(true)
@@ -100,6 +103,27 @@ export default function TradeDetailPage() {
     else toast.error('Failed')
   }
 
+  async function handleSuspend(action: 'suspend' | 'resume') {
+    if (action === 'suspend' &&
+        !window.confirm('وقف متابعة هذا العقد؟ سيُحتسب خسارة كاملة ويُرسَل تنبيه بالوقف ما لم تستأنفه.\nSuspend this contract? It will count as a full loss and a suspension alert will be sent, until you resume it.')) {
+      return
+    }
+    setSuspending(true)
+    try {
+      const res = await fetch(`/api/trades/${id}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error ?? 'Failed'); return }
+      toast.success(action === 'suspend' ? 'تم وقف العقد / Suspended' : 'تم استئناف المتابعة / Resumed')
+      load()
+    } finally {
+      setSuspending(false)
+    }
+  }
+
   async function handleUnlink() {
     setUnlinking(true)
     try {
@@ -121,7 +145,9 @@ export default function TradeDetailPage() {
 
   const isOption = trade.trade_type === 'option'
   const details  = trade.option_details
-  const pnl      = isOption && details ? calcOptionPnL(details) : calcStockPnL(trade)
+  const isSuspended = trade.status === 'suspended'
+  // Effective P/L treats a SUSPENDED contract as a full loss until resumed.
+  const pnl      = calcEffectivePnL(trade)
 
   const entryPrice   = isOption ? details?.entry_premium   : trade.entry_price
   const currentPrice = isOption ? details?.current_premium : trade.current_price
@@ -204,6 +230,15 @@ export default function TradeDetailPage() {
                   </Button>
                   <Button
                     size="sm" variant="outline"
+                    onClick={() => handleSuspend('suspend')}
+                    disabled={suspending}
+                    className="h-8 border-orange-700 text-orange-400 hover:bg-orange-900/30"
+                  >
+                    {suspending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <PauseCircle className="w-3.5 h-3.5 mr-1" />}
+                    وقف / Suspend
+                  </Button>
+                  <Button
+                    size="sm" variant="outline"
                     onClick={() => setCloseOpen(true)}
                     className="h-8 border-red-700 text-red-400 hover:bg-red-900/30"
                   >
@@ -211,6 +246,18 @@ export default function TradeDetailPage() {
                     إغلاق / Close
                   </Button>
                 </>
+              )}
+
+              {trade.status === 'suspended' && (
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => handleSuspend('resume')}
+                  disabled={suspending}
+                  className="h-8 border-emerald-700 text-emerald-400 hover:bg-emerald-900/30"
+                >
+                  {suspending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <PlayCircle className="w-3.5 h-3.5 mr-1" />}
+                  استئناف / Resume
+                </Button>
               )}
             </div>
           )}
@@ -241,8 +288,15 @@ export default function TradeDetailPage() {
               </div>
             )}
 
-            {/* P/L summary */}
-            {pnl.highest_pct != null && (
+            {/* P/L summary — suspended contracts count as a full loss until resumed */}
+            {isSuspended ? (
+              <div className="mt-3 rounded-lg px-3 py-2 text-sm font-medium bg-red-900/20 border border-red-800/30 text-red-300">
+                ⛔️ موقوف — خسارة كاملة / Suspended — Full Loss:&nbsp;
+                <span className="font-mono">-100%</span>
+                {pnl.highest_pnl != null && <span className="ml-2 text-xs opacity-75">(${fmt(pnl.highest_pnl)})</span>}
+                <div className="text-xs opacity-75 mt-1">يُحتسب خسارة كاملة ما لم تُستأنف المتابعة / Counts as a full loss unless tracking is resumed</div>
+              </div>
+            ) : pnl.highest_pct != null && (
               <div className={cn(
                 'mt-3 rounded-lg px-3 py-2 text-sm font-medium',
                 pnl.is_winning ? 'bg-emerald-900/30 border border-emerald-800/50 text-emerald-300'
