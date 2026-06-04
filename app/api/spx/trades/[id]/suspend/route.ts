@@ -62,6 +62,9 @@ export async function POST(
     const now = new Date().toISOString();
     const admin = createServiceRoleClient();
 
+    // A suspended SPX contract counts as a FULL LOSS until resumed: the analytics
+    // endpoint treats 'suspended' as a finished state and reads final_score_outcome
+    // / realized_pnl_pct, so record a full -100% loss here (reverted on resume).
     const updateRow =
       action === 'suspend'
         ? {
@@ -70,6 +73,8 @@ export async function POST(
             suspended_by: user.id,
             suspension_reason: reason,
             suspension_mode: 'manual',
+            final_score_outcome: 'big_loss',
+            realized_pnl_pct: -100,
             updated_at: now,
           }
         : {
@@ -78,6 +83,8 @@ export async function POST(
             suspended_by: null,
             suspension_reason: null,
             suspension_mode: null,
+            final_score_outcome: null,
+            realized_pnl_pct: null,
             updated_at: now,
           };
 

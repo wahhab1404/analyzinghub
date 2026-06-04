@@ -98,7 +98,9 @@ export async function GET(req: NextRequest) {
     const trades: any[] = tradeRows ?? [];
 
     // ── 3. Compute summary ─────────────────────────────────────────────────
-    const closedStates = new Set(['closed_win', 'closed_loss', 'expired', 'cancelled', 'invalidated']);
+    // 'suspended' is treated as a finished trade: a manually-stopped contract
+    // counts as a full loss (final_score_outcome = 'big_loss', pnl = -100%).
+    const closedStates = new Set(['closed_win', 'closed_loss', 'expired', 'cancelled', 'invalidated', 'suspended']);
     const closedTrades = trades.filter(t => closedStates.has(t.state));
     const openTrades = trades.filter(t => !closedStates.has(t.state));
     const actionableSignals = signals.filter(s =>

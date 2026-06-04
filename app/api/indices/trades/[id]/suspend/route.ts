@@ -46,6 +46,7 @@ export async function POST(
         id, author_id, status, telegram_channel_id,
         underlying_index_symbol, strike, option_type, direction,
         polygon_option_ticker, current_contract,
+        original_entry_price, entry_price, entry_contract_snapshot, qty, contract_multiplier,
         analysis:index_analyses!analysis_id(id, title, telegram_channel_id)
       `)
       .eq('id', id)
@@ -91,6 +92,21 @@ export async function POST(
       );
     }
 
+    // A suspended contract counts as a FULL LOSS until resumed: lose the entire
+    // entry cost. These are the same outcome fields the canonical expired-trades
+    // closer writes for a losing trade, so analyzer_stats_v2 (which now counts
+    // status = 'suspended') records it as a loss.
+    const entryPrice =
+      (trade as any).original_entry_price ||
+      (trade as any).entry_price ||
+      (trade as any).entry_contract_snapshot?.mid ||
+      0;
+    const qty = (trade as any).qty || 1;
+    const multiplier = (trade as any).contract_multiplier || 100;
+    const totalInvestment = entryPrice * qty * multiplier;
+    const fullLoss = -Math.abs(totalInvestment);
+    const lossOutcome = totalInvestment >= 500 ? 'big_loss' : 'small_loss';
+
     const updates =
       action === 'suspend'
         ? {
@@ -99,6 +115,16 @@ export async function POST(
             suspended_by: user.id,
             suspension_reason: reason || null,
             suspension_mode: 'manual',
+            // Full-loss accounting (reverted on resume)
+            is_win: false,
+            is_winning_trade: false,
+            outcome: 'loss',
+            trade_outcome: lossOutcome,
+            final_profit: fullLoss,
+            pnl_usd: fullLoss,
+            profit_from_entry: fullLoss,
+            computed_profit_usd: fullLoss,
+            counted_in_stats: true,
             updated_at: now,
           }
         : {
@@ -107,6 +133,16 @@ export async function POST(
             suspended_by: null,
             suspension_reason: null,
             suspension_mode: null,
+            // Clear the full-loss accounting — live tracking recomputes it.
+            is_win: false,
+            is_winning_trade: false,
+            outcome: null,
+            trade_outcome: null,
+            final_profit: 0,
+            pnl_usd: 0,
+            profit_from_entry: 0,
+            computed_profit_usd: 0,
+            counted_in_stats: false,
             updated_at: now,
           };
 
