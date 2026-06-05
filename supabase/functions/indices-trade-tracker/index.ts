@@ -150,18 +150,18 @@ Deno.serve(async (req) => {
           }
         }
 
-        if (!marketIsOpen) {
-          console.log(`⏭️  Market closed — skip ${trade.id}`);
-          continue;
-        }
+        // EXTENDED-HOURS / 24h COVERAGE: we no longer skip when the regular
+        // session is closed. SPX options trade nearly around the clock (Cboe
+        // Global Trading Hours) and Polygon serves live quotes outside 9:30–4:00
+        // ET, so we keep refreshing the contract price + peak watermark AND firing
+        // Telegram alerts around the clock — mirroring the Fly.io REST fallback,
+        // which already runs unconditionally.
 
         // NOTE: We intentionally do NOT skip is_using_manual_price trades here.
-        // A manual price is only a placeholder for when no live data exists
-        // (market closed — already skipped above). With the market open and a
-        // live quote available, process_streaming_price_update() resumes
-        // auto-tracking and clears the flag, so the contract price never stays
-        // frozen after a manual edit. (Previously this `continue` froze such
-        // trades permanently.)
+        // A manual price is only a placeholder for when no live data exists; once
+        // a live quote is available (including extended hours),
+        // process_streaming_price_update() resumes auto-tracking and clears the
+        // flag, so the contract price never stays frozen after a manual edit.
 
         // ── UNDERLYING INDEX PRICE ────────────────────────────────────
         // Always update regardless of streaming state — the streaming
@@ -227,7 +227,7 @@ async function runRestFallback(
   trade: any,
   supabaseUrl: string,
   supabaseKey: string,
-  results: any
+  results: any,
 ): Promise<void> {
   const apiKey = Deno.env.get("POLYGON_API_KEY");
   if (!apiKey) return;
@@ -283,7 +283,7 @@ async function runRestFallback(
       { ...trade, ...refreshed, _rpcResult: rpcResult },
       supabaseUrl,
       supabaseKey,
-      results
+      results,
     );
   }
 }
@@ -295,7 +295,7 @@ async function dispatchPendingAlerts(
   trade: any,
   supabaseUrl: string,
   supabaseKey: string,
-  results: any
+  results: any,
 ): Promise<void> {
   const rpcResult = trade._rpcResult;
   const appBaseUrl =
