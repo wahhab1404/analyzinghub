@@ -209,8 +209,8 @@ export class PersistenceService {
         if (!result) continue;
 
         const lastQuote = result.last_quote ?? {};
-        const bid  = (lastQuote.bid  ?? 0) as number;
-        const ask  = (lastQuote.ask  ?? 0) as number;
+        let bid  = (lastQuote.bid  ?? 0) as number;
+        let ask  = (lastQuote.ask  ?? 0) as number;
         const last = (lastQuote.last_price ?? 0) as number;
 
         // Compute smart price
@@ -221,6 +221,29 @@ export class PersistenceService {
           price = last;
         } else if (bid > 0) {
           price = bid;
+        }
+
+        // Fallback: the underlying-scoped snapshot frequently carries no
+        // last_quote outside the regular session, which previously logged
+        // "No valid price" and left extended-hours trades frozen. Hit the
+        // dedicated quotes endpoint (same as the edge-function tracker) so the
+        // contract still gets a fresh bid/ask 24h.
+        if (price === null || price <= 0) {
+          const quotesUrl =
+            `${POLYGON_BASE}/v3/quotes/${encodeURIComponent(cleanTicker)}` +
+            `?limit=1&order=desc&sort=timestamp&apiKey=${POLYGON_API_KEY}`;
+          const qRes = await fetch(quotesUrl);
+          if (qRes.ok) {
+            const qData = await qRes.json() as any;
+            const q = qData?.results?.[0];
+            if (q) {
+              bid = (q.bid_price ?? 0) as number;
+              ask = (q.ask_price ?? 0) as number;
+              if (bid > 0 && ask > 0)  price = parseFloat(((bid + ask) / 2).toFixed(4));
+              else if (bid > 0)        price = bid;
+              else if (ask > 0)        price = ask;
+            }
+          }
         }
 
         if (price === null || price <= 0) {
