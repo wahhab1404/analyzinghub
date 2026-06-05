@@ -164,9 +164,21 @@ export async function POST(
     if (entryPrice > 0) {
       const highPrice = updates.contract_high_since || existing.contract_high_since || entryPrice;
       const currentPrice = updates.current_contract || existing.current_contract || entryPrice;
+      const multiplier = existing.contract_multiplier || 100;
 
-      updates.max_profit = (highPrice - entryPrice) * (existing.qty || 1);
+      // max_profit is a dollar figure — it MUST include the contract multiplier
+      // (×100), otherwise a manual high logs e.g. $12.90 instead of $1,290.
+      updates.max_profit = (highPrice - entryPrice) * (existing.qty || 1) * multiplier;
       updates.profit_from_entry = ((currentPrice - entryPrice) / entryPrice) * 100;
+    }
+
+    // A manual price/high that becomes a new high is an analyst-set value. The
+    // update_trade_high_watermark RPC above optimistically tags new highs as
+    // 'auto' and clears manually_edited_high; override both atomically here so
+    // the source flags stay consistent with the manual edit.
+    if (isNewHigh) {
+      updates.high_source = 'manual';
+      updates.manually_edited_high = true;
     }
 
     const { data: trade, error: updateError } = await supabase
@@ -182,6 +194,14 @@ export async function POST(
     if (updateError) {
       console.error('Error updating manual prices:', updateError);
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    // Recompute MFE / MAE / max_profit from the canonical high & low so the
+    // contract card and any excursion-based stats stay consistent with the
+    // manual edit (these columns are otherwise only refreshed by the live RPC).
+    const { error: syncError } = await supabase.rpc('sync_trade_excursions', { p_trade_id: id });
+    if (syncError) {
+      console.warn('[Manual Price] sync_trade_excursions failed:', syncError.message);
     }
 
     // Best-effort: write new audit columns if a manual high was accepted.
