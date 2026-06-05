@@ -141,6 +141,13 @@ export async function PATCH(
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
+    // Keep MFE / MAE / max_profit consistent with the new manual high watermark
+    // (these excursion columns are otherwise only refreshed by the live RPC).
+    const { error: syncError } = await supabase.rpc('sync_trade_excursions', { p_trade_id: id });
+    if (syncError) {
+      console.warn('[Edit High] sync_trade_excursions failed:', syncError.message);
+    }
+
     console.log(`✅ [Edit High] Trade ${id} high watermark updated: $${currentHigh} → $${highWatermark}`);
     console.log(`📊 [Edit High] Market status: ${marketStatus.status}, Profit: $${profitDollars.toFixed(2)}`);
 
