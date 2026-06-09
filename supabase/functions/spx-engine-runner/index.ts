@@ -18,15 +18,13 @@
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "npm:@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, X-Client-Info",
 };
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
 
 function getEasternHour(): number {
   const now = new Date();
@@ -36,13 +34,9 @@ function getEasternHour(): number {
 
 function isWeekend(): boolean {
   const now = new Date();
-  const day = parseInt(now.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "numeric" }), 10);
-  // 0=Sun, 6=Sat in some locales — use day-of-week via UTC day adjusted for ET
   const etDay = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })).getDay();
   return etDay === 0 || etDay === 6;
 }
-
-// ── MAIN ──────────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -53,21 +47,20 @@ Deno.serve(async (req: Request) => {
   const engineSecret = Deno.env.get("SPX_ENGINE_SECRET") ?? "";
 
   if (!appBaseUrl) {
-    console.error("[spx-engine-runner] APP_BASE_URL not set — cannot call intelligence pipeline");
+    console.error("[spx-engine-runner] APP_BASE_URL not set");
     return new Response(JSON.stringify({ ok: false, reason: "no_app_base_url" }), { status: 500, headers: corsHeaders });
   }
 
   try {
     const supabase = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 
-    // ── 1. Read settings ─────────────────────────────────────────────────────
     const { data: settingsRow } = await supabase
       .from("spx_settings")
       .select("engine_enabled, active_hour_start, active_hour_end")
       .limit(1)
       .single();
 
-    const engineEnabled  = settingsRow?.engine_enabled  ?? false;
+    const engineEnabled   = settingsRow?.engine_enabled   ?? false;
     const activeHourStart = settingsRow?.active_hour_start ?? 9;
     const activeHourEnd   = settingsRow?.active_hour_end   ?? 16;
 
@@ -75,7 +68,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: "engine_disabled" }), { headers: corsHeaders });
     }
 
-    // ── 2. Market hours guard ────────────────────────────────────────────────
     if (isWeekend()) {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: "weekend" }), { headers: corsHeaders });
     }
@@ -85,7 +77,6 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, skipped: true, reason: `outside_hours:${etHour}` }), { headers: corsHeaders });
     }
 
-    // ── 3. Call intelligence pipeline ────────────────────────────────────────
     const signalUrl = `${appBaseUrl}/api/spx/signal?skipWalls=false&skipContracts=false`;
 
     // Authenticate the internal call. Prefer an explicit SPX_ENGINE_SECRET;
@@ -105,35 +96,25 @@ Deno.serve(async (req: Request) => {
       headers,
       signal: AbortSignal.timeout(25_000),
     });
-
     const durationMs = Date.now() - startMs;
 
     if (!res.ok) {
       const body = await res.text();
       console.error(`[spx-engine-runner] Pipeline HTTP ${res.status}: ${body.slice(0, 200)}`);
-      return new Response(
-        JSON.stringify({ ok: false, reason: `http_${res.status}`, durationMs }),
-        { status: 502, headers: corsHeaders },
-      );
+      return new Response(JSON.stringify({ ok: false, reason: `http_${res.status}`, durationMs }), { status: 502, headers: corsHeaders });
     }
 
     const data = await res.json();
-    const signalType  = data?.signal?.signalType  ?? "none";
-    const confidence  = data?.signal?.confidenceClass ?? "—";
-    const spxPrice    = data?.features?.underlying?.price ?? null;
-    const autoTrade   = data?.autoTrade ?? null;
+    const signalType = data?.signal?.signalType ?? "none";
+    const confidence = data?.signal?.confidenceClass ?? "-";
+    const spxPrice   = data?.features?.underlying?.price ?? null;
+    const autoTrade  = data?.autoTrade ?? null;
 
-    console.log(`[spx-engine-runner] ✅ ${durationMs}ms | signal=${signalType} | class=${confidence} | SPX=${spxPrice}${autoTrade ? ` | auto=${autoTrade.created ? "created" : "skipped:"+autoTrade.reason}` : ""}`);
+    console.log(`[spx-engine-runner] ok ${durationMs}ms | signal=${signalType} | class=${confidence} | SPX=${spxPrice}`);
 
-    return new Response(
-      JSON.stringify({ ok: true, durationMs, signalType, confidence, spxPrice, autoTrade }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ ok: true, durationMs, signalType, confidence, spxPrice, autoTrade }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err: any) {
     console.error("[spx-engine-runner] Error:", err?.message);
-    return new Response(
-      JSON.stringify({ ok: false, error: err?.message }),
-      { status: 500, headers: corsHeaders },
-    );
+    return new Response(JSON.stringify({ ok: false, error: err?.message }), { status: 500, headers: corsHeaders });
   }
 });
