@@ -107,7 +107,7 @@ export async function runAutoTradeSelector(
     .from('spx_trades')
     .insert({
       signal_event_id:      signal.id,
-      state:                'alerted',
+      state:                'entered',
       is_auto:              true,
       auto_channel_ids:     settings.autoTradeChannelIds,
       ticker:               chosen.ticker,
@@ -115,6 +115,13 @@ export async function runAutoTradeSelector(
       expiry:               chosen.expiry,
       option_type:          chosen.optionType,
       dte:                  chosen.dte,
+      // Lock the entry premium at signal time. Without this, downstream
+      // consumers (realtime worker, lifecycle alerts) fall back to
+      // current_premium — which drifts on every tick — making the "Entry"
+      // shown in target/stop updates wrong.
+      entry_premium:        chosen.mid,
+      entry_spx_price:      features.underlying.price,
+      entry_timestamp:      signal.generatedAt,
       current_premium:      chosen.mid,
       current_spx_price:    features.underlying.price,
       premium_updated_at:   signal.generatedAt,

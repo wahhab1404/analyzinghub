@@ -39,8 +39,17 @@ export async function GET(request: NextRequest) {
     const trades = await getRecentTrades(limit, stateFilter as TradeState | undefined);
     const activeTrades = await getActiveTrades();
 
+    // NOTE: the UI (ActiveTradesPanel) consumes `active` / `recent`; older
+    // callers consume `trades` / `activeTrades`. Return both shapes so the
+    // active-trades list actually populates.
     return NextResponse.json(
-      { success: true, trades, activeTrades },
+      {
+        success: true,
+        trades,
+        activeTrades,
+        active: activeTrades,
+        recent: trades,
+      },
       { headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' } },
     );
   } catch (err: any) {

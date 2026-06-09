@@ -41,6 +41,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'tradeId required' }, { status: 400 });
     }
 
+    // event = 'new' (default) | 'target' | 'stop'  — controls which card is drawn.
+    const event = (searchParams.get('event') ?? 'new').toLowerCase();
+    const targetN = parseInt(searchParams.get('n') || '0', 10);
+    const priceOverride = searchParams.get('price');
+    const entryOverride = searchParams.get('entry');
+    const pnlOverride = searchParams.get('pnl');
+
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!url || !key) return NextResponse.json({ error: 'No Supabase config' }, { status: 500 });
@@ -48,7 +55,7 @@ export async function GET(req: NextRequest) {
     const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
     const { data: trade } = await supabase
       .from('spx_trades')
-      .select('ticker, strike, option_type, dte, current_premium, stop_premium, target_1_premium, target_2_premium, target_3_premium, composite_score, confidence_class, signal_mode, direction_bias, suggested_entry_low, suggested_entry_high, metadata')
+      .select('ticker, strike, option_type, dte, entry_premium, current_premium, highest_premium, stop_premium, target_1_premium, target_2_premium, target_3_premium, composite_score, confidence_class, signal_mode, direction_bias, suggested_entry_low, suggested_entry_high, metadata')
       .eq('id', tradeId)
       .single();
 
@@ -78,6 +85,90 @@ export async function GET(req: NextRequest) {
     });
 
     const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/New_York' });
+
+    // ── UPDATE CARD (target hit / stop hit) ─────────────────────────────────
+    // Drawn when ?event=target|stop. Shows the realized move (entry → now)
+    // with a big P/L%, mirroring the lifecycle Telegram update.
+    if (event === 'target' || event === 'stop') {
+      const entryP = entryOverride != null ? Number(entryOverride) : Number(trade.entry_premium ?? trade.current_premium ?? 0);
+      const nowP   = priceOverride != null ? Number(priceOverride) : Number(trade.current_premium ?? 0);
+      const pnl    = pnlOverride != null
+        ? Number(pnlOverride)
+        : (entryP > 0 ? ((nowP - entryP) / entryP) * 100 : 0);
+      const isStop = event === 'stop';
+      const barColor = isStop ? C.put : C.call;
+      const pnlColor = pnl >= 0 ? C.call : C.put;
+      const headLabel = isStop
+        ? '🛑 STOP HIT'
+        : `🎯 TARGET T${targetN || 1} HIT`;
+      const headBg = isStop ? C.putBg : C.callBg;
+      const headBd = isStop ? C.putBd : C.callBd;
+
+      const updateVdom = {
+        type: 'div',
+        props: {
+          style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: 'system-ui, sans-serif', position: 'relative', overflow: 'hidden' },
+          children: [
+            { type: 'div', props: { style: { position: 'absolute', top: 0, left: 0, right: 0, height: 5, background: barColor } } },
+            { type: 'div', props: {
+              style: { display: 'flex', flexDirection: 'column', flex: 1, padding: '38px 50px 30px' },
+              children: [
+                // Header
+                { type: 'div', props: {
+                  style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 26 },
+                  children: [
+                    { type: 'div', props: {
+                      style: { display: 'flex', gap: 10, alignItems: 'center' },
+                      children: [
+                        { type: 'div', props: { style: { background: C.autoBg, border: `1px solid ${C.autoBd}`, borderRadius: 6, padding: '5px 14px', color: C.auto, fontSize: 13, fontWeight: 700, letterSpacing: '0.08em' }, children: 'ANALYZINGHUB' } },
+                        { type: 'div', props: { style: { background: accentBg, border: `1px solid ${accentBd}`, borderRadius: 6, padding: '5px 14px', color: accent, fontSize: 16, fontWeight: 800 }, children: `$${strike.toLocaleString()} ${typeLabel}` } },
+                      ],
+                    }},
+                    { type: 'div', props: { style: { background: headBg, border: `1px solid ${headBd}`, borderRadius: 7, padding: '7px 18px', color: isStop ? C.put : C.call, fontSize: 15, fontWeight: 800, letterSpacing: '0.06em' }, children: headLabel } },
+                  ],
+                }},
+                // Main
+                { type: 'div', props: {
+                  style: { display: 'flex', flex: 1, gap: 36, alignItems: 'flex-start' },
+                  children: [
+                    { type: 'div', props: {
+                      style: { display: 'flex', flexDirection: 'column', width: 320 },
+                      children: [
+                        { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 }, children: 'Profit / Loss' } },
+                        { type: 'div', props: { style: { fontSize: 88, fontWeight: 900, color: pnlColor, lineHeight: 1, letterSpacing: '-3px' }, children: `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%` } },
+                        { type: 'div', props: { style: { fontSize: 18, fontWeight: 700, color: C.textSub, marginTop: 10 }, children: `${dirEmoji} ${typeLabel} · ${dte}DTE` } },
+                      ],
+                    }},
+                    { type: 'div', props: {
+                      style: { display: 'flex', flexDirection: 'column', flex: 1, gap: 9, marginTop: 4 },
+                      children: [
+                        statRow('Entry', `$${fmt(entryP)}`, C.text, C.card, C.border),
+                        statRow(isStop ? 'Exit' : 'Now', `$${fmt(nowP)}`, isStop ? C.put : C.call, headBg, headBd),
+                        statRow('High Since Entry', `$${fmt(Number(trade.highest_premium ?? nowP))}`, C.call, C.callBg, C.callBd),
+                      ],
+                    }},
+                  ],
+                }},
+                // Footer
+                { type: 'div', props: {
+                  style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, marginTop: 14, borderTop: `1px solid ${C.divider}` },
+                  children: [
+                    { type: 'div', props: { style: { fontSize: 14, fontWeight: 700, color: C.textSub }, children: (!isStop && targetN === 3) ? 'Full target reached — position auto-closed' : (trade.signal_mode ?? 'Auto Trade') } },
+                    { type: 'div', props: { style: { fontSize: 13, color: C.textMuted }, children: `Auto · ${timeStr} ET` } },
+                  ],
+                }},
+              ],
+            }},
+          ],
+        },
+      };
+
+      const updateResp = new ImageResponse(updateVdom as any, { width: 1000, height: 520 });
+      return new NextResponse(updateResp.body, {
+        status: 200,
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' },
+      });
+    }
 
     const vdom = {
       type: 'div',
