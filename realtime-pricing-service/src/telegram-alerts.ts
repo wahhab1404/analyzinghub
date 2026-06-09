@@ -291,38 +291,99 @@ export class TelegramAlertsService {
     const entryStr = params.entryPremium != null ? `$${params.entryPremium.toFixed(2)}` : '—';
     const priceStr = `$${params.currentPremium.toFixed(2)}`;
 
+    // Bilingual (English + العربية) caption — matches the rest of the app's updates.
     let text: string;
     if (params.type === 'stop_hit') {
       text = [
         `🛑 <b>AUTO TRADE — STOP HIT</b>`,
+        `🛑 <b>صفقة آلية — تم ضرب وقف الخسارة</b>`,
+        ``,
         `<code>${cleanTicker}</code>`,
-        `Exit: ${priceStr} | Entry: ${entryStr}`,
-        `P/L: <b>${pnlStr}</b>`,
+        `Exit / الخروج: ${priceStr} | Entry / الدخول: ${entryStr}`,
+        `P/L / الربح والخسارة: <b>${pnlStr}</b>`,
         ``,
         `<i>Auto-closed by realtime watcher.</i>`,
+        `<i>تم الإغلاق آلياً بواسطة المتابعة اللحظية.</i>`,
       ].join('\n');
     } else {
       const t = params.targetNum ?? 1;
       const closing = t === 3;
       text = [
         `🎯 <b>AUTO TRADE — TARGET T${t} HIT</b>`,
+        `🎯 <b>صفقة آلية — تم تحقيق الهدف ${t}</b>`,
+        ``,
         `<code>${cleanTicker}</code>`,
-        `Price: ${priceStr} | Entry: ${entryStr}`,
-        `P/L: <b>${pnlStr}</b>`,
+        `Price / السعر: ${priceStr} | Entry / الدخول: ${entryStr}`,
+        `P/L / الربح والخسارة: <b>${pnlStr}</b>`,
         ``,
         closing
-          ? `🚀 <i>Full target reached — position auto-closed.</i>`
-          : `💡 <i>Consider trailing stop to ${t === 1 ? 'breakeven' : `T${t - 1}`}.</i>`,
+          ? `🚀 <i>Full target reached — position auto-closed.</i>\n🚀 <i>تم تحقيق الهدف الكامل — تم إغلاق الصفقة آلياً.</i>`
+          : `💡 <i>Consider trailing stop to ${t === 1 ? 'breakeven' : `T${t - 1}`}.</i>\n💡 <i>يُنصح بنقل وقف الخسارة إلى ${t === 1 ? 'نقطة الدخول' : `الهدف ${t - 1}`}.</i>`,
       ].join('\n');
     }
 
+    // Try to attach an update image (target/stop card). Falls back to text-only.
+    let imageBuffer: ArrayBuffer | null = null;
+    if (this.appBaseUrl && !this.appBaseUrl.includes('localhost')) {
+      try {
+        imageBuffer = await this.fetchSPXUpdateImage({
+          tradeId:        params.tradeId,
+          event:          params.type === 'stop_hit' ? 'stop' : 'target',
+          targetNum:      params.targetNum,
+          currentPremium: params.currentPremium,
+          entryPremium:   params.entryPremium,
+          pnlPct:         params.pnlPct,
+        });
+      } catch (imgErr: any) {
+        console.warn(`[TelegramAlerts] SPX update image failed: ${imgErr.message}`);
+      }
+    }
+
     await Promise.allSettled(
-      params.channelIds.map(chatId =>
-        this.sendMessage(chatId, text).catch((err: any) =>
+      params.channelIds.map(chatId => {
+        const send = imageBuffer && imageBuffer.byteLength > 1024
+          ? this.sendPhoto(chatId, imageBuffer, text)
+          : this.sendMessage(chatId, text);
+        return send.catch((err: any) =>
           console.error(`[TelegramAlerts] SPX ${params.type} send failed for ${chatId}:`, err.message),
-        ),
-      ),
+        );
+      }),
     );
-    console.log(`[TelegramAlerts] ✅ SPX ${params.type}${params.targetNum ? ' T' + params.targetNum : ''} sent for ${params.tradeId} → ${params.channelIds.length} channel(s)`);
+    console.log(`[TelegramAlerts] ✅ SPX ${params.type}${params.targetNum ? ' T' + params.targetNum : ''} sent for ${params.tradeId} → ${params.channelIds.length} channel(s) (image=${!!imageBuffer})`);
+  }
+
+  /**
+   * Fetch the SPX auto-trade update card (target/stop) PNG from the Next.js app.
+   * Returns null on any failure so the caller can fall back to a text alert.
+   */
+  private async fetchSPXUpdateImage(p: {
+    tradeId:        string;
+    event:          'target' | 'stop';
+    targetNum?:     1 | 2 | 3;
+    currentPremium: number;
+    entryPremium:   number | null;
+    pnlPct:         number;
+  }): Promise<ArrayBuffer | null> {
+    const qs = new URLSearchParams({
+      tradeId: p.tradeId,
+      event:   p.event,
+      price:   p.currentPremium.toFixed(2),
+      pnl:     p.pnlPct.toFixed(2),
+    });
+    if (p.targetNum) qs.set('n', String(p.targetNum));
+    if (p.entryPremium != null) qs.set('entry', p.entryPremium.toFixed(2));
+
+    const url = `${this.appBaseUrl}/api/spx/auto-trade-image?${qs.toString()}`;
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(20_000),
+      headers: { Accept: 'image/png' },
+    });
+    if (!res.ok) {
+      console.error(`[TelegramAlerts] SPX update image HTTP ${res.status}`);
+      return null;
+    }
+    const ct = res.headers.get('content-type') ?? '';
+    if (!ct.startsWith('image/')) return null;
+    return res.arrayBuffer();
   }
 }

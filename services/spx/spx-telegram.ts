@@ -558,16 +558,17 @@ export async function sendAutoTradeAlert(params: {
 
   const caption = [
     `🤖 <b>AUTO TRADE — SPX ${typeLabel}</b>  ${dirEmoji}`,
+    `🤖 <b>صفقة آلية — SPX ${typeLabel}</b>`,
     ``,
-    `Contract: <code>${escapeHtml(contract.ticker)}</code>`,
-    `Strike: <code>${contract.strike}</code> | ${contract.dte ?? '?'}DTE`,
-    `Entry Zone: <code>$${entryPlan.suggestedEntryLow.toFixed(2)}–$${entryPlan.suggestedEntryHigh.toFixed(2)}</code>`,
+    `Contract / العقد: <code>${escapeHtml(contract.ticker)}</code>`,
+    `Strike / سعر التنفيذ: <code>${contract.strike}</code> | ${contract.dte ?? '?'}DTE`,
+    `Entry Zone / منطقة الدخول: <code>$${entryPlan.suggestedEntryLow.toFixed(2)}–$${entryPlan.suggestedEntryHigh.toFixed(2)}</code>`,
     ``,
-    `Stop: <code>$${entryPlan.stopPremium.toFixed(2)}</code> | SPX Stop: <code>${entryPlan.hardStopSpx.toFixed(0)}</code>`,
+    `Stop / وقف الخسارة: <code>$${entryPlan.stopPremium.toFixed(2)}</code> | SPX Stop: <code>${entryPlan.hardStopSpx.toFixed(0)}</code>`,
     `T1: <code>$${entryPlan.target1Premium.toFixed(2)}</code> | T2: <code>$${entryPlan.target2Premium.toFixed(2)}</code> | T3: <code>$${entryPlan.target3Premium.toFixed(2)}</code>`,
     ``,
-    `Score: <code>${Math.round(signal.compositeScore ?? 0)}/100</code> | Class: <b>${signal.confidenceClass}</b>`,
-    `Mode: ${escapeHtml(signal.signalMode)} | SPX: <code>${features.underlying.price}</code>`,
+    `Score / النقاط: <code>${Math.round(signal.compositeScore ?? 0)}/100</code> | Class / التصنيف: <b>${signal.confidenceClass}</b>`,
+    `Mode / النمط: ${escapeHtml(signal.signalMode)} | SPX: <code>${features.underlying.price}</code>`,
     ``,
     `<i>${escapeHtml(signal.rationale)}</i>`,
   ].join('\n');
@@ -646,29 +647,68 @@ export async function sendAutoTradeLifecycleAlert(params: {
 
   const entryP = row.entry_premium != null ? Number(row.entry_premium) : currentPremium;
   const pnlPct = entryP > 0 ? ((currentPremium - entryP) / entryP * 100) : 0;
+  const pnlStr = `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%`;
   const ticker = row.ticker ?? '?';
 
+  // Bilingual (English + العربية) caption.
   let text: string;
   if (type === 'target_hit') {
     text = [
       `🎯 <b>AUTO TRADE — TARGET T${targetNum} HIT</b>`,
+      `🎯 <b>صفقة آلية — تم تحقيق الهدف ${targetNum}</b>`,
+      ``,
       `<code>${escapeHtml(ticker)}</code>`,
-      `Premium: <code>$${currentPremium.toFixed(2)}</code> | P/L: <code>${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</code>`,
-      `SPX: <code>${currentSpxPrice}</code>`,
-      targetNum === 3 ? `\n🚀 Full target reached — close position` : `\n💡 Consider trailing stop`,
+      `Price / السعر: <code>$${currentPremium.toFixed(2)}</code> | Entry / الدخول: <code>$${entryP.toFixed(2)}</code>`,
+      `P/L / الربح والخسارة: <b>${pnlStr}</b>`,
+      targetNum === 3
+        ? `\n🚀 <i>Full target reached — position auto-closed.</i>\n🚀 <i>تم تحقيق الهدف الكامل — تم إغلاق الصفقة آلياً.</i>`
+        : `\n💡 <i>Consider trailing stop.</i>\n💡 <i>يُنصح بنقل وقف الخسارة.</i>`,
     ].join('\n');
   } else {
     text = [
       `🛑 <b>AUTO TRADE — STOP HIT</b>`,
+      `🛑 <b>صفقة آلية — تم ضرب وقف الخسارة</b>`,
+      ``,
       `<code>${escapeHtml(ticker)}</code>`,
-      `Exit: <code>$${currentPremium.toFixed(2)}</code> | P/L: <code>${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%</code>`,
-      `SPX: <code>${currentSpxPrice}</code>`,
+      `Exit / الخروج: <code>$${currentPremium.toFixed(2)}</code> | Entry / الدخول: <code>$${entryP.toFixed(2)}</code>`,
+      `P/L / الربح والخسارة: <b>${pnlStr}</b>`,
     ].join('\n');
+  }
+
+  // Try to attach an update card image (falls back to text-only).
+  let imageBytes: Buffer | null = null;
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL;
+    if (appUrl && !appUrl.includes('localhost')) {
+      const qs = new URLSearchParams({
+        tradeId,
+        event: type === 'target_hit' ? 'target' : 'stop',
+        price: currentPremium.toFixed(2),
+        pnl: pnlPct.toFixed(2),
+        entry: entryP.toFixed(2),
+      });
+      if (targetNum) qs.set('n', String(targetNum));
+      const imgRes = await fetch(`${appUrl}/api/spx/auto-trade-image?${qs.toString()}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (imgRes.ok) imageBytes = Buffer.from(await imgRes.arrayBuffer());
+    }
+  } catch {
+    // fall back to text-only
   }
 
   const alertType = type === 'target_hit' ? `auto_target_t${targetNum}` : 'auto_stop_hit';
   for (const chatId of channelIds) {
     try {
+      if (imageBytes && imageBytes.length > 1024) {
+        const form = new FormData();
+        form.append('chat_id', chatId);
+        form.append('caption', text);
+        form.append('parse_mode', 'HTML');
+        form.append('photo', new Blob([imageBytes], { type: 'image/png' }), 'auto_update.png');
+        const res = await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, { method: 'POST', body: form });
+        if (res.ok) continue;
+      }
       await sendMessage(token, chatId, text);
     } catch (err: any) {
       console.error(`[SPXTelegram] sendAutoTradeLifecycleAlert failed for ${chatId}:`, err.message);

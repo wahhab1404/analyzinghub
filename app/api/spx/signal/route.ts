@@ -25,10 +25,20 @@ export const revalidate = 0;
 
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    // Internal cron access: the spx-engine-runner edge function calls this
+    // endpoint on a schedule with the shared SPX_ENGINE_SECRET header. Without
+    // this bypass the cron always received 401 and the engine never ran
+    // automatically — it only ran while an admin had the Live panel open.
+    const engineSecret = process.env.SPX_ENGINE_SECRET;
+    const providedSecret = request.headers.get('x-spx-engine-secret');
+    const isEngineCall = !!engineSecret && providedSecret === engineSecret;
+
+    if (!isEngineCall) {
+      const supabase = createServerClient();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      if (authError || !user) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
     }
 
     const params = request.nextUrl.searchParams;
