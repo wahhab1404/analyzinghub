@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email } = await request.json();
+    const { email, language } = await request.json();
 
     if (!email || !email.includes('@')) {
       return NextResponse.json(
@@ -93,8 +93,10 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         to: email,
         code: otpCode,
-        subject: `Your AnalyzingHub verification code: ${otpCode}`,
+        subject: `رمز التحقق · Your AnalyzingHub code: ${otpCode}`,
         type: existingUser ? 'login' : 'signup',
+        // Optional: 'ar' | 'en'. When omitted the email is sent bilingually.
+        language: language === 'ar' || language === 'en' ? language : undefined,
       }),
     });
 
