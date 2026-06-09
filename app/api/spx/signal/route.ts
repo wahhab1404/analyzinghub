@@ -26,12 +26,21 @@ export const revalidate = 0;
 export async function GET(request: NextRequest) {
   try {
     // Internal cron access: the spx-engine-runner edge function calls this
-    // endpoint on a schedule with the shared SPX_ENGINE_SECRET header. Without
-    // this bypass the cron always received 401 and the engine never ran
+    // endpoint on a schedule with the X-SPX-Engine-Secret header. Without this
+    // bypass the cron always received 401 and the engine never ran
     // automatically — it only ran while an admin had the Live panel open.
-    const engineSecret = process.env.SPX_ENGINE_SECRET;
+    //
+    // The header is accepted when it matches EITHER an explicitly configured
+    // SPX_ENGINE_SECRET, OR the Supabase service-role key. Both the app and the
+    // edge function already hold SUPABASE_SERVICE_ROLE_KEY, so the cron works
+    // out of the box without provisioning a separate shared secret.
     const providedSecret = request.headers.get('x-spx-engine-secret');
-    const isEngineCall = !!engineSecret && providedSecret === engineSecret;
+    const engineSecret = process.env.SPX_ENGINE_SECRET;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const isEngineCall = !!providedSecret && (
+      (!!engineSecret && providedSecret === engineSecret) ||
+      (!!serviceRoleKey && providedSecret === serviceRoleKey)
+    );
 
     if (!isEngineCall) {
       const supabase = createServerClient();

@@ -13,7 +13,8 @@
  * env vars required:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (auto-provided in edge runtime)
  *   APP_BASE_URL  e.g. https://your-app.vercel.app
- *   SPX_ENGINE_SECRET  shared secret to authenticate internal calls
+ *   SPX_ENGINE_SECRET  optional. If unset, the service-role key is used as the
+ *                      internal auth secret (the app accepts either).
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -87,12 +88,15 @@ Deno.serve(async (req: Request) => {
     // ── 3. Call intelligence pipeline ────────────────────────────────────────
     const signalUrl = `${appBaseUrl}/api/spx/signal?skipWalls=false&skipContracts=false`;
 
+    // Authenticate the internal call. Prefer an explicit SPX_ENGINE_SECRET;
+    // otherwise fall back to the service-role key, which the app also holds.
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "Cache-Control": "no-cache",
     };
-    if (engineSecret) {
-      headers["X-SPX-Engine-Secret"] = engineSecret;
+    const internalSecret = engineSecret || serviceKey;
+    if (internalSecret) {
+      headers["X-SPX-Engine-Secret"] = internalSecret;
     }
 
     const startMs = Date.now();
