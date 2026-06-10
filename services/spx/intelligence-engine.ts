@@ -160,8 +160,13 @@ function buildRankingConfig(
     expiryPreference: features.chain.is0DTE ? '0DTE' : features.chain.is1DTE ? '1DTE' : 'weekly',
     minDTE: 0,
     maxDTE: features.chain.is0DTE ? 0 : 7,
-    minDelta: isShockSignal ? 0.20 : 0.15,   // slightly wider for shock/acceleration plays
-    maxDelta: isShockSignal ? 0.55 : 0.60,
+    // Scan a WIDER strike band so the ranker also evaluates farther OTM (and
+    // deeper ITM) calls & puts, not just the near-ATM cluster.
+    strikeBandPct: features.chain.is0DTE ? 0.12 : 0.30,
+    // Lower min delta opens up farther OTM strikes; higher max delta keeps the
+    // nearer ITM strikes in play. Liquidity/spread filters still trim the set.
+    minDelta: isShockSignal ? 0.12 : 0.08,
+    maxDelta: isShockSignal ? 0.70 : 0.75,
     maxSpreadPct: features.chain.is0DTE ? 40 : 30,
     minOI: features.chain.is0DTE ? 100 : 500,
     minVolume: features.chain.is0DTE ? 50 : 100,

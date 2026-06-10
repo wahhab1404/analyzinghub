@@ -58,7 +58,12 @@ function getServiceRoleClient() {
 
 async function polygonFetch(path: string): Promise<any> {
   if (!POLYGON_API_KEY) throw new Error('POLYGON_API_KEY not configured');
-  const url = `${POLYGON_BASE_URL}${path}${path.includes('?') ? '&' : '?'}apiKey=${POLYGON_API_KEY}`;
+  // `path` may be a relative API path or a fully-qualified next_url returned by
+  // Polygon's pagination. Only prepend the base URL for relative paths.
+  const base = path.startsWith('http') ? path : `${POLYGON_BASE_URL}${path}`;
+  const url = base.includes('apiKey=')
+    ? base
+    : `${base}${base.includes('?') ? '&' : '?'}apiKey=${POLYGON_API_KEY}`;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetch(url, {
@@ -138,9 +143,12 @@ async function fetchChainForRanking(config: ContractRankingConfig): Promise<RawC
   const maxDate = new Date(today);
   maxDate.setDate(today.getDate() + maxDTE);
 
-  // Strike band based on delta range
-  // For a delta target of [0.15, 0.60], strikes span roughly ATM±15%
-  const bandPct = 0.15;
+  // Strike band — how far from ATM to scan strikes for both calls & puts.
+  // Widened so the engine also considers FARTHER OTM (and deeper ITM) strikes;
+  // the delta / liquidity / spread filters downstream still trim the set, so a
+  // wider net just gives those filters more candidates to choose from.
+  // Caller may override via config.strikeBandPct.
+  const bandPct = config.strikeBandPct ?? 0.30;
   const minStrike = (underlyingPrice * (1 - bandPct)).toFixed(0);
   const maxStrike = (underlyingPrice * (1 + bandPct)).toFixed(0);
 
@@ -150,12 +158,26 @@ async function fetchChainForRanking(config: ContractRankingConfig): Promise<RawC
     'strike_price.lte': maxStrike,
     'expiration_date.gte': minDate.toISOString().split('T')[0],
     'expiration_date.lte': maxDate.toISOString().split('T')[0],
+    order: 'asc',
+    sort: 'strike_price',
     limit: '250',
   });
 
   const underlying = config.underlying.replace(/^I:/, '');
-  const data = await polygonFetch(`/v3/snapshot/options/${underlying}?${params.toString()}`);
-  return data.results ?? [];
+
+  // Paginate across the (now wider) strike band. A single 250-row page can be
+  // exhausted before reaching the farther OTM strikes, which would silently
+  // truncate exactly the contracts we widened the band to capture. Follow
+  // next_url up to a safe cap so calls AND puts both see their far strikes.
+  const MAX_PAGES = 6;
+  const all: RawContract[] = [];
+  let next: string | null = `/v3/snapshot/options/${underlying}?${params.toString()}`;
+  for (let page = 0; page < MAX_PAGES && next; page++) {
+    const data = await polygonFetch(next);
+    if (Array.isArray(data?.results)) all.push(...data.results);
+    next = data?.next_url ?? null;
+  }
+  return all;
 }
 
 // ── SCORING ───────────────────────────────────────────────────────────────────
