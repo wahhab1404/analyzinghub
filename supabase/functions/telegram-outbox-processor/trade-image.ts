@@ -174,12 +174,17 @@ export async function generateTradeImage(
       subText = `+${gainPct.toFixed(1)}%  ·  +$${gainUsd.toFixed(0)} per lot`;
       subColor = C.call;
     } else if (isWinning) {
+      // A "winning trade / milestone" alert celebrates the PEAK the contract
+      // reached (entry → high), not the live price. Using currentPrice here is
+      // wrong when the price has pulled back below the high (e.g. an
+      // out-of-market manual high edit), producing a green "WINNING" card with a
+      // negative P/L. Showcase the peak gain like the new-high / ad cards.
       badgeText = `${testPrefix}WINNING TRADE`;
       badgeColor = C.call; badgeBg = C.callBg; badgeBd = C.callBd;
-      bigLabel = "Current Price";
-      bigValue = `$${fmt(currentPrice)}`;
+      bigLabel = "Contract High";
+      bigValue = `$${fmt(dispHigh)}`;
       bigColor = C.call;
-      subText = `+${pnlPct.toFixed(1)}%  ·  +$${pnlUsd.toFixed(0)} per lot`;
+      subText = `+${gainPct.toFixed(1)}%  ·  +$${gainUsd.toFixed(0)} per lot`;
       subColor = C.call;
     } else {
       badgeText = `${testPrefix}NEW TRADE`;
@@ -203,9 +208,12 @@ export async function generateTradeImage(
       cards.push(statCard("Max Gain", `+${gainPct.toFixed(2)}%`, C.gold, C.goldBg, C.goldBd));
       cards.push(statCard("P/L (1 lot)", `+$${gainUsd.toFixed(0)}`, C.call, C.callBg, C.callBd));
     } else if (isWinning) {
+      // Peak-based stats so the WINNING card is internally consistent (mirrors
+      // the ad card): entry → high → max gain → peak P/L, always positive.
       cards.push(statCard("Entry", `$${fmt(entryPrice)}`, C.textSub, C.card, C.border));
-      cards.push(statCard("High", `$${fmt(highSince)}`, C.gold, C.goldBg, C.goldBd));
-      cards.push(statCard("P/L (1 lot)", `${pnlUsd >= 0 ? "+" : "-"}$${Math.abs(pnlUsd).toFixed(0)}`, pnlUsd >= 0 ? C.call : C.put, pnlUsd >= 0 ? C.callBg : C.putBg, pnlUsd >= 0 ? C.callBd : C.putBd));
+      cards.push(statCard("High", `$${fmt(dispHigh)}`, C.call, C.callBg, C.callBd));
+      cards.push(statCard("Max Gain", `+${gainPct.toFixed(2)}%`, C.call, C.callBg, C.callBd));
+      cards.push(statCard("P/L (1 lot)", `+$${gainUsd.toFixed(0)}`, C.call, C.callBg, C.callBd));
     } else {
       const bid = safeNum(snap.bid);
       const ask = safeNum(snap.ask);
