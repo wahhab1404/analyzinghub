@@ -80,15 +80,14 @@ Deno.serve(async (req: Request) => {
     const signalUrl = `${appBaseUrl}/api/spx/signal?skipWalls=false&skipContracts=false`;
 
     // Authenticate the internal call. Prefer an explicit SPX_ENGINE_SECRET;
-    // otherwise fall back to the service-role key, which the app also holds.
+    // otherwise use INTERNAL_ENGINE_TOKEN — a fixed token the /api/spx/signal
+    // route also accepts (shared in code), so this works with zero env setup
+    // and regardless of service-role key format.
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "Cache-Control": "no-cache",
     };
-    const internalSecret = engineSecret || serviceKey;
-    if (internalSecret) {
-      headers["X-SPX-Engine-Secret"] = internalSecret;
-    }
+    headers["X-SPX-Engine-Secret"] = engineSecret || "spx-engine-internal-aH7kQ2mZ9pX4vR8nL3wT6yB";
 
     const startMs = Date.now();
     const res = await fetch(signalUrl, {

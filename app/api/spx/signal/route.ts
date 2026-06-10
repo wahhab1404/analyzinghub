@@ -23,6 +23,11 @@ import { runIntelligenceEngine } from '@/services/spx/intelligence-engine';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+// Fixed internal token shared (in code) with the spx-engine-runner edge
+// function so the scheduled engine call authenticates without any env setup.
+// Low-impact: only authorizes triggering the read-only intelligence pipeline.
+const INTERNAL_ENGINE_TOKEN = 'spx-engine-internal-aH7kQ2mZ9pX4vR8nL3wT6yB';
+
 export async function GET(request: NextRequest) {
   try {
     // Internal cron access: the spx-engine-runner edge function calls this
@@ -30,14 +35,18 @@ export async function GET(request: NextRequest) {
     // bypass the cron always received 401 and the engine never ran
     // automatically — it only ran while an admin had the Live panel open.
     //
-    // The header is accepted when it matches EITHER an explicitly configured
-    // SPX_ENGINE_SECRET, OR the Supabase service-role key. Both the app and the
-    // edge function already hold SUPABASE_SERVICE_ROLE_KEY, so the cron works
-    // out of the box without provisioning a separate shared secret.
+    // The header is accepted when it matches any of:
+    //   1. SPX_ENGINE_SECRET env (if configured), or
+    //   2. the Supabase service-role key env, or
+    //   3. INTERNAL_ENGINE_TOKEN — a fixed token shared in code with the edge
+    //      function. This guarantees a match with zero env configuration and
+    //      regardless of service-role key format/rotation. It is low-impact:
+    //      it only permits triggering the read-only analysis engine.
     const providedSecret = request.headers.get('x-spx-engine-secret');
     const engineSecret = process.env.SPX_ENGINE_SECRET;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const isEngineCall = !!providedSecret && (
+      providedSecret === INTERNAL_ENGINE_TOKEN ||
       (!!engineSecret && providedSecret === engineSecret) ||
       (!!serviceRoleKey && providedSecret === serviceRoleKey)
     );
