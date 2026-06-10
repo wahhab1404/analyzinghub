@@ -209,8 +209,13 @@ async function processTradeMessage(
   const isNewHigh = msgType === 'new_high';
   const isWinning = msgType === 'winning_trade' || msgType === 'milestone';
   const isTesting = payload?.isTestingMode ?? false;
+  // Winning/milestone alerts also need the peak so their P/L reflects the
+  // achievement (entry → high), not the stale current price — which can be a
+  // loss out-of-market after a manual high edit.
   const highPrice: number | undefined =
-    isNewHigh ? (payload?.highPrice ?? trade?.contract_high_since ?? undefined) : undefined;
+    (isNewHigh || isWinning)
+      ? (payload?.highPrice ?? trade?.contract_high_since ?? trade?.max_contract_price ?? undefined)
+      : undefined;
 
   // When the tracker detects a higher peak it asks us to EDIT the existing
   // new-high message in place (live update) rather than post a new one.
@@ -537,13 +542,19 @@ function buildTradeCaption(
   }
 
   caption += `<b>Entry | الدخول:</b> $${entryPrice.toFixed(2)}\n`;
-  caption += `<b>Current | الحالي:</b> $${currentPrice.toFixed(2)}\n`;
 
   if (isWinning) {
-    const pnl       = (currentPrice - entryPrice) * (trade?.qty ?? 1) * 100;
-    const pnlPct    = entryPrice > 0 ? ((currentPrice - entryPrice) / entryPrice * 100).toFixed(2) : '0';
-    caption += `<b>P/L | الربح/الخسارة:</b> $${pnl.toFixed(2)} (+${pnlPct}%)\n`;
+    // The milestone celebrates the PEAK the contract reached. Base the P/L on
+    // the high — not the (possibly stale/losing) current price — so the alert is
+    // internally consistent out-of-market.
+    const peakPrice = highPrice ?? trade?.contract_high_since ?? trade?.max_contract_price ?? currentPrice;
+    const pnl       = (peakPrice - entryPrice) * (trade?.qty ?? 1) * 100;
+    const pnlPct    = entryPrice > 0 ? ((peakPrice - entryPrice) / entryPrice * 100).toFixed(2) : '0';
+    caption += `<b>Peak | القمة:</b> $${peakPrice.toFixed(2)}\n`;
+    caption += `<b>P/L | الربح/الخسارة:</b> +$${pnl.toFixed(2)} (+${pnlPct}%)\n`;
     caption += `<b>🎊 Reached $100+ profit milestone! | تم الوصول لربح +$100!</b>\n`;
+  } else {
+    caption += `<b>Current | الحالي:</b> $${currentPrice.toFixed(2)}\n`;
   }
 
   if (trade?.qty) {
