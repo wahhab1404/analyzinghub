@@ -136,9 +136,10 @@ export async function GET(req: NextRequest) {
                     { type: 'div', props: {
                       style: { display: 'flex', flexDirection: 'column', width: 320 },
                       children: [
-                        { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 }, children: 'Profit / Loss' } },
-                        { type: 'div', props: { style: { fontSize: 88, fontWeight: 900, color: pnlColor, lineHeight: 1, letterSpacing: '-3px' }, children: `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%` } },
-                        { type: 'div', props: { style: { fontSize: 18, fontWeight: 700, color: C.textSub, marginTop: 10 }, children: `${dirEmoji} ${typeLabel} · ${dte}DTE` } },
+                        { type: 'div', props: { style: { fontSize: 12, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 4 }, children: isStop ? 'Exit Price' : 'Current Price' } },
+                        { type: 'div', props: { style: { fontSize: 88, fontWeight: 900, color: C.text, lineHeight: 1, letterSpacing: '-3px' }, children: `$${fmt(nowP)}` } },
+                        { type: 'div', props: { style: { fontSize: 30, fontWeight: 800, color: pnlColor, marginTop: 8 }, children: `${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}%` } },
+                        { type: 'div', props: { style: { fontSize: 16, fontWeight: 700, color: C.textSub, marginTop: 6 }, children: `${dirEmoji} ${typeLabel} · ${dte}DTE` } },
                       ],
                     }},
                     { type: 'div', props: {
