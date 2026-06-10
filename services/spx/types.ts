@@ -576,6 +576,12 @@ export interface ContractRankingConfig {
   minDelta?: number;   // absolute value (e.g. 0.15)
   maxDelta?: number;   // absolute value (e.g. 0.60)
 
+  // Strike search width — how far from ATM to fetch strikes for calls & puts.
+  // Expressed as a fraction of the underlying price (e.g. 0.30 = ATM ±30%).
+  // Larger values scan farther OTM/ITM strikes; the delta/liquidity filters
+  // still trim the final candidate set.
+  strikeBandPct?: number;
+
   // Quality filters
   maxSpreadPct?: number;   // e.g. 30 = max 30% spread-to-mid ratio
   minOI?: number;

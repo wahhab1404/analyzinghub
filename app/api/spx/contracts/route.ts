@@ -12,6 +12,7 @@
  *   maxDTE: 7
  *   minDelta: 0.15
  *   maxDelta: 0.60
+ *   strikeBandPct: 0.30        — how far from ATM to scan strikes (fraction of price)
  *   maxSpreadPct: 30
  *   minOI: 100
  *   minVolume: 50
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
       maxDTE: params.get('maxDTE') ? parseInt(params.get('maxDTE')!) : undefined,
       minDelta: params.get('minDelta') ? parseFloat(params.get('minDelta')!) : undefined,
       maxDelta: params.get('maxDelta') ? parseFloat(params.get('maxDelta')!) : undefined,
+      strikeBandPct: params.get('strikeBandPct') ? parseFloat(params.get('strikeBandPct')!) : undefined,
       maxSpreadPct: params.get('maxSpreadPct') ? parseFloat(params.get('maxSpreadPct')!) : undefined,
       minOI: params.get('minOI') ? parseInt(params.get('minOI')!) : undefined,
       minVolume: params.get('minVolume') ? parseInt(params.get('minVolume')!) : undefined,
