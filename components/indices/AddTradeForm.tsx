@@ -313,8 +313,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -325,8 +325,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -385,8 +385,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -441,8 +441,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -453,8 +453,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -537,8 +537,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           minDTE: minDTE.toString(),
           maxDTE: maxDTE.toString(),
           maxExpirations: '5',
-          strikesPerExpiration: '20',
-          percentBand: '0.15',
+          strikesPerExpiration: '50',
+          percentBand: '0.20',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -646,7 +646,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const loadMoreStrikes = (expirationDate: string) => {
     setVisibleStrikesPerExpiration(prev => ({
       ...prev,
-      [expirationDate]: (prev[expirationDate] || 8) + 7
+      [expirationDate]: (prev[expirationDate] || 12) + 15
     }))
   }
 
@@ -1330,7 +1330,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               }}
                               className="w-full"
                             >
-                              Load 7 More Contracts ({group.strikes.length - visibleCount} remaining)
+                              Load More Contracts ({group.strikes.length - visibleCount} remaining)
                             </Button>
                           )}
                         </div>
