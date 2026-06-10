@@ -565,7 +565,7 @@ export default function IndicesHubPage() {
               </div>
 
               {/* Tab Content Area */}
-              <div className="flex-1 overflow-y-auto min-h-0">
+              <div className="flex-1 overflow-y-auto min-h-0 pb-20 md:pb-0">
 
                 {/* ── OVERVIEW TAB ── */}
                 {activeTab === 'overview' && <OverviewTab language={language} />}
@@ -1230,7 +1230,7 @@ export default function IndicesHubPage() {
 
           {/* ── MANAGE TRADES VIEW ── */}
           {currentView === 'manage-trades' && selectedAnalysisId && (
-            <div className="flex-1 overflow-y-auto min-h-0 p-4">
+            <div className="flex-1 overflow-y-auto min-h-0 p-4 pb-20 md:pb-4">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
                   <button
@@ -1281,7 +1281,7 @@ export default function IndicesHubPage() {
 
           {/* ── MONITOR TRADE VIEW ── */}
           {currentView === 'monitor-trade' && selectedTradeId && (
-            <div className="flex-1 overflow-y-auto min-h-0 p-4">
+            <div className="flex-1 overflow-y-auto min-h-0 p-4 pb-20 md:pb-4">
               <TradeMonitor
                 tradeId={selectedTradeId}
                 onBack={handleBackToTrades}

@@ -214,7 +214,7 @@ export function MobileTabBar({
   }
 
   return (
-    <div className="md:hidden flex-shrink-0 border-t border-[#1a2840] bg-[#0b1220] safe-area-inset-bottom">
+    <div className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-[#1a2840] bg-[#0b1220] safe-area-inset-bottom">
       <div className="flex items-center justify-around px-2 h-14">
         {TABS.map((tab) => {
           const Icon = tab.icon

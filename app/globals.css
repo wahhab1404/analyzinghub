@@ -209,6 +209,11 @@
    ============================================ */
 @layer components {
 
+  /* iOS safe-area padding for fixed bottom bars (home indicator) */
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
   /* Professional number display — monospace, right-aligned */
   .trade-number {
     font-variant-numeric: tabular-nums;
