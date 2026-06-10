@@ -68,7 +68,9 @@ export async function GET(req: NextRequest) {
     const accentBg  = isCall ? C.callBg : C.putBg;
     const accentBd  = isCall ? C.callBd : C.putBd;
     const typeLabel = isCall ? 'CALL' : 'PUT';
-    const dirEmoji  = isCall ? '▲' : '▼';
+    // Use emoji (rendered by the OG image renderer) rather than ▲/▼ geometric
+    // glyphs, which fall back to the text font and show as a tofu box (□).
+    const dirEmoji  = isCall ? '🟢' : '🔴';
     const entryMid  = Number(trade.current_premium ?? 0);
     const strike    = Number(trade.strike ?? 0);
     const dte       = Number(trade.dte ?? 0);
