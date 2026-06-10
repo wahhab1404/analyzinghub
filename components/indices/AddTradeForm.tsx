@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -640,7 +640,49 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       }
     })
 
-    return Array.from(strikeMap.values()).sort((a, b) => b.strike - a.strike)
+    return Array.from(strikeMap.values()).sort((a, b) => a.strike - b.strike)
+  }
+
+  // Return a window of `count` items centered on the strike nearest the live
+  // underlying price, so the ATM strike sits in the middle (ITM on one side,
+  // OTM on the other) instead of the list starting at the farthest strike.
+  const centerWindow = <T extends { strike: number }>(
+    items: T[],
+    price: number | null,
+    count: number
+  ): T[] => {
+    if (items.length <= count) return items
+    if (!price) return items.slice(0, count)
+
+    let atmIdx = 0
+    let best = Infinity
+    items.forEach((it, i) => {
+      const d = Math.abs(it.strike - price)
+      if (d < best) { best = d; atmIdx = i }
+    })
+
+    const half = Math.floor(count / 2)
+    let start = atmIdx - half
+    let end = start + count
+    if (start < 0) { end -= start; start = 0 }
+    if (end > items.length) { start = Math.max(0, start - (end - items.length)); end = items.length }
+    return items.slice(start, end)
+  }
+
+  // Strike nearest the underlying price within a list (used to anchor the ATM
+  // divider and highlight).
+  const nearestStrike = (items: { strike: number }[], price: number | null): number | null => {
+    if (!price || items.length === 0) return null
+    return items.reduce(
+      (best, it) => (Math.abs(it.strike - price) < Math.abs(best - price) ? it.strike : best),
+      items[0].strike
+    )
+  }
+
+  // In-the-money test for a strike given the contract type and live price.
+  const isITM = (strike: number, type: 'call' | 'put', price: number | null): boolean => {
+    if (!price) return false
+    return type === 'call' ? strike < price : strike > price
   }
 
   const loadMoreStrikes = (expirationDate: string) => {
@@ -1156,33 +1198,58 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       const putGroup = putsData[idx]
                       const visibleCount = visibleStrikesPerExpiration[callGroup.expirationDate] || 12
                       const strikeRows = mergeStrikesForDisplay(callGroup, putGroup)
-                      const visibleRows = strikeRows.slice(0, visibleCount)
-                      const hasMore = visibleCount < strikeRows.length
+                      const visibleRows = centerWindow(strikeRows, indexPrice, visibleCount)
+                      const hasMore = visibleRows.length < strikeRows.length
+                      const atmRowStrike = nearestStrike(strikeRows, indexPrice)
 
                       return (
                         <TabsContent key={callGroup.expirationDate} value={callGroup.expirationDate} className="space-y-2">
                           <div className="text-xs text-muted-foreground mb-2">
                             {strikeRows.length} strike levels • Expires in {callGroup.dte} day{callGroup.dte !== 1 ? 's' : ''}
-                            {hasMore && <span className="ml-2">(Showing nearest {visibleCount} strikes)</span>}
+                            {hasMore && <span className="ml-2">(ATM-centered · {visibleRows.length} shown)</span>}
                           </div>
                           <div className="max-h-[500px] overflow-y-auto">
                             <div className="grid grid-cols-2 gap-2 mb-2 text-xs font-semibold text-center sticky top-0 bg-background z-10 pb-2">
                               <div className="text-green-600 dark:text-green-400">CALLS</div>
                               <div className="text-red-600 dark:text-red-400">PUTS</div>
                             </div>
-                            {visibleRows.map((row) => (
-                              <div key={row.strike} className="grid grid-cols-2 gap-2 mb-2">
+                            {visibleRows.map((row, i) => {
+                              const callItm = isITM(row.strike, 'call', indexPrice)
+                              const putItm = isITM(row.strike, 'put', indexPrice)
+                              const isAtm = atmRowStrike != null && row.strike === atmRowStrike
+                              const prev = visibleRows[i - 1]
+                              const showDivider =
+                                indexPrice != null &&
+                                row.strike >= indexPrice &&
+                                (i === 0 || (prev && prev.strike < indexPrice))
+                              return (
+                              <Fragment key={row.strike}>
+                                {showDivider && (
+                                  <div className="flex items-center gap-2 py-1 my-1">
+                                    <div className="flex-1 h-px bg-primary/40" />
+                                    <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
+                                      {formData.underlying_index_symbol} ${indexPrice.toFixed(2)} · ATM
+                                    </span>
+                                    <div className="flex-1 h-px bg-primary/40" />
+                                  </div>
+                                )}
+                              <div className={`grid grid-cols-2 gap-2 mb-2 ${isAtm ? 'rounded-lg ring-1 ring-primary/40 p-0.5' : ''}`}>
                                 {row.call ? (
                                   <Card
                                     className={`cursor-pointer transition-colors ${
                                       selectedContract?.ticker === row.call.ticker
                                         ? 'border-green-500 bg-green-50 dark:bg-green-950/20 ring-2 ring-green-500'
+                                        : callItm
+                                        ? 'bg-green-50/40 dark:bg-green-950/20 border-green-300/60 dark:border-green-900 hover:bg-green-100/50'
                                         : 'hover:bg-muted/50 border-green-200 dark:border-green-900'
                                     }`}
                                     onClick={() => selectContract(row.call!)}
                                   >
                                     <CardContent className="p-2">
-                                      <div className="text-xs font-bold text-green-600 dark:text-green-400">${row.call.strike}</div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs font-bold text-green-600 dark:text-green-400">${row.call.strike}</span>
+                                        <span className="text-[8px] text-muted-foreground">{callItm ? 'ITM' : 'OTM'}</span>
+                                      </div>
                                       <div className="text-lg font-bold">${(row.call.mid || 0).toFixed(2)}</div>
                                       <div className="text-[10px] text-muted-foreground">{row.call.delta ? `Δ ${row.call.delta.toFixed(3)}` : ''}</div>
                                     </CardContent>
@@ -1197,12 +1264,17 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                     className={`cursor-pointer transition-colors ${
                                       selectedContract?.ticker === row.put.ticker
                                         ? 'border-red-500 bg-red-50 dark:bg-red-950/20 ring-2 ring-red-500'
+                                        : putItm
+                                        ? 'bg-red-50/40 dark:bg-red-950/20 border-red-300/60 dark:border-red-900 hover:bg-red-100/50'
                                         : 'hover:bg-muted/50 border-red-200 dark:border-red-900'
                                     }`}
                                     onClick={() => selectContract(row.put!)}
                                   >
                                     <CardContent className="p-2">
-                                      <div className="text-xs font-bold text-red-600 dark:text-red-400">${row.put.strike}</div>
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-xs font-bold text-red-600 dark:text-red-400">${row.put.strike}</span>
+                                        <span className="text-[8px] text-muted-foreground">{putItm ? 'ITM' : 'OTM'}</span>
+                                      </div>
                                       <div className="text-lg font-bold">${(row.put.mid || 0).toFixed(2)}</div>
                                       <div className="text-[10px] text-muted-foreground">{row.put.delta ? `Δ ${row.put.delta.toFixed(3)}` : ''}</div>
                                     </CardContent>
@@ -1213,7 +1285,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                   </div>
                                 )}
                               </div>
-                            ))}
+                              </Fragment>
+                              )
+                            })}
                           </div>
                           {hasMore && (
                             <Button
@@ -1223,7 +1297,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               onClick={() => loadMoreStrikes(callGroup.expirationDate)}
                               className="w-full"
                             >
-                              Load More Strikes ({strikeRows.length - visibleCount} remaining)
+                              Show More Strikes ({strikeRows.length - visibleRows.length} remaining)
                             </Button>
                           )}
                         </TabsContent>
@@ -1260,23 +1334,46 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                     </TabsList>
                     {expirationGroups.map((group) => {
                       const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 12
-                      const visibleStrikes = group.strikes.slice(0, visibleCount)
-                      const hasMore = visibleCount < group.strikes.length
+                      const visibleStrikes = centerWindow(group.strikes, indexPrice, visibleCount)
+                      const hasMore = visibleStrikes.length < group.strikes.length
+                      const optType = (group.strikes[0]?.type || formData.option_type || 'call') as 'call' | 'put'
+                      const atmStrike = nearestStrike(group.strikes, indexPrice)
 
                       return (
                       <TabsContent key={group.expirationDate} value={group.expirationDate} className="space-y-2">
                         <div className="text-xs text-muted-foreground mb-2">
                           {group.strikes.length} contract{group.strikes.length !== 1 ? 's' : ''} • Expires in {group.dte} day{group.dte !== 1 ? 's' : ''}
-                          {hasMore && <span className="ml-2">(Showing nearest {visibleCount} contracts)</span>}
+                          {hasMore && <span className="ml-2">(ATM-centered · {visibleStrikes.length} shown)</span>}
                         </div>
                         <div className="space-y-2">
                           <div className="grid gap-2 max-h-80 overflow-y-auto pb-2">
-                          {visibleStrikes.map((contract) => (
+                          {visibleStrikes.map((contract, i) => {
+                            const itm = isITM(contract.strike, optType, indexPrice)
+                            const isAtm = atmStrike != null && contract.strike === atmStrike
+                            const prev = visibleStrikes[i - 1]
+                            const showDivider =
+                              indexPrice != null &&
+                              contract.strike >= indexPrice &&
+                              (i === 0 || (prev && prev.strike < indexPrice))
+                            return (
+                            <Fragment key={contract.ticker}>
+                              {showDivider && (
+                                <div className="flex items-center gap-2 py-1 my-1">
+                                  <div className="flex-1 h-px bg-primary/40" />
+                                  <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
+                                    {formData.underlying_index_symbol} ${indexPrice.toFixed(2)} · ATM
+                                  </span>
+                                  <div className="flex-1 h-px bg-primary/40" />
+                                </div>
+                              )}
                             <Card
-                              key={contract.ticker}
                               className={`cursor-pointer transition-colors ${
                                 selectedContract?.ticker === contract.ticker
                                   ? 'border-primary bg-primary/5 ring-2 ring-primary'
+                                  : isAtm
+                                  ? 'border-primary/60 ring-1 ring-primary/40 hover:bg-muted/50'
+                                  : itm
+                                  ? 'bg-blue-50/60 dark:bg-blue-950/30 border-blue-200/60 dark:border-blue-900/50 hover:bg-blue-100/60 dark:hover:bg-blue-950/50'
                                   : 'hover:bg-muted/50'
                               }`}
                               onClick={() => selectContract(contract)}
@@ -1284,7 +1381,15 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               <CardContent className="p-3">
                                 <div className="flex items-center justify-between">
                                   <div className="flex-1">
-                                    <div className="font-medium text-sm">{formData.underlying_index_symbol} ${contract.strike}</div>
+                                    <div className="font-medium text-sm flex items-center gap-1.5">
+                                      {formData.underlying_index_symbol} ${contract.strike}
+                                      <Badge
+                                        variant="outline"
+                                        className={`text-[9px] px-1 py-0 ${itm ? 'text-blue-600 dark:text-blue-400 border-blue-400/50' : 'text-muted-foreground'}`}
+                                      >
+                                        {itm ? 'ITM' : 'OTM'}
+                                      </Badge>
+                                    </div>
                                     <div className="text-xs text-muted-foreground font-mono mt-0.5">
                                       {contract.ticker}
                                     </div>
@@ -1305,8 +1410,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                   </div>
                                   <div className="text-right ml-3">
                                     <div className="text-lg font-bold">${(contract.mid || 0).toFixed(2)}</div>
-                                    <div className="text-[10px] text-muted-foreground">
-                                      ${(contract.bid || 0).toFixed(2)} × ${(contract.ask || 0).toFixed(2)}
+                                    <div className="text-[10px]">
+                                      <span className="text-green-600 dark:text-green-400">${(contract.bid || 0).toFixed(2)}</span>
+                                      <span className="text-muted-foreground"> × </span>
+                                      <span className="text-red-600 dark:text-red-400">${(contract.ask || 0).toFixed(2)}</span>
                                     </div>
                                     <div className="text-[10px] text-muted-foreground mt-0.5">
                                       Vol: {(contract.volume || 0).toLocaleString()} OI: {(contract.openInterest || 0).toLocaleString()}
@@ -1315,7 +1422,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                 </div>
                               </CardContent>
                             </Card>
-                          ))}
+                            </Fragment>
+                            )
+                          })}
                           </div>
 
                           {hasMore && (
@@ -1330,7 +1439,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               }}
                               className="w-full"
                             >
-                              Load More Contracts ({group.strikes.length - visibleCount} remaining)
+                              Show More Strikes ({group.strikes.length - visibleStrikes.length} remaining)
                             </Button>
                           )}
                         </div>

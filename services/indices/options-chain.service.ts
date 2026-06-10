@@ -287,20 +287,28 @@ class OptionsChainService {
       return distA - distB;
     });
 
-    // Build selection: prioritize OTM, include 1 ITM if requested
-    let selected: any[] = [];
+    // Build a BALANCED, ATM-centered ladder. Previously this returned 1 ITM +
+    // the rest OTM, which pushed the ATM strike to one edge of the list. Taking
+    // a roughly equal number of OTM and ITM strikes around the money keeps the
+    // ATM strike in the visual center, with ITM/OTM falling naturally on either
+    // side per contract type.
+    let selected: any[];
 
-    if (includeOneITM && itm.length > 0) {
-      // Include closest ITM strike
-      selected.push(itm[0]);
-      // Fill rest with OTM
-      selected.push(...otm.slice(0, strikesCount - 1));
-    } else {
-      // All OTM strikes
+    if (includeOneITM === false) {
+      // OTM-only mode (kept for callers that explicitly opt out of ITM)
       selected = otm.slice(0, strikesCount);
+    } else {
+      // Give the spare strike (for odd counts) to the OTM side.
+      const otmCount = Math.ceil(strikesCount / 2);
+      const otmSel = otm.slice(0, otmCount);
+      const itmSel = itm.slice(0, strikesCount - otmSel.length);
+      selected = [...otmSel, ...itmSel];
     }
 
-    // Sort final selection by strike (ascending) for display
+    // Sort ascending by strike (lowest on top, highest at bottom) so the chain
+    // reads like a standard options ladder. The UI inserts the live-price
+    // divider where the strikes cross the underlying, keeping ATM centered with
+    // ITM on one side and OTM on the other per contract type.
     selected.sort((a, b) => a.details.strike_price - b.details.strike_price);
 
     // Map to StrikeContract format
