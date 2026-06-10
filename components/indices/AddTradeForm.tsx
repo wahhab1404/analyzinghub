@@ -88,6 +88,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     message: string
   } | null>(null)
   const [indexPrice, setIndexPrice] = useState<number | null>(null)
+  // Underlying price reported by the options-chain API. Used as a fallback
+  // anchor for ATM-centering when the live index price is unavailable (e.g.
+  // pre-market / market closed), so the ladder still centers correctly.
+  const [chainPrice, setChainPrice] = useState<number | null>(null)
   const [loadingIndexPrice, setLoadingIndexPrice] = useState(false)
   const [lastPriceUpdate, setLastPriceUpdate] = useState<Date | null>(null)
   const [reentryDialogOpen, setReentryDialogOpen] = useState(false)
@@ -374,6 +378,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               })),
             }))
             setPutsData(transformedPuts)
+            setChainPrice(callData.underlyingPrice ?? putData.underlyingPrice ?? null)
             setLastPriceUpdate(new Date())
           }
         }
@@ -412,6 +417,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               })),
             }))
             setExpirationGroups(transformedGroups)
+            setChainPrice(data.underlyingPrice ?? null)
             setLastPriceUpdate(new Date())
           }
         }
@@ -502,6 +508,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               })),
             }))
             setPutsData(transformedPuts)
+            setChainPrice(callData.underlyingPrice ?? putData.underlyingPrice ?? null)
 
             // Initialize visible strikes to 12 for each expiration
             const initialVisible: Record<string, number> = {}
@@ -564,6 +571,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               })),
             }))
             setExpirationGroups(transformedGroups)
+            setChainPrice(data.underlyingPrice ?? null)
 
             // Initialize visible strikes to 12 for each expiration
             const initialVisible: Record<string, number> = {}
@@ -907,6 +915,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     return { label: 'Closed', icon: XCircle, color: 'text-red-500', border: 'border-red-500', bg: 'bg-red-50 dark:bg-red-950/20' }
   })()
 
+  // Effective ATM anchor: prefer the live index price, fall back to the
+  // underlying price reported by the options-chain API (works pre-market).
+  const atmPrice = indexPrice ?? chainPrice
+
   return (
     <>
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -1198,9 +1210,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       const putGroup = putsData[idx]
                       const visibleCount = visibleStrikesPerExpiration[callGroup.expirationDate] || 12
                       const strikeRows = mergeStrikesForDisplay(callGroup, putGroup)
-                      const visibleRows = centerWindow(strikeRows, indexPrice, visibleCount)
+                      const visibleRows = centerWindow(strikeRows, atmPrice, visibleCount)
                       const hasMore = visibleRows.length < strikeRows.length
-                      const atmRowStrike = nearestStrike(strikeRows, indexPrice)
+                      const atmRowStrike = nearestStrike(strikeRows, atmPrice)
 
                       return (
                         <TabsContent key={callGroup.expirationDate} value={callGroup.expirationDate} className="space-y-2">
@@ -1214,21 +1226,21 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               <div className="text-red-600 dark:text-red-400">PUTS</div>
                             </div>
                             {visibleRows.map((row, i) => {
-                              const callItm = isITM(row.strike, 'call', indexPrice)
-                              const putItm = isITM(row.strike, 'put', indexPrice)
+                              const callItm = isITM(row.strike, 'call', atmPrice)
+                              const putItm = isITM(row.strike, 'put', atmPrice)
                               const isAtm = atmRowStrike != null && row.strike === atmRowStrike
                               const prev = visibleRows[i - 1]
                               const showDivider =
-                                indexPrice != null &&
-                                row.strike >= indexPrice &&
-                                (i === 0 || (prev && prev.strike < indexPrice))
+                                atmPrice != null &&
+                                row.strike >= atmPrice &&
+                                (i === 0 || (prev && prev.strike < atmPrice))
                               return (
                               <Fragment key={row.strike}>
                                 {showDivider && (
                                   <div className="flex items-center gap-2 py-1 my-1">
                                     <div className="flex-1 h-px bg-primary/40" />
                                     <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
-                                      {formData.underlying_index_symbol} ${indexPrice.toFixed(2)} · ATM
+                                      {formData.underlying_index_symbol} ${atmPrice.toFixed(2)} · ATM
                                     </span>
                                     <div className="flex-1 h-px bg-primary/40" />
                                   </div>
@@ -1334,10 +1346,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                     </TabsList>
                     {expirationGroups.map((group) => {
                       const visibleCount = visibleStrikesPerExpiration[group.expirationDate] || 12
-                      const visibleStrikes = centerWindow(group.strikes, indexPrice, visibleCount)
+                      const visibleStrikes = centerWindow(group.strikes, atmPrice, visibleCount)
                       const hasMore = visibleStrikes.length < group.strikes.length
                       const optType = (group.strikes[0]?.type || formData.option_type || 'call') as 'call' | 'put'
-                      const atmStrike = nearestStrike(group.strikes, indexPrice)
+                      const atmStrike = nearestStrike(group.strikes, atmPrice)
 
                       return (
                       <TabsContent key={group.expirationDate} value={group.expirationDate} className="space-y-2">
@@ -1348,20 +1360,20 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                         <div className="space-y-2">
                           <div className="grid gap-2 max-h-80 overflow-y-auto pb-2">
                           {visibleStrikes.map((contract, i) => {
-                            const itm = isITM(contract.strike, optType, indexPrice)
+                            const itm = isITM(contract.strike, optType, atmPrice)
                             const isAtm = atmStrike != null && contract.strike === atmStrike
                             const prev = visibleStrikes[i - 1]
                             const showDivider =
-                              indexPrice != null &&
-                              contract.strike >= indexPrice &&
-                              (i === 0 || (prev && prev.strike < indexPrice))
+                              atmPrice != null &&
+                              contract.strike >= atmPrice &&
+                              (i === 0 || (prev && prev.strike < atmPrice))
                             return (
                             <Fragment key={contract.ticker}>
                               {showDivider && (
                                 <div className="flex items-center gap-2 py-1 my-1">
                                   <div className="flex-1 h-px bg-primary/40" />
                                   <span className="text-[11px] font-semibold text-primary whitespace-nowrap">
-                                    {formData.underlying_index_symbol} ${indexPrice.toFixed(2)} · ATM
+                                    {formData.underlying_index_symbol} ${atmPrice.toFixed(2)} · ATM
                                   </span>
                                   <div className="flex-1 h-px bg-primary/40" />
                                 </div>
