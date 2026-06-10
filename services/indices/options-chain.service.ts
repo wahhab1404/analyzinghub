@@ -18,11 +18,11 @@ const POLYGON_BASE_URL = 'https://api.polygon.io';
 
 // Configuration defaults
 const DEFAULT_CONFIG = {
-  percentBand: 0.02, // 2% band around ATM (tighter for better ATM focus)
+  percentBand: 0.10, // 10% band around ATM — scan farther OTM/ITM strikes
   minDTE: 0, // Allow 0DTE
   maxDTE: 45, // 45 days max
   maxExpirations: 5, // Top 5 nearest expirations
-  strikesPerExpiration: 15, // 15 strikes per expiration (show nearest 15)
+  strikesPerExpiration: 40, // strikes per expiration (reach farther from ATM)
   includeOneITM: true, // Include 1 ITM strike
   minVolume: 0, // Minimum volume
   minOpenInterest: 0, // Minimum OI
@@ -376,6 +376,8 @@ class OptionsChainService {
       'strike_price.lte': maxStrike.toFixed(2),
       'expiration_date.gte': minDate.toISOString().split('T')[0],
       'expiration_date.lte': maxDate.toISOString().split('T')[0],
+      order: 'asc',
+      sort: 'strike_price',
       limit: '250', // Polygon max limit is 250
     });
 
@@ -383,13 +385,30 @@ class OptionsChainService {
 
     console.log('[OptionsChain] Fetching from Polygon:', url.replace(POLYGON_API_KEY!, '[REDACTED]'));
 
-    let data;
+    // Paginate across the (wider) strike band. A single 250-row page can be
+    // exhausted before reaching the farther OTM/ITM strikes, which would
+    // silently truncate exactly the strikes a wide percentBand is meant to
+    // surface. Follow next_url up to a safe cap so far strikes show up too.
+    const MAX_PAGES = 8;
+    const allResults: any[] = [];
+    let data: any;
+    let nextUrl: string | null = url;
     try {
-      data = await this.fetchWithRetry(url);
+      for (let page = 0; page < MAX_PAGES && nextUrl; page++) {
+        // next_url is a fully-qualified URL; ensure it carries the apiKey.
+        const fetchUrl = nextUrl.includes('apiKey=')
+          ? nextUrl
+          : `${nextUrl}${nextUrl.includes('?') ? '&' : '?'}apiKey=${POLYGON_API_KEY}`;
+        const pageData = await this.fetchWithRetry(fetchUrl);
+        if (Array.isArray(pageData?.results)) allResults.push(...pageData.results);
+        nextUrl = pageData?.next_url ?? null;
+      }
     } catch (error) {
       console.error('[OptionsChain] Polygon API error:', error);
       throw new Error(`Failed to fetch options chain: ${error}`);
     }
+    data = { results: allResults };
+    console.log('[OptionsChain] Fetched', allResults.length, 'contracts across pages');
 
     if (!data.results || data.results.length === 0) {
       console.warn('[OptionsChain] No contracts returned from Polygon');
