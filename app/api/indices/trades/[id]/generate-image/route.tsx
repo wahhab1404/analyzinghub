@@ -491,7 +491,7 @@ export async function GET(
           },
         },
           // Entry price dominant
-          React.createElement('div', { style: { marginBottom: 14 } },
+          React.createElement('div', { style: { display: 'flex', flexDirection: 'column', marginBottom: 14 } },
             React.createElement('div', {
               style: { fontSize: 11, color: C.textMuted, fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 2 },
             }, 'Entry Price'),
