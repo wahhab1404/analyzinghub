@@ -77,6 +77,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const [putsData, setPutsData] = useState<ExpirationGroup[]>([])
   const [selectedContract, setSelectedContract] = useState<OptionContract | null>(null)
   const [showBothSides, setShowBothSides] = useState(true)
+  // Exclude in-the-money strikes so the chain shows more out-of-the-money
+  // contracts (sends includeOneITM=false to the contracts API → OTM-only).
+  const [otmOnly, setOtmOnly] = useState(false)
   const [datePreset, setDatePreset] = useState<DatePreset>('week')
   const [customDate, setCustomDate] = useState('')
   const [channels, setChannels] = useState<TelegramChannel[]>([])
@@ -160,7 +163,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       return () => clearInterval(refreshInterval)
     }
-  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts, datePreset, showBothSides])
+  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts, datePreset, showBothSides, otmOnly])
 
   useEffect(() => {
     if (formData.underlying_index_symbol) {
@@ -325,6 +328,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -337,6 +341,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -398,6 +403,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           bypassCache: 'true',
           _t: timestamp.toString(),
         })
@@ -455,6 +461,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -467,6 +474,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -552,6 +560,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           maxExpirations: '5',
           strikesPerExpiration: '50',
           percentBand: '0.20',
+          includeOneITM: otmOnly ? 'false' : 'true',
           cacheTTL: '5',
           _t: timestamp.toString(),
         })
@@ -1220,6 +1229,30 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   </Button>
                 </div>
               </div>
+
+              {/* Moneyness filter — exclude ITM so more OTM contracts show */}
+              <label className="flex items-start gap-2 cursor-pointer rounded-md border p-2.5 bg-muted/30">
+                <Checkbox
+                  checked={otmOnly}
+                  onCheckedChange={(checked) => {
+                    setOtmOnly(checked === true)
+                    // Clear current results so the next search reflects the filter.
+                    setExpirationGroups([])
+                    setCallsData([])
+                    setPutsData([])
+                    setSelectedContract(null)
+                  }}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="text-sm font-medium flex items-center gap-2">
+                    استثناء عقود ITM <span className="text-muted-foreground">/ OTM only</span>
+                  </span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">
+                    إظهار عقود خارج السعر فقط (استبعاد العقود داخل السعر) لعرض عدد أكبر من عقود OTM.
+                  </span>
+                </span>
+              </label>
 
               <Button
                 type="button"
