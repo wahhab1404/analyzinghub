@@ -232,7 +232,7 @@ async function runRestFallback(
   const apiKey = Deno.env.get("POLYGON_API_KEY");
   if (!apiKey) return;
 
-  const quote = await fetchPolygonSnapshot(trade.polygon_option_ticker, apiKey);
+  const quote = await fetchPolygonSnapshot(trade.underlying_index_symbol, trade.polygon_option_ticker, apiKey);
   if (!quote) {
     console.log(`⚠️  No snapshot for ${trade.polygon_option_ticker}`);
     return;
@@ -486,32 +486,46 @@ async function handleTradeExpiration(
 // ── POLYGON REST ──────────────────────────────────────────────────────────────
 
 async function fetchPolygonSnapshot(
+  underlyingSymbol: string,
   ticker: string,
   apiKey: string
 ): Promise<{ bid: number; ask: number; mid: number | null; last: number } | null> {
   try {
     const cleanTicker = ticker.startsWith("O:") ? ticker : `O:${ticker}`;
+    // Correct endpoint: /v3/snapshot/options/{underlying}/{optionContract}.
+    // The previous single-arg URL (/v3/snapshot/options/{ticker}) is not a valid
+    // Polygon endpoint, so it returned nothing and the REST fallback could never
+    // refresh prices when the streaming feed went stale — freezing the contract
+    // price at the last (stale) streamed value. The underlying is WITHOUT the
+    // "I:" prefix (e.g. SPX, not I:SPX).
+    const underlying = (underlyingSymbol || "").replace(/^I:/, "");
 
-    const snapshotUrl =
-      `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(cleanTicker)}` +
-      `?apiKey=${apiKey}`;
-    const res = await fetch(snapshotUrl);
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === "OK" && data.results) {
-        const lq   = data.results.last_quote ?? {};
-        const bid  = Number(lq.bid ?? 0);
-        const ask  = Number(lq.ask ?? 0);
-        const last = Number(lq.last_price ?? 0);
-        if (bid > 0 || ask > 0 || last > 0) {
-          const mid = bid > 0 && ask > 0 ? parseFloat(((bid + ask) / 2).toFixed(4)) : null;
-          return { bid, ask, mid, last };
+    if (underlying) {
+      const snapshotUrl =
+        `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(underlying)}/${encodeURIComponent(cleanTicker)}` +
+        `?apiKey=${apiKey}`;
+      const res = await fetch(snapshotUrl);
+      if (res.ok) {
+        const data = await res.json();
+        const r = data.results;
+        if (r) {
+          const lq   = r.last_quote ?? {};
+          const bid  = Number(lq.bid ?? 0);
+          const ask  = Number(lq.ask ?? 0);
+          const lastTrade = Number(r.last_trade?.price ?? r.last?.price ?? 0);
+          const dayClose  = Number(r.day?.close ?? r.session?.close ?? 0);
+          const fmv       = Number(r.fair_market_value ?? 0);
+          const mid = bid > 0 && ask > 0
+            ? parseFloat(((bid + ask) / 2).toFixed(4))
+            : (lastTrade > 0 ? lastTrade : (dayClose > 0 ? dayClose : (fmv > 0 ? fmv : null)));
+          if (mid !== null || lastTrade > 0) {
+            return { bid, ask, mid, last: lastTrade };
+          }
         }
       }
     }
 
-    // v3 quotes fallback
+    // v3 quotes fallback (valid endpoint; latest NBBO quote)
     const quotesUrl =
       `https://api.polygon.io/v3/quotes/${encodeURIComponent(cleanTicker)}` +
       `?limit=1&order=desc&sort=timestamp&apiKey=${apiKey}`;
@@ -523,7 +537,7 @@ async function fetchPolygonSnapshot(
         const bid = Number(q.bid_price ?? 0);
         const ask = Number(q.ask_price ?? 0);
         const mid = bid > 0 && ask > 0 ? parseFloat(((bid + ask) / 2).toFixed(4)) : null;
-        return { bid, ask, mid, last: 0 };
+        if (mid !== null) return { bid, ask, mid, last: 0 };
       }
     }
   } catch (err: any) {
