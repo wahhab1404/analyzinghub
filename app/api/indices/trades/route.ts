@@ -275,6 +275,121 @@ export async function POST(request: NextRequest) {
 
     const polygonIndexTicker = indexRef.polygon_index_ticker;
 
+    // ── MONITORING MODE (تجهيز ومراقبة عقد) ────────────────────────────────────
+    // The analyst prepares a contract to watch with an execution range. It is
+    // inserted with status='monitoring' and is NOT counted as a trade. The
+    // indices-contract-monitor edge function tracks the live price, sends the
+    // preparation alert, and auto-executes it into a live trade at the best
+    // price once it reaches the range. If it never reaches the range it expires
+    // and is never counted.
+    const monitorBody = body as CreateTradeRequest & {
+      mode?: string;
+      is_monitoring?: boolean;
+      exec_range_min?: number;
+      exec_range_max?: number;
+      monitor_expires_at?: string;
+      monitor_telegram_channel_id?: string;
+      monitor_rebound_pct?: number;
+      current_price?: number;
+    };
+
+    if (monitorBody.mode === 'monitoring' || monitorBody.is_monitoring === true) {
+      if (body.instrument_type !== 'options' ||
+          !body.polygon_option_ticker || !body.strike || !body.expiry || !body.option_type) {
+        return NextResponse.json(
+          { error: 'Monitoring requires an options contract: polygon_option_ticker, strike, expiry, option_type' },
+          { status: 400 }
+        );
+      }
+
+      const rangeMin = Number(monitorBody.exec_range_min);
+      const rangeMax = Number(monitorBody.exec_range_max);
+      if (!Number.isFinite(rangeMin) || !Number.isFinite(rangeMax) || rangeMin <= 0 || rangeMax <= rangeMin) {
+        return NextResponse.json(
+          { error: 'exec_range_min and exec_range_max are required (0 < min < max)' },
+          { status: 400 }
+        );
+      }
+
+      // Best-effort current price snapshot for display (never fatal — markets
+      // may be closed; the monitor edge function polls the live price anyway).
+      let monitorCurrentPrice = Number(monitorBody.current_price) || 0;
+      if (monitorCurrentPrice <= 0 && body.polygon_option_ticker) {
+        try {
+          const snap = await polygonService.getOptionSnapshot(
+            body.underlying_index_symbol,
+            body.polygon_option_ticker
+          );
+          monitorCurrentPrice = Number(snap.quote?.mid ?? 0);
+        } catch (e: any) {
+          console.warn('[trade-monitor] current price fetch failed (non-fatal):', e?.message);
+        }
+      }
+
+      const monitorSnapshot = {
+        mid: monitorCurrentPrice,
+        last: monitorCurrentPrice,
+        price: monitorCurrentPrice,
+        timestamp: new Date().toISOString(),
+        source: 'monitor_setup',
+      };
+
+      const monitorChannelId =
+        monitorBody.monitor_telegram_channel_id &&
+        /^[0-9a-f-]{36}$/i.test(monitorBody.monitor_telegram_channel_id)
+          ? monitorBody.monitor_telegram_channel_id
+          : (body.telegram_channel_id || null);
+
+      const { data: monitorTrade, error: monitorError } = await supabase
+        .from('index_trades')
+        .insert({
+          analysis_id: body.analysis_id || null,
+          author_id: user.id,
+          status: 'monitoring',
+          is_monitoring: true,
+          monitor_status: 'watching',
+          instrument_type: body.instrument_type,
+          direction: body.direction,
+          underlying_index_symbol: body.underlying_index_symbol,
+          polygon_underlying_index_ticker: polygonIndexTicker,
+          polygon_option_ticker: body.polygon_option_ticker,
+          strike: body.strike,
+          expiry: body.expiry,
+          option_type: body.option_type,
+          trade_price_basis: body.trade_price_basis || 'OPTION_PREMIUM',
+          // NOT NULL columns — store the current snapshot for display only.
+          entry_underlying_snapshot: { price: 0, timestamp: new Date().toISOString() },
+          entry_contract_snapshot: monitorSnapshot,
+          current_contract: monitorCurrentPrice || null,
+          monitor_last_price: monitorCurrentPrice || null,
+          exec_range_min: rangeMin,
+          exec_range_max: rangeMax,
+          monitor_expires_at: monitorBody.monitor_expires_at || null,
+          monitor_telegram_channel_id: monitorChannelId,
+          monitor_rebound_pct:
+            Number.isFinite(Number(monitorBody.monitor_rebound_pct)) && Number(monitorBody.monitor_rebound_pct) > 0
+              ? Number(monitorBody.monitor_rebound_pct)
+              : 3,
+          targets: body.targets || [],
+          stoploss: body.stoploss || null,
+          notes: body.notes || null,
+          telegram_channel_id: body.telegram_channel_id || null,
+          telegram_send_enabled: true,
+          qty: body.qty || 1,
+          is_test: body.is_testing === true,
+        })
+        .select(`*, author:profiles!author_id(id, full_name, avatar_url)`)
+        .single();
+
+      if (monitorError) {
+        console.error('Error creating monitoring contract:', monitorError);
+        return NextResponse.json({ error: monitorError.message }, { status: 500 });
+      }
+
+      console.log(`[trade-monitor] ✅ Monitoring contract ${monitorTrade.id} created (range ${rangeMin}-${rangeMax})`);
+      return NextResponse.json({ trade: monitorTrade, monitoring: true }, { status: 201 });
+    }
+
     // Generate idempotency key (used for both re-entry detection preview and
     // the final insert / re-entry RPC calls).
     const idempotencyKey = body.idempotency_key ||

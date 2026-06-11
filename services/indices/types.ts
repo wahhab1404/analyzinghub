@@ -7,7 +7,8 @@ export type IndexSymbol = 'SPX' | 'NDX' | 'DJI';
 export type AnalysisVisibility = 'public' | 'subscribers' | 'admin_only';
 export type AnalysisStatus = 'draft' | 'published' | 'archived';
 
-export type TradeStatus = 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended';
+export type TradeStatus = 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended' | 'monitoring';
+export type MonitorStatus = 'watching' | 'in_zone' | 'executed' | 'expired' | 'cancelled';
 export type SuspensionMode = 'manual' | 'auto';
 export type InstrumentType = 'options' | 'futures';
 export type TradeDirection = 'call' | 'put' | 'long' | 'short';
@@ -137,6 +138,20 @@ export interface IndexTrade {
   buy_range_alert_sent: boolean;
   buy_range_expires_at: string | null;
   buy_range_telegram_channel_id: string | null;
+  // Contract monitoring & preparation (مراقبة وتجهيز العقد) — pre-trade lifecycle.
+  is_monitoring?: boolean;
+  monitor_status?: MonitorStatus | null;
+  exec_range_min?: number | null;
+  exec_range_max?: number | null;
+  monitor_best_price?: number | null;
+  monitor_best_at?: string | null;
+  monitor_last_price?: number | null;
+  monitor_entered_zone_at?: string | null;
+  monitor_expires_at?: string | null;
+  monitor_telegram_channel_id?: string | null;
+  monitor_prep_alert_sent?: boolean;
+  monitor_executed_at?: string | null;
+  monitor_rebound_pct?: number | null;
   created_at: string;
   published_at: string | null;
   closed_at: string | null;
@@ -253,6 +268,14 @@ export interface CreateTradeRequest {
   buy_range_max?: number;
   buy_range_expires_at?: string;
   buy_range_telegram_channel_id?: string;
+  // Contract monitoring & preparation mode
+  mode?: 'monitoring';
+  is_monitoring?: boolean;
+  exec_range_min?: number;
+  exec_range_max?: number;
+  monitor_expires_at?: string;
+  monitor_telegram_channel_id?: string;
+  monitor_rebound_pct?: number;
 }
 
 export interface UpdateTradeRequest {

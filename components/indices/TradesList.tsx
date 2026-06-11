@@ -32,7 +32,13 @@ import { cn } from '@/lib/utils'
 interface Trade {
   id: string
   author_id?: string
-  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended'
+  status: 'draft' | 'active' | 'tp_hit' | 'sl_hit' | 'closed' | 'canceled' | 'suspended' | 'monitoring'
+  monitor_status?: 'watching' | 'in_zone' | 'executed' | 'expired' | 'cancelled' | null
+  exec_range_min?: number | null
+  exec_range_max?: number | null
+  monitor_best_price?: number | null
+  monitor_last_price?: number | null
+  monitor_expires_at?: string | null
   instrument_type: 'options' | 'futures'
   direction: 'call' | 'put' | 'long' | 'short'
   underlying_index_symbol: string
@@ -84,6 +90,7 @@ const STATUS_CONFIG: Record<Trade['status'], StatusConfig> = {
   closed:   { label: 'Closed',      className: 'badge-closed' },
   canceled: { label: 'Canceled',    className: 'badge-canceled' },
   suspended:{ label: 'Suspended',   className: 'badge-loss' },
+  monitoring:{ label: 'Monitoring', className: 'badge-draft' },
 }
 
 function StatusBadge({ status }: { status: Trade['status'] }) {
@@ -529,6 +536,109 @@ function TradeCard({
   )
 }
 
+// ── Monitoring contract card (مراقبة وتجهيز عقد) ────────────────────────────────
+// A contract being watched but NOT yet counted as a trade. It auto-executes at
+// the best price once the live price reaches the execution range.
+function MonitoringCard({
+  trade,
+  canManage,
+  onChanged,
+}: {
+  trade: Trade
+  canManage: boolean
+  onChanged: () => void
+}) {
+  const [cancelling, setCancelling] = useState(false)
+  const inZone = trade.monitor_status === 'in_zone'
+  const current = trade.monitor_last_price ?? trade.current_contract ?? null
+  const best = trade.monitor_best_price ?? null
+
+  async function handleCancel() {
+    if (!window.confirm('إلغاء مراقبة هذا العقد؟ / Cancel monitoring this contract?')) return
+    setCancelling(true)
+    try {
+      const res = await fetch(`/api/indices/trades/${trade.id}/monitor`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+      if (res.ok) {
+        toast.success('تم إلغاء المراقبة / Monitoring cancelled')
+        onChanged()
+      } else {
+        const d = await res.json().catch(() => ({}))
+        toast.error(d?.error || 'Failed to cancel monitoring')
+      }
+    } catch {
+      toast.error('Network error')
+    } finally {
+      setCancelling(false)
+    }
+  }
+
+  return (
+    <div className={cn(
+      'rounded-lg border p-3 sm:p-4 space-y-2',
+      inZone
+        ? 'border-violet-500/40 bg-violet-500/5'
+        : 'border-slate-500/20 bg-slate-500/5'
+    )}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Eye className={cn('h-4 w-4', inZone ? 'text-violet-500' : 'text-slate-400')} />
+          <span className="font-semibold text-sm">
+            {trade.underlying_index_symbol} {(trade.option_type || trade.direction || '').toUpperCase()}
+            {trade.strike ? ` $${Number(trade.strike).toFixed(0)}` : ''}
+          </span>
+          <span className={cn(
+            'text-[10px] px-1.5 py-0.5 rounded font-medium',
+            inZone ? 'bg-violet-500/20 text-violet-600 dark:text-violet-300'
+                   : 'bg-slate-500/20 text-slate-500'
+          )}>
+            {inZone ? 'في الرينج / In Zone' : 'مراقبة / Watching'}
+          </span>
+        </div>
+        {canManage && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-red-500 hover:text-red-600"
+            onClick={handleCancel}
+            disabled={cancelling}
+          >
+            {cancelling ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            <span className="ml-1">إلغاء</span>
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-muted-foreground">السعر الحالي / Current</p>
+          <p className="font-semibold">{current != null ? `$${Number(current).toFixed(2)}` : '—'}</p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">رينج التنفيذ / Range</p>
+          <p className="font-semibold">
+            ${Number(trade.exec_range_min ?? 0).toFixed(2)} – ${Number(trade.exec_range_max ?? 0).toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-muted-foreground">أفضل سعر / Best</p>
+          <p className="font-semibold text-violet-600 dark:text-violet-300">
+            {best != null ? `$${Number(best).toFixed(2)}` : '—'}
+          </p>
+        </div>
+      </div>
+
+      {trade.monitor_expires_at && (
+        <p className="text-[10px] text-muted-foreground">
+          ينتهي / Expires: {new Date(trade.monitor_expires_at).toLocaleString()}
+        </p>
+      )}
+    </div>
+  )
+}
+
 export function TradesList({ analysisId, onSelectTrade, standalone = false, refreshKey }: TradesListProps) {
   const [trades, setTrades] = useState<Trade[]>([])
   const [loading, setLoading] = useState(true)
@@ -674,10 +784,19 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
     )
   }
 
-  // ── Summary stats ────────────────────────────────────
-  const activeTrades = trades.filter(t => t.status === 'active').length
-  const winTrades = trades.filter(t => t.status === 'tp_hit').length
-  const lossTrades = trades.filter(t => t.status === 'sl_hit').length
+  // ── Split monitoring contracts from real trades ──────
+  // Monitoring contracts (مراقبة وتجهيز عقد) are NOT counted as trades — they
+  // are shown in their own section and excluded from trade stats until they
+  // execute (at which point their status becomes 'active').
+  const monitoringContracts = trades.filter(
+    t => t.status === 'monitoring' && (t.monitor_status === 'watching' || t.monitor_status === 'in_zone')
+  )
+  const realTrades = trades.filter(t => t.status !== 'monitoring')
+
+  // ── Summary stats (real trades only) ─────────────────
+  const activeTrades = realTrades.filter(t => t.status === 'active').length
+  const winTrades = realTrades.filter(t => t.status === 'tp_hit').length
+  const lossTrades = realTrades.filter(t => t.status === 'sl_hit').length
 
   return (
     <div className="space-y-4">
@@ -720,9 +839,30 @@ export function TradesList({ analysisId, onSelectTrade, standalone = false, refr
         </div>
       )}
 
+      {/* Monitoring contracts (مراقبة وتجهيز عقد) — not counted as trades */}
+      {monitoringContracts.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <Eye className="h-4 w-4 text-violet-500" />
+            <h4 className="text-sm font-semibold">مراقبة وتجهيز العقود / Monitoring</h4>
+            <span className="text-xs text-muted-foreground">{monitoringContracts.length}</span>
+          </div>
+          <div className="space-y-2">
+            {monitoringContracts.map((trade) => (
+              <MonitoringCard
+                key={trade.id}
+                trade={trade}
+                canManage={isAdmin || (!!myUserId && trade.author_id === myUserId)}
+                onChanged={fetchTrades}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Trade cards */}
       <div className="space-y-3">
-        {trades.map((trade) => (
+        {realTrades.map((trade) => (
           <TradeCard
             key={trade.id}
             trade={trade}
