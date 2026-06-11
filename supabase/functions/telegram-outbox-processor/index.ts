@@ -390,6 +390,21 @@ async function editTradeMessage(
   opts: { isNewHigh: boolean; isWinning: boolean; isTesting: boolean; highPrice?: number },
   caption: string,
 ): Promise<any | null> {
+  // Telegram errors that must NOT trigger a fresh re-post. With a near-instant
+  // peak cadence the SAME card is edited very frequently, so we will sometimes
+  // hit "message is not modified" (identical content — already current) or a
+  // 429 rate-limit. Re-posting on those would spam the channel with duplicate
+  // cards; instead we skip this edit — the next (higher) peak supersedes it.
+  const isBenignEditError = (msg: string | undefined): boolean => {
+    const m = (msg || '').toLowerCase();
+    return m.includes('message is not modified')
+        || m.includes('too many requests')
+        || m.includes('retry after')
+        || m.includes('"error_code":429')
+        || m.includes('error_code: 429');
+  };
+  const SKIP = { ok: true, skipped: true } as const; // truthy → caller won't re-post
+
   // Preferred: replace the image so the big "$X.XX" peak on the card updates too.
   try {
     const nativeBytes = await generateTradeImage(trade, opts);
@@ -401,6 +416,10 @@ async function editTradeMessage(
       try {
         return await editTelegramPhotoBytes(botToken, chatId, messageId, ab, caption);
       } catch (mediaErr: any) {
+        if (isBenignEditError(mediaErr.message)) {
+          console.log(`[outbox:editTradeMessage] ⏭️  edit skipped (benign): ${mediaErr.message}`);
+          return SKIP;
+        }
         console.warn(`[outbox:editTradeMessage] ⚠️ editMessageMedia failed: ${mediaErr.message}`);
       }
     }
@@ -412,6 +431,10 @@ async function editTradeMessage(
   try {
     return await editTelegramCaption(botToken, chatId, messageId, caption);
   } catch (capErr: any) {
+    if (isBenignEditError(capErr.message)) {
+      console.log(`[outbox:editTradeMessage] ⏭️  caption edit skipped (benign): ${capErr.message}`);
+      return SKIP;
+    }
     console.warn(`[outbox:editTradeMessage] ⚠️ editMessageCaption failed: ${capErr.message}`);
     return null;
   }
