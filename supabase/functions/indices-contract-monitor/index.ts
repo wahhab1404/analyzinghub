@@ -116,8 +116,7 @@ Deno.serve(async (req: Request) => {
         // ── 2. Live price ────────────────────────────────────────────────────
         let price = 0;
         if (POLYGON_API_KEY && m.polygon_option_ticker) {
-          const q = await fetchPolygonSnapshot(m.polygon_option_ticker, POLYGON_API_KEY);
-          price = q?.mid ?? q?.last ?? 0;
+          price = await fetchOptionPrice(m.underlying_index_symbol, m.polygon_option_ticker, POLYGON_API_KEY);
         }
         const expired = m.monitor_expires_at && new Date(m.monitor_expires_at).getTime() <= now;
 
@@ -176,7 +175,10 @@ Deno.serve(async (req: Request) => {
         // falling we wait for a better fill — UNLESS the monitor has expired.
         if (reboundHit || leftZoneUp || expired) {
           const reason = reboundHit ? "rebound" : leftZoneUp ? "left-zone-up" : "expiry";
-          const fillPrice = best > 0 ? best : price;
+          // Fill at the ACTUAL price at the moment of execution — not the tracked
+          // historical low (you can't buy back at a price that already passed).
+          // The tracked low is only used to decide WHEN to execute (rebound).
+          const fillPrice = price > 0 ? price : best;
           console.log(`[contract-monitor] ${m.id}: EXECUTE @ best=${fillPrice} (trigger=${reason})`);
           const ok = await executeMonitor(supabase, m, fillPrice, botToken);
           if (ok) results.executed++; else results.errors++;
@@ -243,14 +245,56 @@ async function executeMonitor(supabase: any, m: any, fillPrice: number, botToken
 
   console.log(`[contract-monitor]   ✅ ${m.id} executed as active trade @ ${fillPrice}`);
 
-  // Execution alert (تم التنفيذ — صفقة جديدة) with the platform image.
+  // Execution alert (تم التنفيذ — صفقة جديدة) WITH the trade image. It is now a
+  // real active trade, so generate the standard trade snapshot the same way the
+  // normal new-trade flow does (generate-trade-snapshot stores contract_url and
+  // returns the image URL), then send it as a photo.
   if (botToken) {
     const channelId = await resolveChannel(supabase, m);
     if (channelId) {
-      await sendAlert(supabase, botToken, channelId, m.id, buildExecutionCaption(m, fillPrice));
+      const caption = buildExecutionCaption(m, fillPrice);
+      const imageUrl = await generateTradeSnapshot(m.id);
+      let sent = false;
+      if (imageUrl) {
+        try {
+          await sendTelegramPhotoUrl(botToken, channelId, imageUrl, caption);
+          sent = true;
+        } catch (e: any) {
+          console.warn(`[contract-monitor]   photo-by-url failed (${e.message})`);
+        }
+      }
+      if (!sent) {
+        // Fallback chain: render bytes directly, then plain text.
+        await sendAlert(supabase, botToken, channelId, m.id, caption);
+      }
     }
   }
   return true;
+}
+
+// Generate the platform trade snapshot (same pipeline as a normal new trade)
+// and return its public image URL, or null on failure.
+async function generateTradeSnapshot(tradeId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-trade-snapshot`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({ tradeId, isNewHigh: false, appBaseUrl: BASE_URL }),
+      signal: AbortSignal.timeout(28_000),
+    });
+    if (!res.ok) {
+      console.warn(`[contract-monitor]   generate-trade-snapshot HTTP ${res.status}`);
+      return null;
+    }
+    const r = await res.json();
+    return r.imageUrl || r.image_url || null;
+  } catch (e: any) {
+    console.warn(`[contract-monitor]   generate-trade-snapshot failed: ${e.message}`);
+    return null;
+  }
 }
 
 async function markExpired(supabase: any, m: any, botToken: string | null): Promise<void> {
@@ -331,6 +375,19 @@ async function sendTelegramPhoto(botToken: string, chatId: string, png: ArrayBuf
   if (!res.ok) throw new Error(`sendPhoto ${res.status}: ${await res.text()}`);
 }
 
+// Send a photo by URL (Telegram fetches it). Used for the execution alert once
+// the platform snapshot image URL is available.
+async function sendTelegramPhotoUrl(botToken: string, chatId: string, photoUrl: string, caption: string): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: caption.substring(0, 1024), parse_mode: "HTML" }),
+  });
+  if (!res.ok) throw new Error(`sendPhoto(url) ${res.status}: ${await res.text()}`);
+  const body = await res.json();
+  if (!body.ok) throw new Error(`sendPhoto(url) rejected: ${JSON.stringify(body)}`);
+}
+
 async function sendTelegramText(botToken: string, chatId: string, text: string): Promise<boolean> {
   const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
@@ -342,29 +399,39 @@ async function sendTelegramText(botToken: string, chatId: string, text: string):
 
 // ── Polygon ─────────────────────────────────────────────────────────────────
 
-async function fetchPolygonSnapshot(
-  ticker: string, apiKey: string
-): Promise<{ bid: number; ask: number; mid: number | null; last: number } | null> {
+// Uses the SAME endpoint as the Next.js polygon service, which returns live
+// prices reliably: /v3/snapshot/options/{underlying}/{optionContract}. The
+// underlying is WITHOUT the "I:" prefix (e.g. SPX, not I:SPX). Returns the mid
+// (bid/ask) when available, then last trade, day close, or fair-market value.
+async function fetchOptionPrice(
+  underlyingSymbol: string, ticker: string, apiKey: string
+): Promise<number> {
   try {
     const clean = ticker.startsWith("O:") ? ticker : `O:${ticker}`;
+    const underlying = (underlyingSymbol || "").replace(/^I:/, "");
     const res = await fetch(
-      `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(clean)}?apiKey=${apiKey}`
+      `https://api.polygon.io/v3/snapshot/options/${encodeURIComponent(underlying)}/${encodeURIComponent(clean)}?apiKey=${apiKey}`
     );
-    if (res.ok) {
-      const data = await res.json();
-      if (data.status === "OK" && data.results) {
-        const lq = data.results.last_quote ?? {};
-        const bid = Number(lq.bid ?? 0), ask = Number(lq.ask ?? 0), last = Number(lq.last_price ?? 0);
-        if (bid > 0 || ask > 0 || last > 0) {
-          const mid = bid > 0 && ask > 0 ? parseFloat(((bid + ask) / 2).toFixed(4)) : null;
-          return { bid, ask, mid, last };
-        }
-      }
-    }
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const r = data.results;
+    if (!r) return 0;
+
+    const q = r.last_quote ?? {};
+    const bid = Number(q.bid ?? 0), ask = Number(q.ask ?? 0);
+    const lastTrade = Number(r.last_trade?.price ?? r.last?.price ?? 0);
+    const dayClose = Number(r.day?.close ?? r.session?.close ?? 0);
+    const fmv = Number(r.fair_market_value ?? 0);
+
+    if (bid > 0 && ask > 0) return parseFloat(((bid + ask) / 2).toFixed(4));
+    if (lastTrade > 0) return lastTrade;
+    if (dayClose > 0) return dayClose;
+    if (fmv > 0) return fmv;
+    return 0;
   } catch (e: any) {
     console.error(`[contract-monitor] polygon snapshot error: ${e.message}`);
+    return 0;
   }
-  return null;
 }
 
 async function fetchUnderlyingPrice(ticker: string, apiKey: string): Promise<number | null> {
@@ -440,7 +507,7 @@ function buildExecutionCaption(m: any, fillPrice: number): string {
   msg += `<b>${sym}</b> ${type} ${strike ? "سترايك $" + strike : ""}\n`;
   if (ticker) msg += `<b>Contract:</b> ${ticker}\n`;
   if (expiry) msg += `<b>Expiration:</b> ${expiry}\n`;
-  msg += `<b>سعر الدخول (أفضل سعر) / Entry (best price):</b> $${fillPrice.toFixed(2)}\n`;
+  msg += `<b>سعر الدخول (سعر التنفيذ) / Entry (execution price):</b> $${fillPrice.toFixed(2)}\n`;
   msg += `<b>الرينج المقترح / Suggested Range:</b> $${Number(m.exec_range_min).toFixed(2)} – $${Number(m.exec_range_max).toFixed(2)}\n`;
   if (m.author?.full_name) msg += `<b>Analyst:</b> ${m.author.full_name}\n`;
   msg += `<b>Time:</b> ${nowEt()} ET`;

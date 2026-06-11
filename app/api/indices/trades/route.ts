@@ -387,6 +387,22 @@ export async function POST(request: NextRequest) {
       }
 
       console.log(`[trade-monitor] ✅ Monitoring contract ${monitorTrade.id} created (range ${rangeMin}-${rangeMax})`);
+
+      // Fire the monitor edge function immediately so the preparation alert is
+      // sent right now instead of waiting up to a minute for the cron. The
+      // function is deployed with verify_jwt=false, so no auth header is needed.
+      // Fire-and-forget — never blocks or fails the response.
+      try {
+        const fnBase = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+        if (fnBase) {
+          void fetch(`${fnBase}/functions/v1/indices-contract-monitor`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: '{}',
+          }).catch((e) => console.warn('[trade-monitor] immediate trigger failed (non-fatal):', e?.message));
+        }
+      } catch { /* non-fatal */ }
+
       return NextResponse.json({ trade: monitorTrade, monitoring: true }, { status: 201 });
     }
 
