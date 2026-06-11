@@ -219,15 +219,31 @@ export class PolygonWebSocketService {
 
   private async handleQuote(quote: PolygonQuote): Promise<void> {
     const ticker = quote.sym;
-    const mid = (quote.bp + quote.ap) / 2;
+    const bid = Number(quote.bp);
+    const ask = Number(quote.ap);
+
+    // ── Quote validation ──────────────────────────────────────────────────
+    // The options `Q` channel streams EVERY exchange's quote, not the
+    // consolidated NBBO. A single off-market / one-sided / crossed quote from
+    // one venue produces a garbage mid (e.g. $4.40 when the true NBBO mid is
+    // ~$2.30), which then corrupts current_contract AND — via Math.max —
+    // permanently inflates contract_high_since, MFE and P/L, and fires false
+    // "NEW HIGH" alerts. Only accept a clean two-sided, non-crossed market with
+    // a sane spread; otherwise wait for the next quote (or the REST NBBO
+    // fallback) so bad ticks never enter the watermark.
+    if (!(bid > 0) || !(ask > 0)) return;        // need a real two-sided market
+    if (ask < bid) return;                        // crossed/locked — reject
+    if (ask > bid * 3) return;                     // absurd spread → off-market venue
+
+    const mid = (bid + ask) / 2;
     const timestamp = new Date(quote.t / 1000000); // Convert nanoseconds to milliseconds
 
-    console.log(`📈 ${ticker}: Bid $${quote.bp} / Ask $${quote.ap} / Mid $${mid.toFixed(2)}`);
+    console.log(`📈 ${ticker}: Bid $${bid} / Ask $${ask} / Mid $${mid.toFixed(2)}`);
 
     // Update database
     await this.updateTradePrice(ticker, {
-      bid: quote.bp,
-      ask: quote.ap,
+      bid: bid,
+      ask: ask,
       mid: mid,
       timestamp: quote.t,
       volume: 0
