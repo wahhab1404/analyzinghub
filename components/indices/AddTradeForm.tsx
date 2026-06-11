@@ -13,6 +13,7 @@ import { Loader as Loader2, Plus, Trash2, Search, Calendar, TrendingUp, CheckCir
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
+import { cn } from '@/lib/utils'
 import { TradeReentryDialog } from './TradeReentryDialog'
 
 interface AddTradeFormProps {
@@ -125,6 +126,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     buy_range_max: '',
     buy_range_expires_at: '',
     buy_range_telegram_channel_id: '',
+    // Contract monitoring & preparation (مراقبة وتجهيز العقد). When enabled, the
+    // buy_range_* fields above act as the EXECUTION range: the contract is only
+    // monitored (not counted as a trade) until the price reaches the range, at
+    // which point it auto-executes at the best price as a new trade.
+    monitoring_mode: false,
   })
   const [testingChannels, setTestingChannels] = useState<Array<{id: string, name: string, telegram_channel_id: string}>>([])
   const [loadingTestingChannels, setLoadingTestingChannels] = useState(false)
@@ -745,6 +751,66 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       if (formData.instrument_type === 'options' && !formData.polygon_option_ticker) {
         toast.error('Select an option contract from the chain before saving (strike, expiry & type are filled in automatically)')
+        setLoading(false)
+        return
+      }
+
+      // ── MONITORING MODE (تجهيز ومراقبة عقد) ──────────────────────────────────
+      // Prepare a contract to watch with an execution range. It is NOT counted
+      // as a trade until the price reaches the range and auto-executes at the
+      // best price. Reuses the range fields as the execution range.
+      if (formData.monitoring_mode) {
+        const rangeMin = parseFloat(formData.buy_range_min)
+        const rangeMax = parseFloat(formData.buy_range_max)
+        if (!(rangeMin > 0) || !(rangeMax > rangeMin)) {
+          toast.error('حدد رينج التنفيذ (الحد الأدنى < الأعلى) / Set a valid execution range (min < max)')
+          setLoading(false)
+          return
+        }
+
+        const monitorPayload: any = {
+          mode: 'monitoring',
+          is_monitoring: true,
+          analysis_id: analysisId || null,
+          instrument_type: formData.instrument_type,
+          direction: formData.direction,
+          underlying_index_symbol: formData.underlying_index_symbol,
+          polygon_option_ticker: formData.polygon_option_ticker || null,
+          strike: formData.strike ? parseFloat(formData.strike) : null,
+          expiry: formData.expiry || null,
+          option_type: formData.option_type || null,
+          exec_range_min: rangeMin,
+          exec_range_max: rangeMax,
+          notes: formData.notes || null,
+          telegram_channel_id: telegramChannelId,
+          qty: 1,
+          is_testing: formData.is_testing,
+        }
+        if (formData.current_price && parseFloat(formData.current_price) > 0) {
+          monitorPayload.current_price = parseFloat(formData.current_price)
+        }
+        if (formData.buy_range_expires_at) {
+          monitorPayload.monitor_expires_at = new Date(formData.buy_range_expires_at).toISOString()
+        }
+        if (formData.buy_range_telegram_channel_id && formData.buy_range_telegram_channel_id !== 'none') {
+          monitorPayload.monitor_telegram_channel_id = formData.buy_range_telegram_channel_id
+        }
+
+        // Monitoring always goes through the standalone trades endpoint (it
+        // accepts analysis_id in the body), since the analysis-scoped route
+        // does not handle monitoring mode.
+        const monitorRes = await fetch('/api/indices/trades', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(monitorPayload),
+        })
+        if (monitorRes.ok) {
+          toast.success('👁️ تم تجهيز العقد للمراقبة — سيصلك تنبيه بالتنفيذ عند دخول الرينج / Contract set for monitoring')
+          onComplete()
+        } else {
+          const err = await monitorRes.json().catch(() => ({}))
+          toast.error(err.error || 'Failed to set up monitoring')
+        }
         setLoading(false)
         return
       }
@@ -1519,16 +1585,40 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               </Card>
             )}
 
-            {/* Buy Price Range Alert — only shown when a contract is selected */}
+            {/* Buy Price Range Alert / Contract Monitoring — only shown when a contract is selected */}
             {selectedContract && (
-              <div className="space-y-3 p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+              <div className={cn(
+                "space-y-3 p-4 border rounded-lg",
+                formData.monitoring_mode
+                  ? "bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800"
+                  : "bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800"
+              )}>
+                {/* Monitoring mode toggle */}
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={formData.monitoring_mode}
+                    onCheckedChange={(checked) => setFormData({ ...formData, monitoring_mode: checked === true })}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium text-sm flex items-center gap-2">
+                      👁️ تجهيز ومراقبة العقد <span className="text-muted-foreground">/ Prepare &amp; Monitor</span>
+                    </span>
+                    <span className="block text-xs text-muted-foreground mt-0.5">
+                      راقب العقد دون احتسابه كصفقة. عند دخوله رينج التنفيذ يُدرَج تلقائياً بأفضل سعر مع تنبيه بالتنفيذ.
+                    </span>
+                  </span>
+                </label>
+
                 <div>
                   <h4 className="font-medium text-sm flex items-center gap-2">
-                    🔔 Buy Price Range Alert
-                    <Badge variant="outline" className="text-xs">Optional</Badge>
+                    {formData.monitoring_mode ? '🎯 رينج التنفيذ / Execution Range' : '🔔 Buy Price Range Alert'}
+                    <Badge variant="outline" className="text-xs">{formData.monitoring_mode ? 'Monitoring' : 'Optional'}</Badge>
                   </h4>
                   <p className="text-xs text-muted-foreground mt-1">
-                    If the contract price enters this range, the system will automatically send a <b>Price Hits</b> alert to Telegram.
+                    {formData.monitoring_mode
+                      ? 'لا تُحتسب كصفقة حتى دخول السعر هذا الرينج. عندها يُرسَل تنبيه ويُدرَج العقد بأفضل سعر كصفقة جديدة.'
+                      : <>If the contract price enters this range, the system will automatically send a <b>Price Hits</b> alert to Telegram.</>}
                   </p>
                 </div>
 
