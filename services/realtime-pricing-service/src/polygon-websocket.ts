@@ -33,6 +33,14 @@ export class PolygonWebSocketService {
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private isAuthenticated = false;
 
+  // Per-ticker, per-exchange quote book used to derive the consolidated NBBO.
+  // The options `Q` channel streams each venue's quote separately, so we keep
+  // the latest quote per exchange and compute NBBO = (highest bid, lowest ask)
+  // over fresh entries — instead of trusting a single (possibly off-market)
+  // venue's mid.
+  private quoteBooks: Map<string, Map<number, { bid: number; ask: number; ts: number }>> = new Map();
+  private static readonly QUOTE_FRESH_MS = 5000;
+
   constructor() {
     if (!process.env.POLYGON_API_KEY) {
       throw new Error('POLYGON_API_KEY is required');
@@ -193,6 +201,7 @@ export class PolygonWebSocketService {
     console.log(`📊 Unsubscribing from ${ticker}...`);
     this.ws.send(JSON.stringify(unsubscribeMsg));
     this.subscribedTickers.delete(ticker);
+    this.quoteBooks.delete(ticker);
   }
 
   private async handleMessage(msg: any): Promise<void> {
@@ -221,29 +230,41 @@ export class PolygonWebSocketService {
     const ticker = quote.sym;
     const bid = Number(quote.bp);
     const ask = Number(quote.ap);
+    const exchange = Number(quote.bx ?? quote.ax ?? 0);
+    const now = Date.now();
 
-    // ── Quote validation ──────────────────────────────────────────────────
-    // The options `Q` channel streams EVERY exchange's quote, not the
-    // consolidated NBBO. A single off-market / one-sided / crossed quote from
-    // one venue produces a garbage mid (e.g. $4.40 when the true NBBO mid is
-    // ~$2.30), which then corrupts current_contract AND — via Math.max —
-    // permanently inflates contract_high_since, MFE and P/L, and fires false
-    // "NEW HIGH" alerts. Only accept a clean two-sided, non-crossed market with
-    // a sane spread; otherwise wait for the next quote (or the REST NBBO
-    // fallback) so bad ticks never enter the watermark.
-    if (!(bid > 0) || !(ask > 0)) return;        // need a real two-sided market
-    if (ask < bid) return;                        // crossed/locked — reject
-    if (ask > bid * 3) return;                     // absurd spread → off-market venue
+    // ── Consolidated NBBO ─────────────────────────────────────────────────
+    // The options `Q` channel streams EVERY exchange's quote, not the NBBO. A
+    // single off-market venue (e.g. one exchange quoting 4.3/4.5 while the true
+    // market is 2.2/2.4) previously produced a garbage mid that was displayed
+    // AND — via Math.max — permanently inflated contract_high_since / MFE / P&L
+    // and fired false "NEW HIGH" alerts. We instead keep each venue's latest
+    // quote and derive NBBO = highest bid / lowest ask over fresh quotes. A bad
+    // venue can't move the NBBO mid: its outlier price simply crosses the book,
+    // and crossed/absurd books are skipped until a clean NBBO is available.
+    let book = this.quoteBooks.get(ticker);
+    if (!book) { book = new Map(); this.quoteBooks.set(ticker, book); }
+    book.set(exchange, { bid, ask, ts: now });
 
-    const mid = (bid + ask) / 2;
-    const timestamp = new Date(quote.t / 1000000); // Convert nanoseconds to milliseconds
+    let bestBid = 0;
+    let bestAsk = Infinity;
+    for (const [ex, q] of book) {
+      if (now - q.ts > PolygonWebSocketService.QUOTE_FRESH_MS) { book.delete(ex); continue; }
+      if (q.bid > 0 && q.bid > bestBid) bestBid = q.bid;
+      if (q.ask > 0 && q.ask < bestAsk) bestAsk = q.ask;
+    }
 
-    console.log(`📈 ${ticker}: Bid $${bid} / Ask $${ask} / Mid $${mid.toFixed(2)}`);
+    if (!(bestBid > 0) || !Number.isFinite(bestAsk)) return; // need both sides
+    if (bestAsk < bestBid) return;                            // crossed NBBO → outlier present, skip
+    if (bestAsk > bestBid * 3) return;                         // absurd spread → skip
+
+    const mid = (bestBid + bestAsk) / 2;
+    console.log(`📈 ${ticker}: NBBO Bid $${bestBid} / Ask $${bestAsk} / Mid $${mid.toFixed(2)}`);
 
     // Update database
     await this.updateTradePrice(ticker, {
-      bid: bid,
-      ask: ask,
+      bid: bestBid,
+      ask: bestAsk,
       mid: mid,
       timestamp: quote.t,
       volume: 0
