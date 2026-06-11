@@ -72,33 +72,54 @@ function compactNum(n: number): string {
 // On Netlify Lambda: module scope persists across warm invocations.
 // initPromise ensures WASM is only initialised once per process lifetime.
 
+// Durable asset loading (matches lib/companies/contract-trade-image.tsx):
+// read the bundled file if Netlify traced it into the Lambda, else fetch from a
+// CDN. This fixes the "ENOENT index_bg.wasm" tracing failure that blocked all
+// index-trade images. Fonts are fetched as real TTF (satori rejects the bundled
+// WOFF2 with "Unsupported OpenType signature wOF2").
+const WASM_CDN = 'https://unpkg.com/@resvg/resvg-wasm@2.6.2/index_bg.wasm';
+const FONT_REG_CDN = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-400-normal.ttf';
+const FONT_BOLD_CDN = 'https://cdn.jsdelivr.net/fontsource/fonts/inter@latest/latin-700-normal.ttf';
+
+async function fetchAsset(cdnUrl: string): Promise<Buffer> {
+  const res = await fetch(cdnUrl);
+  if (!res.ok) throw new Error(`Failed to fetch asset ${cdnUrl}: HTTP ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
 let initPromise: Promise<{ fontReg: Buffer; fontBold: Buffer }> | null = null;
 
 function ensureInit(): Promise<{ fontReg: Buffer; fontBold: Buffer }> {
   if (!initPromise) {
     initPromise = (async () => {
       // ── WASM ──────────────────────────────────────────────────────────────
-      // Must be initialised before any Resvg instance is created.
-      // The .wasm file is included in the Lambda bundle via
-      // next.config.js → experimental.outputFileTracingIncludes.
+      // Must be initialised before any Resvg instance is created. Read the
+      // bundled file if traced into the Lambda, else fetch from the CDN.
       const wasmPath = path.join(
         process.cwd(),
         'node_modules', '@resvg', 'resvg-wasm', 'index_bg.wasm'
       );
-      const wasmBuffer = readFileSync(wasmPath);
-      await initWasm(wasmBuffer);
-      console.log('[generate-image] ✅ @resvg/resvg-wasm WASM initialised');
+      let wasmBuffer: Buffer;
+      try {
+        wasmBuffer = readFileSync(wasmPath);
+      } catch {
+        wasmBuffer = await fetchAsset(WASM_CDN);
+      }
 
       // ── Fonts ─────────────────────────────────────────────────────────────
-      // Inter WOFF2 files from @fontsource/inter.
-      // Included via outputFileTracingIncludes — readFileSync works in Lambda.
-      const fontBase = path.join(
-        process.cwd(),
-        'node_modules', '@fontsource', 'inter', 'files'
-      );
-      const fontReg  = readFileSync(path.join(fontBase, 'inter-latin-400-normal.woff2'));
-      const fontBold = readFileSync(path.join(fontBase, 'inter-latin-700-normal.woff2'));
-      console.log('[generate-image] ✅ Inter fonts loaded');
+      // Real TTF from the Fontsource CDN (satori rejects the bundled WOFF2).
+      const [fontReg, fontBold] = await Promise.all([
+        fetchAsset(FONT_REG_CDN),
+        fetchAsset(FONT_BOLD_CDN),
+      ]);
+
+      try {
+        await initWasm(wasmBuffer);
+      } catch (e: any) {
+        // initWasm throws if already initialised in this (warm) process — ignore.
+        if (!String(e?.message || e).includes('Already initialized')) throw e;
+      }
+      console.log('[generate-image] ✅ resvg WASM + Inter TTF fonts ready');
 
       return { fontReg, fontBold };
     })().catch(err => {

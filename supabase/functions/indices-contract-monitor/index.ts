@@ -175,7 +175,10 @@ Deno.serve(async (req: Request) => {
         // falling we wait for a better fill — UNLESS the monitor has expired.
         if (reboundHit || leftZoneUp || expired) {
           const reason = reboundHit ? "rebound" : leftZoneUp ? "left-zone-up" : "expiry";
-          const fillPrice = best > 0 ? best : price;
+          // Fill at the ACTUAL price at the moment of execution — not the tracked
+          // historical low (you can't buy back at a price that already passed).
+          // The tracked low is only used to decide WHEN to execute (rebound).
+          const fillPrice = price > 0 ? price : best;
           console.log(`[contract-monitor] ${m.id}: EXECUTE @ best=${fillPrice} (trigger=${reason})`);
           const ok = await executeMonitor(supabase, m, fillPrice, botToken);
           if (ok) results.executed++; else results.errors++;
@@ -242,14 +245,56 @@ async function executeMonitor(supabase: any, m: any, fillPrice: number, botToken
 
   console.log(`[contract-monitor]   ✅ ${m.id} executed as active trade @ ${fillPrice}`);
 
-  // Execution alert (تم التنفيذ — صفقة جديدة) with the platform image.
+  // Execution alert (تم التنفيذ — صفقة جديدة) WITH the trade image. It is now a
+  // real active trade, so generate the standard trade snapshot the same way the
+  // normal new-trade flow does (generate-trade-snapshot stores contract_url and
+  // returns the image URL), then send it as a photo.
   if (botToken) {
     const channelId = await resolveChannel(supabase, m);
     if (channelId) {
-      await sendAlert(supabase, botToken, channelId, m.id, buildExecutionCaption(m, fillPrice));
+      const caption = buildExecutionCaption(m, fillPrice);
+      const imageUrl = await generateTradeSnapshot(m.id);
+      let sent = false;
+      if (imageUrl) {
+        try {
+          await sendTelegramPhotoUrl(botToken, channelId, imageUrl, caption);
+          sent = true;
+        } catch (e: any) {
+          console.warn(`[contract-monitor]   photo-by-url failed (${e.message})`);
+        }
+      }
+      if (!sent) {
+        // Fallback chain: render bytes directly, then plain text.
+        await sendAlert(supabase, botToken, channelId, m.id, caption);
+      }
     }
   }
   return true;
+}
+
+// Generate the platform trade snapshot (same pipeline as a normal new trade)
+// and return its public image URL, or null on failure.
+async function generateTradeSnapshot(tradeId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/generate-trade-snapshot`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      },
+      body: JSON.stringify({ tradeId, isNewHigh: false, appBaseUrl: BASE_URL }),
+      signal: AbortSignal.timeout(28_000),
+    });
+    if (!res.ok) {
+      console.warn(`[contract-monitor]   generate-trade-snapshot HTTP ${res.status}`);
+      return null;
+    }
+    const r = await res.json();
+    return r.imageUrl || r.image_url || null;
+  } catch (e: any) {
+    console.warn(`[contract-monitor]   generate-trade-snapshot failed: ${e.message}`);
+    return null;
+  }
 }
 
 async function markExpired(supabase: any, m: any, botToken: string | null): Promise<void> {
@@ -328,6 +373,19 @@ async function sendTelegramPhoto(botToken: string, chatId: string, png: ArrayBuf
   form.append("parse_mode", "HTML");
   const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, { method: "POST", body: form });
   if (!res.ok) throw new Error(`sendPhoto ${res.status}: ${await res.text()}`);
+}
+
+// Send a photo by URL (Telegram fetches it). Used for the execution alert once
+// the platform snapshot image URL is available.
+async function sendTelegramPhotoUrl(botToken: string, chatId: string, photoUrl: string, caption: string): Promise<void> {
+  const res = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, photo: photoUrl, caption: caption.substring(0, 1024), parse_mode: "HTML" }),
+  });
+  if (!res.ok) throw new Error(`sendPhoto(url) ${res.status}: ${await res.text()}`);
+  const body = await res.json();
+  if (!body.ok) throw new Error(`sendPhoto(url) rejected: ${JSON.stringify(body)}`);
 }
 
 async function sendTelegramText(botToken: string, chatId: string, text: string): Promise<boolean> {
@@ -449,7 +507,7 @@ function buildExecutionCaption(m: any, fillPrice: number): string {
   msg += `<b>${sym}</b> ${type} ${strike ? "سترايك $" + strike : ""}\n`;
   if (ticker) msg += `<b>Contract:</b> ${ticker}\n`;
   if (expiry) msg += `<b>Expiration:</b> ${expiry}\n`;
-  msg += `<b>سعر الدخول (أفضل سعر) / Entry (best price):</b> $${fillPrice.toFixed(2)}\n`;
+  msg += `<b>سعر الدخول (سعر التنفيذ) / Entry (execution price):</b> $${fillPrice.toFixed(2)}\n`;
   msg += `<b>الرينج المقترح / Suggested Range:</b> $${Number(m.exec_range_min).toFixed(2)} – $${Number(m.exec_range_max).toFixed(2)}\n`;
   if (m.author?.full_name) msg += `<b>Analyst:</b> ${m.author.full_name}\n`;
   msg += `<b>Time:</b> ${nowEt()} ET`;
