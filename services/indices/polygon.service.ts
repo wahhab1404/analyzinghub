@@ -11,6 +11,8 @@
  * Never expose Polygon API keys to the browser
  */
 
+import { computeSmartPrice } from '@/lib/polygon/normalizers';
+
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 const POLYGON_BASE_URL = 'https://api.polygon.io';
 
@@ -199,10 +201,17 @@ class PolygonService {
       expiry = `${year}-${month}-${day}`;
     }
 
-    const bid = quote.bid || result.last?.price || 0;
-    const ask = quote.ask || result.last?.price || 0;
-    const last = result.last?.price || (bid + ask) / 2;
-    const mid = (bid + ask) / 2;
+    // Smart-hybrid pricing — matches the live tracker (lib/polygon/normalizers):
+    // guards crossed markets (bid > ask) and very wide spreads that a plain
+    // (bid + ask) / 2 would misprice, so the entry/preview price is realistic.
+    const rawBid = quote.bid || 0;
+    const rawAsk = quote.ask || 0;
+    const lastTrade = result.last?.price || 0;
+    const { price: smart } = computeSmartPrice(rawBid, rawAsk, lastTrade);
+    const bid = rawBid || lastTrade || 0;
+    const ask = rawAsk || lastTrade || 0;
+    const mid = smart ?? (rawBid && rawAsk ? (rawBid + rawAsk) / 2 : lastTrade);
+    const last = lastTrade || mid || 0;
 
     return {
       ticker: optionTicker,

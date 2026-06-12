@@ -55,7 +55,7 @@ function isStale(eventAt: Date, maxAgeMs = MAX_QUOTE_AGE_MS): boolean {
   return Date.now() - eventAt.getTime() > maxAgeMs;
 }
 
-function computeSmartPrice(
+export function computeSmartPrice(
   bid: number,
   ask: number,
   lastTrade: number
