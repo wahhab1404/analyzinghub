@@ -13,6 +13,8 @@
  * - Numeric sorting (no string sort bugs)
  */
 
+import { computeSmartPrice } from '@/lib/polygon/normalizers';
+
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 const POLYGON_BASE_URL = 'https://api.polygon.io';
 
@@ -316,7 +318,14 @@ class OptionsChainService {
       const bid = c.last_quote?.bid || 0;
       const ask = c.last_quote?.ask || 0;
       const last = c.last_trade?.price || 0;
-      const mid = bid && ask ? (bid + ask) / 2 : last;
+
+      // Price the contract with the SAME smart-hybrid logic the live tracker
+      // uses (lib/polygon/normalizers), so the picker shows what the trade will
+      // actually be tracked at. A naive (bid+ask)/2 misprices crossed markets
+      // (bid > ask feed artefacts) and very wide spreads (illiquid strikes) —
+      // the two cases that made picker prices look "wrong" vs the live price.
+      const { price: smartPrice } = computeSmartPrice(bid, ask, last);
+      const mid = smartPrice ?? (bid && ask ? (bid + ask) / 2 : last);
 
       return {
         strike: c.details.strike_price,
