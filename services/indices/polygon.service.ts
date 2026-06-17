@@ -16,6 +16,20 @@ import { computeSmartPrice } from '@/lib/polygon/normalizers';
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY;
 const POLYGON_BASE_URL = 'https://api.polygon.io';
 
+/**
+ * Normalise a Polygon market-data timestamp to epoch-milliseconds. Polygon
+ * sends these in mixed units across feeds (s / ms / µs / ns); detect by
+ * magnitude. Returns null when missing/implausible.
+ */
+function nsTimestampToMs(ts: number | null | undefined): number | null {
+  if (!ts || ts <= 0) return null;
+  if (ts >= 1e18) return Math.floor(ts / 1e6); // nanoseconds
+  if (ts >= 1e15) return Math.floor(ts / 1e3); // microseconds
+  if (ts >= 1e12) return ts;                   // milliseconds
+  if (ts >= 1e9)  return ts * 1e3;             // seconds
+  return null;
+}
+
 if (!POLYGON_API_KEY && process.env.NODE_ENV === 'production') {
   console.warn('WARNING: POLYGON_API_KEY not set. Polygon integration will fail.');
 }
@@ -322,13 +336,13 @@ class PolygonService {
    */
   async getOptionQuotesBulk(
     tickers: string[]
-  ): Promise<Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }>> {
+  ): Promise<Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number; asOf: number | null; source: 'rest' }>> {
     if (!POLYGON_API_KEY) {
       throw new Error('Polygon API key not configured');
     }
 
     const unique = Array.from(new Set(tickers.filter(Boolean)));
-    const out: Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }> = {};
+    const out: Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number; asOf: number | null; source: 'rest' }> = {};
     if (unique.length === 0) return out;
 
     // Polygon caps ticker.any_of at 250 entries per request.
@@ -361,6 +375,18 @@ class PolygonService {
               last: last || 0,
               volume: r.session?.volume ?? 0,
               openInterest: r.open_interest ?? r.details?.open_interest ?? 0,
+              // When the market data was actually generated (drives the data-age
+              // indicator). Reveals a delayed feed: a value ~15 min old means the
+              // plan is serving delayed REST data, which no refresh rate can fix.
+              asOf: nsTimestampToMs(
+                r.last_quote?.last_updated ??
+                r.last_quote?.sip_timestamp ??
+                r.last_trade?.sip_timestamp ??
+                r.last_trade?.participant_timestamp ??
+                r.last_updated ??
+                null
+              ),
+              source: 'rest',
             };
           }
         } catch (err: any) {

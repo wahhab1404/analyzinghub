@@ -69,7 +69,7 @@ interface TelegramChannel {
   plan_name?: string
 }
 
-type BulkQuote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }
+type BulkQuote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number; asOf?: number | null; source?: 'realtime' | 'rest' }
 
 /**
  * Merge freshly fetched live quotes into existing expiration groups in place,
@@ -102,6 +102,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   const [callsData, setCallsData] = useState<ExpirationGroup[]>([])
   const [putsData, setPutsData] = useState<ExpirationGroup[]>([])
   const [selectedContract, setSelectedContract] = useState<OptionContract | null>(null)
+  // Data-freshness of the selected contract's price: where it came from
+  // (realtime WebSocket vs delayed REST snapshot) and when the market data was
+  // generated. Surfaces a delayed feed to the analyst.
+  const [selectedQuoteMeta, setSelectedQuoteMeta] = useState<{ asOf: number | null; source: 'realtime' | 'rest' } | null>(null)
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const [showBothSides, setShowBothSides] = useState(true)
   // Exclude in-the-money strikes so the chain shows more out-of-the-money
   // contracts (sends includeOneITM=false to the contracts API → OTM-only).
@@ -190,7 +195,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       return () => clearInterval(quoteInterval)
     }
-  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts])
+  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts, selectedContract?.ticker])
+
+  // Tick once a second so the "as of … ago" data-age label stays current while
+  // a contract is selected. Clear the freshness meta when nothing is selected.
+  useEffect(() => {
+    if (!selectedContract) {
+      setSelectedQuoteMeta(null)
+      return
+    }
+    const id = setInterval(() => setNowTick(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [selectedContract])
 
   // Slow structural refresh (every 30s): re-fetches the full chain to pick up
   // new/expired strikes and expirations. Prices in between are kept live by the
@@ -527,6 +543,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           openInterest: q.openInterest > 0 ? q.openInterest : prev.openInterest,
         }
       })
+      const selTicker = selectedContract?.ticker
+      if (selTicker && quotes[selTicker]) {
+        const sq = quotes[selTicker]
+        setSelectedQuoteMeta({ asOf: sq.asOf ?? null, source: sq.source ?? 'rest' })
+      }
       setLastPriceUpdate(new Date())
     } catch {
       // Silent — keep last known prices until the next cycle.
@@ -746,6 +767,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         const q: BulkQuote | undefined = data?.quotes?.[contract.ticker]
         if (!q || !(q.mid > 0)) return
 
+        setSelectedQuoteMeta({ asOf: q.asOf ?? Date.now(), source: q.source ?? 'rest' })
         setSelectedContract(prev =>
           prev && prev.ticker === contract.ticker
             ? {
@@ -1698,9 +1720,34 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
             {selectedContract && (
               <Card className="border-primary">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
+                  <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
                     <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
                     Selected Contract
+                    {(() => {
+                      if (!selectedQuoteMeta) {
+                        return <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">جارٍ التحديث…</Badge>
+                      }
+                      if (selectedQuoteMeta.source === 'realtime') {
+                        return <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/50">● مباشر (WS)</Badge>
+                      }
+                      const ageSec = selectedQuoteMeta.asOf
+                        ? Math.max(0, Math.round((nowTick - selectedQuoteMeta.asOf) / 1000))
+                        : null
+                      const ageLabel =
+                        ageSec === null ? 'وقت غير معروف'
+                        : ageSec < 60 ? `منذ ${ageSec} ث`
+                        : `منذ ${Math.round(ageSec / 60)} دقيقة`
+                      const delayed = ageSec !== null && ageSec > 60
+                      return (
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] px-1.5 py-0 ${delayed ? 'text-red-600 dark:text-red-400 border-red-500/50' : 'text-amber-600 dark:text-amber-400 border-amber-500/50'}`}
+                          title="السعر من لقطة REST وليس من البث المباشر. إذا كان العمر كبيرًا فخطة بيانات المزوّد مؤجَّلة."
+                        >
+                          REST · {ageLabel}
+                        </Badge>
+                      )
+                    })()}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">

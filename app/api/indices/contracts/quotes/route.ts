@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ quotes: {} });
     }
 
-    type Quote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number };
+    type Quote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number; asOf: number | null; source: 'realtime' | 'rest' };
     const quotes: Record<string, Quote> = {};
 
     // 1) Live tick prices from the realtime options WebSocket service (Fly). This
@@ -94,6 +94,8 @@ export async function POST(request: NextRequest) {
               last: q.last || 0,
               volume: q.volume || 0,
               openInterest: 0, // not streamed; UI keeps its last known OI
+              asOf: typeof q.ts === 'number' ? q.ts : now,
+              source: 'realtime',
             };
           }
         }
