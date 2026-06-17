@@ -74,6 +74,35 @@ async function generateTradeSnapshotInBackground(tradeId: string): Promise<void>
 }
 
 /**
+ * Poke the realtime pricing service so it subscribes to the just-created trade
+ * immediately, instead of waiting for its next ~10s polling cycle. This is what
+ * makes contract prices go live the moment a trade is added. Best-effort and
+ * fire-and-forget: when REALTIME_SERVICE_URL is unset, or the service is down,
+ * the periodic poll still picks the trade up shortly after. Never throws.
+ */
+function triggerRealtimeSync(tradeId: string): void {
+  const base = process.env.REALTIME_SERVICE_URL || process.env.NEXT_PUBLIC_REALTIME_SERVICE_URL;
+  if (!base) return;
+
+  void (async () => {
+    try {
+      const res = await fetch(`${base.replace(/\/$/, '')}/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trade_id: tradeId }),
+      });
+      if (!res.ok) {
+        console.warn(`[trade-create] realtime /sync returned ${res.status} (non-fatal)`);
+      } else {
+        console.log(`[trade-create] ✅ Poked realtime service to stream trade ${tradeId} immediately`);
+      }
+    } catch (err: any) {
+      console.warn('[trade-create] realtime /sync trigger failed (non-fatal):', err?.message);
+    }
+  })();
+}
+
+/**
  * Queue a `new_trade` Telegram announcement for a freshly created trade and
  * (best-effort) flush the outbox immediately. Used by both the normal
  * standalone-create path and the NEW_ENTRY re-entry path so a re-entered
@@ -763,6 +792,8 @@ export async function POST(request: NextRequest) {
         // Announce the re-entered trade on Telegram exactly like a fresh entry.
         // The outbox processor generates the alert image at send time.
         if (newTrade) {
+          // Start live streaming for the new leg immediately.
+          triggerRealtimeSync(newTrade.id);
           await publishNewTradeToTelegram(newTrade, body, newTrade.contract_url ?? null);
         }
 
@@ -900,6 +931,11 @@ export async function POST(request: NextRequest) {
       contract: entryContract,
       source: entrySource,
     });
+
+    // Poke the realtime service so it subscribes to this contract right away —
+    // contract prices then start updating live within ~1s instead of after the
+    // next polling cycle. Fire-and-forget; never blocks the response.
+    triggerRealtimeSync(trade.id);
 
     // ── Telegram publishing ────────────────────────────────────────────────────
     // Queued first (fast: channel resolution + a single outbox insert; the
