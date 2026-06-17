@@ -187,6 +187,30 @@ app.post('/sync', async (_req: Request, res: Response) => {
 });
 
 /**
+ * POST /picker-quotes
+ * Live quotes for the contract-search UI. Body: { tickers: string[] }.
+ * Subscribes the tickers on the options WebSocket and returns the live prices
+ * cached in Redis (fresh ticks only). Tickers without a live value yet are
+ * simply absent — the Next.js caller fills those from a REST snapshot.
+ */
+app.post('/picker-quotes', async (req: Request, res: Response) => {
+  try {
+    const tickers: unknown = req.body?.tickers;
+    if (!Array.isArray(tickers)) {
+      return res.status(400).json({ error: 'tickers must be an array' });
+    }
+    const cleaned = tickers
+      .filter((t): t is string => typeof t === 'string' && t.length > 0)
+      .slice(0, 500);
+    const quotes = await polygonFetcher.getPickerQuotes(cleaned);
+    res.json({ quotes });
+  } catch (err: any) {
+    console.error('[PickerQuotes] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /streaming-health
  * Returns the streaming engine health snapshot in JSON.
  * Called by the Next.js /api/indices/stream-health route and by the

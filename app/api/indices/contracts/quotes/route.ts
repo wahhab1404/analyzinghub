@@ -63,7 +63,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ quotes: {} });
     }
 
-    const quotes = await polygonService.getOptionQuotesBulk(cleaned);
+    type Quote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number };
+    const quotes: Record<string, Quote> = {};
+
+    // 1) Live tick prices from the realtime options WebSocket service (Fly). This
+    //    is the same real-time source the live tracker uses, so picker prices
+    //    match the market. Only values with a recent tick are trusted.
+    const realtimeBase = process.env.REALTIME_SERVICE_URL || process.env.NEXT_PUBLIC_REALTIME_SERVICE_URL;
+    if (realtimeBase) {
+      try {
+        const res = await fetch(`${realtimeBase.replace(/\/$/, '')}/picker-quotes`, {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tickers: cleaned }),
+          signal: AbortSignal.timeout(2500),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const now = Date.now();
+          for (const [ticker, q] of Object.entries((data?.quotes ?? {}) as Record<string, any>)) {
+            // Reject stale cache entries (no fresh tick within 10s) so an illiquid
+            // contract falls back to REST instead of showing a frozen WS price.
+            if (!q || !(q.mid > 0)) continue;
+            if (typeof q.ts === 'number' && now - q.ts > 10_000) continue;
+            quotes[ticker] = {
+              bid: q.bid || 0,
+              ask: q.ask || 0,
+              mid: q.mid || 0,
+              last: q.last || 0,
+              volume: q.volume || 0,
+              openInterest: 0, // not streamed; UI keeps its last known OI
+            };
+          }
+        }
+      } catch {
+        // Realtime service unavailable/slow — fall through to REST for everything.
+      }
+    }
+
+    // 2) REST snapshot fallback for any ticker without a fresh live value.
+    const missing = cleaned.filter(t => !quotes[t]);
+    if (missing.length > 0) {
+      const rest = await polygonService.getOptionQuotesBulk(missing);
+      Object.assign(quotes, rest);
+    }
 
     return NextResponse.json(
       { quotes },
