@@ -312,6 +312,68 @@ class PolygonService {
   }
 
   /**
+   * Fetch fresh quotes for a batch of option contracts in as few round-trips as
+   * possible, using Polygon's universal snapshot endpoint (ticker.any_of, up to
+   * 250 tickers per call). Used by the contract picker to keep the displayed
+   * prices near-live without re-fetching the whole option chain.
+   *
+   * Returns a map keyed by option ticker. Tickers Polygon doesn't return are
+   * simply absent from the map (caller keeps the previous value).
+   */
+  async getOptionQuotesBulk(
+    tickers: string[]
+  ): Promise<Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }>> {
+    if (!POLYGON_API_KEY) {
+      throw new Error('Polygon API key not configured');
+    }
+
+    const unique = Array.from(new Set(tickers.filter(Boolean)));
+    const out: Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }> = {};
+    if (unique.length === 0) return out;
+
+    // Polygon caps ticker.any_of at 250 entries per request.
+    const CHUNK = 250;
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      chunks.push(unique.slice(i, i + CHUNK));
+    }
+
+    // Run chunks in parallel — each is an independent snapshot request.
+    await Promise.all(
+      chunks.map(async chunk => {
+        const url =
+          `${POLYGON_BASE_URL}/v3/snapshot?ticker.any_of=${encodeURIComponent(chunk.join(','))}` +
+          `&limit=${CHUNK}&apiKey=${POLYGON_API_KEY}`;
+        try {
+          const data = await this.fetchWithRetry(url);
+          for (const r of data?.results ?? []) {
+            const ticker = r.ticker as string;
+            if (!ticker) continue;
+            const rawBid = r.last_quote?.bid ?? 0;
+            const rawAsk = r.last_quote?.ask ?? 0;
+            const last = r.last_trade?.price ?? 0;
+            const { price: smart } = computeSmartPrice(rawBid, rawAsk, last);
+            const mid = smart ?? (rawBid && rawAsk ? (rawBid + rawAsk) / 2 : last);
+            out[ticker] = {
+              bid: rawBid || 0,
+              ask: rawAsk || 0,
+              mid: mid || 0,
+              last: last || 0,
+              volume: r.session?.volume ?? 0,
+              openInterest: r.open_interest ?? r.details?.open_interest ?? 0,
+            };
+          }
+        } catch (err: any) {
+          // Non-fatal: a failed chunk just leaves those tickers stale this cycle.
+          console.warn('[PolygonService] getOptionQuotesBulk chunk failed:', err?.message);
+        }
+      })
+    );
+
+    return out;
+  }
+
+  /**
    * Get list of available expiration dates for an underlying
    */
   async getExpirationDates(underlying: string): Promise<string[]> {

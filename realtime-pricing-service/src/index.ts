@@ -170,6 +170,23 @@ app.post('/persist', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /sync
+ * Trigger an immediate active-trade sync so a freshly created (or closed) trade
+ * is subscribed/unsubscribed on the Polygon options + indices streams within
+ * ~1s, instead of waiting for the next polling cycle. Fired (fire-and-forget)
+ * by the Next.js trade-create route. Safe to call repeatedly.
+ */
+app.post('/sync', async (_req: Request, res: Response) => {
+  try {
+    await polygonFetcher.syncNow();
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('[Sync] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /streaming-health
  * Returns the streaming engine health snapshot in JSON.
  * Called by the Next.js /api/indices/stream-health route and by the

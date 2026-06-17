@@ -69,6 +69,32 @@ interface TelegramChannel {
   plan_name?: string
 }
 
+type BulkQuote = { bid: number; ask: number; mid: number; last: number; volume: number; openInterest: number }
+
+/**
+ * Merge freshly fetched live quotes into existing expiration groups in place,
+ * matched by ticker. A non-positive fresh value keeps the previous one so a
+ * transient empty snapshot doesn't blank out a displayed price.
+ */
+function mergeQuotesIntoGroups(groups: ExpirationGroup[], quotes: Record<string, BulkQuote>): ExpirationGroup[] {
+  return groups.map(group => ({
+    ...group,
+    strikes: group.strikes.map(strike => {
+      const q = strike.ticker ? quotes[strike.ticker] : undefined
+      if (!q) return strike
+      return {
+        ...strike,
+        bid: q.bid > 0 ? q.bid : strike.bid,
+        ask: q.ask > 0 ? q.ask : strike.ask,
+        mid: q.mid > 0 ? q.mid : strike.mid,
+        last: q.last > 0 ? q.last : strike.last,
+        volume: q.volume > 0 ? q.volume : strike.volume,
+        openInterest: q.openInterest > 0 ? q.openInterest : strike.openInterest,
+      }
+    }),
+  }))
+}
+
 export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onComplete, onCancel, standalone = false }: AddTradeFormProps) {
   const [loading, setLoading] = useState(false)
   const [searchingContracts, setSearchingContracts] = useState(false)
@@ -154,12 +180,26 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     return () => clearInterval(marketStatusInterval)
   }, [analysisId])
 
-  // Auto-refresh contract prices every 10 seconds when contracts are displayed
+  // Fast price refresh (every 3s): re-quotes ONLY the displayed contracts via a
+  // single bulk snapshot call so the picker prices stay near-live.
+  useEffect(() => {
+    if ((callsData.length > 0 || putsData.length > 0 || expirationGroups.length > 0) && !searchingContracts) {
+      const quoteInterval = setInterval(() => {
+        refreshVisibleQuotes()
+      }, 3000)
+
+      return () => clearInterval(quoteInterval)
+    }
+  }, [callsData.length, putsData.length, expirationGroups.length, searchingContracts])
+
+  // Slow structural refresh (every 30s): re-fetches the full chain to pick up
+  // new/expired strikes and expirations. Prices in between are kept live by the
+  // fast bulk-quote refresh above, so this no longer needs to run every 10s.
   useEffect(() => {
     if ((callsData.length > 0 || putsData.length > 0 || expirationGroups.length > 0) && !searchingContracts) {
       const refreshInterval = setInterval(() => {
         refreshContractPrices()
-      }, 10000) // Refresh every 10 seconds
+      }, 30000)
 
       return () => clearInterval(refreshInterval)
     }
@@ -437,6 +477,59 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
     } catch (error) {
       console.error('Error refreshing contract prices:', error)
       // Silent fail - don't show error to user
+    }
+  }
+
+  /**
+   * Lightweight, fast price refresh: re-quotes ONLY the contracts currently on
+   * screen via a single bulk snapshot call, instead of re-fetching the whole
+   * option chain. This is what keeps the picker prices near-live (runs every
+   * few seconds) without the heavy full-chain round-trips. Silent on failure.
+   */
+  const refreshVisibleQuotes = async () => {
+    try {
+      const tickers = new Set<string>()
+      const collect = (groups: ExpirationGroup[]) =>
+        groups.forEach(g => g.strikes.forEach(s => { if (s.ticker) tickers.add(s.ticker) }))
+      collect(callsData)
+      collect(putsData)
+      collect(expirationGroups)
+      if (selectedContract?.ticker) tickers.add(selectedContract.ticker)
+
+      if (tickers.size === 0) return
+
+      const res = await fetch('/api/indices/contracts/quotes', {
+        method: 'POST',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tickers: Array.from(tickers) }),
+      })
+      if (!res.ok) return
+
+      const data = await res.json()
+      const quotes: Record<string, BulkQuote> = data?.quotes ?? {}
+      if (Object.keys(quotes).length === 0) return
+
+      setCallsData(prev => mergeQuotesIntoGroups(prev, quotes))
+      setPutsData(prev => mergeQuotesIntoGroups(prev, quotes))
+      setExpirationGroups(prev => mergeQuotesIntoGroups(prev, quotes))
+      setSelectedContract(prev => {
+        if (!prev?.ticker) return prev
+        const q = quotes[prev.ticker]
+        if (!q) return prev
+        return {
+          ...prev,
+          bid: q.bid > 0 ? q.bid : prev.bid,
+          ask: q.ask > 0 ? q.ask : prev.ask,
+          mid: q.mid > 0 ? q.mid : prev.mid,
+          last: q.last > 0 ? q.last : prev.last,
+          volume: q.volume > 0 ? q.volume : prev.volume,
+          openInterest: q.openInterest > 0 ? q.openInterest : prev.openInterest,
+        }
+      })
+      setLastPriceUpdate(new Date())
+    } catch {
+      // Silent — keep last known prices until the next cycle.
     }
   }
 

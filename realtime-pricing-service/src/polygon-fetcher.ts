@@ -28,7 +28,10 @@ const INDICES_WS_URL          = 'wss://socket.polygon.io/indices';
 const INDICES_RECONNECT_MS    = 5_000;
 const INDICES_AUTH_TIMEOUT_MS = 15_000;
 
-const ACTIVE_TRADE_SYNC_INTERVAL_MS = 30_000; // Re-sync active trades every 30 s
+const ACTIVE_TRADE_SYNC_INTERVAL_MS = 10_000; // Re-sync active trades every 10 s
+// A freshly created trade is otherwise invisible to the stream until the next
+// poll. The trade-create API route pokes POST /sync (see syncNow) so streaming
+// starts within ~1s; this interval is just the safety-net fallback.
 
 const UNDERLYING_DB_FLUSH_MS   = 1_000; // Persist current_underlying to DB at most 1×/s per index
 const UNDERLYING_REST_POLL_MS  = 3_000; // REST safety poll for the underlying index value
@@ -117,6 +120,19 @@ export class PolygonQuoteFetcher {
 
   isConnected(): boolean {
     return this.indicesWsConnected || this.optionsWs.isConnected();
+  }
+
+  /**
+   * Run both active-trade syncs immediately, out of the regular polling cadence.
+   * Called by the POST /sync endpoint when a trade is created/closed so the
+   * options + indices subscriptions update within ~1s instead of waiting up to
+   * one full ACTIVE_TRADE_SYNC_INTERVAL_MS. Never throws.
+   */
+  async syncNow(): Promise<void> {
+    await Promise.allSettled([
+      this.syncActiveTrades().catch(err => console.error('[FetcherSync] On-demand sync failed:', err.message)),
+      this.syncActiveSPXAutoTrades().catch(err => console.error('[FetcherSync] On-demand SPX sync failed:', err.message)),
+    ]);
   }
 
   isOptionsConnected(): boolean {
