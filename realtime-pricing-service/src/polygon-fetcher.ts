@@ -87,7 +87,42 @@ export class PolygonQuoteFetcher {
       console.warn('[PolygonFetcher] TELEGRAM_BOT_TOKEN not set — buy-range Telegram alerts disabled');
     }
 
-    this.optionsWs = new PolygonOptionsWebSocket(apiKey, supabase, telegramAlerts);
+    this.optionsWs = new PolygonOptionsWebSocket(apiKey, supabase, telegramAlerts, redis);
+  }
+
+  /**
+   * Live quotes for the contract picker. Subscribes the requested option
+   * tickers on the (already-open) options WebSocket so their ticks start
+   * flowing, then returns whatever live prices are already cached in Redis.
+   * The first call for a ticker usually returns nothing (just subscribed) —
+   * the caller fills those from a REST snapshot and gets live values on the
+   * next poll. Only returns reasonably fresh values.
+   */
+  async getPickerQuotes(
+    tickers: string[]
+  ): Promise<Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; ts: number }>> {
+    const normalized = tickers
+      .filter(Boolean)
+      .map(t => (t.startsWith('O:') ? t : `O:${t}`));
+
+    const out: Record<string, { bid: number; ask: number; mid: number; last: number; volume: number; ts: number }> = {};
+    if (normalized.length === 0) return out;
+
+    // Subscribe (idempotent; refreshes the TTL) so ticks keep flowing.
+    this.optionsWs.subscribePicker(normalized);
+
+    const values = await this.redis.mget(...normalized.map(t => `pickerquote:${t}`));
+    normalized.forEach((ticker, i) => {
+      const raw = values[i];
+      if (!raw) return;
+      try {
+        out[ticker] = JSON.parse(raw);
+      } catch {
+        /* ignore malformed cache entry */
+      }
+    });
+
+    return out;
   }
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────────

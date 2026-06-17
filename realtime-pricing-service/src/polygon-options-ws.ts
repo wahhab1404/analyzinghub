@@ -21,6 +21,7 @@
  */
 
 import WebSocket from 'ws';
+import Redis from 'ioredis';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { computeSmartHybridPrice } from './premium-calculator';
 import { streamHealth } from './stream-health';
@@ -178,6 +179,19 @@ export class PolygonOptionsWebSocket {
   private supabase: SupabaseClient;
   private apiKey: string;
   private telegramAlerts: TelegramAlertsService | null;
+  private redis: Redis | null;
+
+  /**
+   * Ephemeral "contract picker" subscriptions: ticker → expiresAtMs. The
+   * search UI (AddTradeForm) asks for live prices for the contracts it is
+   * showing; we subscribe them on the SAME options connection (subscriptions
+   * are cheap — only connections are limited), cache each tick in Redis under
+   * `pickerquote:<ticker>`, and auto-unsubscribe once the analyst stops polling
+   * (TTL lapses). Trade tickers are never swept here.
+   */
+  private pickerExpiry = new Map<string, number>();
+  private pickerSweepTimer: NodeJS.Timeout | null = null;
+  private readonly PICKER_TTL_MS = 60_000;
 
   /** ticker → tradeId (for the active indices trades we care about) */
   private tickerToTradeId = new Map<string, string>();
@@ -214,10 +228,81 @@ export class PolygonOptionsWebSocket {
   private rpcRateLimitTimer: NodeJS.Timeout | null = null;
   private readonly MAX_RPC_PER_SECOND = 60;
 
-  constructor(apiKey: string, supabase: SupabaseClient, telegramAlerts: TelegramAlertsService | null = null) {
+  constructor(
+    apiKey: string,
+    supabase: SupabaseClient,
+    telegramAlerts: TelegramAlertsService | null = null,
+    redis: Redis | null = null,
+  ) {
     this.apiKey         = apiKey;
     this.supabase       = supabase;
     this.telegramAlerts = telegramAlerts;
+    this.redis          = redis;
+  }
+
+  // ── PUBLIC API: CONTRACT-PICKER (ephemeral) SUBSCRIPTIONS ───────────────────
+
+  /**
+   * Register a batch of option tickers the contract picker is currently showing
+   * so their live Q/T ticks get cached in Redis. Refreshes each ticker's TTL,
+   * so as long as the UI keeps polling (~every few seconds) the subscription
+   * stays alive; once polling stops the sweep unsubscribes them.
+   */
+  subscribePicker(tickers: string[]): void {
+    const expiresAt = Date.now() + this.PICKER_TTL_MS;
+    const toSubscribe: string[] = [];
+    for (const raw of tickers) {
+      if (!raw) continue;
+      const ticker = raw.startsWith('O:') ? raw : `O:${raw}`;
+      this.pickerExpiry.set(ticker, expiresAt);
+      if (this.isAuthenticated && !this.subscribedTickers.has(ticker)) {
+        toSubscribe.push(ticker);
+      }
+    }
+    if (toSubscribe.length > 0) this.sendSubscribe(toSubscribe);
+  }
+
+  /** Unsubscribe picker tickers whose TTL lapsed (never touches trade tickers). */
+  private sweepPickerTickers(): void {
+    const now = Date.now();
+    const toUnsubscribe: string[] = [];
+    for (const [ticker, expiresAt] of this.pickerExpiry) {
+      if (expiresAt > now) continue;
+      this.pickerExpiry.delete(ticker);
+      if (
+        !this.tickerToTradeId.has(ticker) &&
+        !this.spxAutoTradeMeta.has(ticker) &&
+        this.subscribedTickers.has(ticker)
+      ) {
+        toUnsubscribe.push(ticker);
+      }
+    }
+    if (toUnsubscribe.length > 0) this.sendUnsubscribe(toUnsubscribe);
+  }
+
+  /** Cache the latest computed price for a picker ticker in Redis (60s TTL). */
+  private async writePickerQuote(
+    ticker: string,
+    priceResult: ReturnType<typeof computeSmartHybridPrice>,
+    pending: PendingTickerState,
+  ): Promise<void> {
+    if (!this.redis || priceResult.price === null) return;
+    try {
+      await this.redis.setex(
+        `pickerquote:${ticker}`,
+        60,
+        JSON.stringify({
+          bid:    priceResult.bid ?? pending.bid ?? 0,
+          ask:    priceResult.ask ?? pending.ask ?? 0,
+          mid:    priceResult.price,
+          last:   priceResult.lastTrade ?? pending.lastTrade ?? 0,
+          volume: pending.volume ?? 0,
+          ts:     Date.now(),
+        }),
+      );
+    } catch {
+      // Non-fatal — the next tick will retry.
+    }
   }
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────────
@@ -241,9 +326,15 @@ export class PolygonOptionsWebSocket {
       }
     }
 
-    // Unsubscribe tickers no longer needed — BUT only if the SPX map doesn't keep them alive
+    // Unsubscribe tickers no longer needed — but keep ones the SPX map or the
+    // contract picker still need alive.
     for (const [ticker] of this.tickerToTradeId) {
-      if (!newTradeMap.has(ticker) && !this.spxAutoTradeMeta.has(ticker) && this.subscribedTickers.has(ticker)) {
+      if (
+        !newTradeMap.has(ticker) &&
+        !this.spxAutoTradeMeta.has(ticker) &&
+        !this.pickerExpiry.has(ticker) &&
+        this.subscribedTickers.has(ticker)
+      ) {
         this.sendUnsubscribe([ticker]);
         this.subscribedTickers.delete(ticker);
       }
@@ -275,9 +366,15 @@ export class PolygonOptionsWebSocket {
       newMap.set(ticker, { ...t, ticker });
     }
 
-    // Unsubscribe SPX tickers that are no longer active AND not held by indices map
+    // Unsubscribe SPX tickers no longer active AND not held by the indices map
+    // or the contract picker.
     for (const [ticker] of this.spxAutoTradeMeta) {
-      if (!newMap.has(ticker) && !this.tickerToTradeId.has(ticker) && this.subscribedTickers.has(ticker)) {
+      if (
+        !newMap.has(ticker) &&
+        !this.tickerToTradeId.has(ticker) &&
+        !this.pickerExpiry.has(ticker) &&
+        this.subscribedTickers.has(ticker)
+      ) {
         this.sendUnsubscribe([ticker]);
         this.subscribedTickers.delete(ticker);
       }
@@ -533,6 +630,13 @@ export class PolygonOptionsWebSocket {
         console.log('[OptionsWS] No active trades to subscribe to at connect time');
       }
 
+      // Re-subscribe any still-live contract-picker tickers (survive reconnects).
+      const now = Date.now();
+      const pickerTickers = [...this.pickerExpiry.entries()]
+        .filter(([t, exp]) => exp > now && !this.subscribedTickers.has(t))
+        .map(([t]) => t);
+      if (pickerTickers.length > 0) this.sendSubscribe(pickerTickers);
+
       // Start flush loop
       this.startFlush();
     }
@@ -555,8 +659,13 @@ export class PolygonOptionsWebSocket {
   ): void {
     const ticker = rawSym.startsWith('O:') ? rawSym : `O:${rawSym}`;
 
-    // Only track tickers we care about (indices trades OR SPX auto-trades)
-    if (!this.tickerToTradeId.has(ticker) && !this.spxAutoTradeMeta.has(ticker)) return;
+    // Only track tickers we care about (indices trades, SPX auto-trades, or
+    // contracts the search UI is currently watching).
+    if (
+      !this.tickerToTradeId.has(ticker) &&
+      !this.spxAutoTradeMeta.has(ticker) &&
+      !this.pickerExpiry.has(ticker)
+    ) return;
 
     const existing = this.pendingUpdates.get(ticker) ?? {
       bid: null,
@@ -588,6 +697,11 @@ export class PolygonOptionsWebSocket {
     this.rpcRateLimitTimer = setInterval(() => {
       this.rpcCallsThisSecond = 0;
     }, 1_000);
+
+    // Sweep expired contract-picker subscriptions periodically.
+    if (!this.pickerSweepTimer) {
+      this.pickerSweepTimer = setInterval(() => this.sweepPickerTickers(), 15_000);
+    }
   }
 
   private stopFlush(): void {
@@ -598,6 +712,10 @@ export class PolygonOptionsWebSocket {
     if (this.rpcRateLimitTimer) {
       clearInterval(this.rpcRateLimitTimer);
       this.rpcRateLimitTimer = null;
+    }
+    if (this.pickerSweepTimer) {
+      clearInterval(this.pickerSweepTimer);
+      this.pickerSweepTimer = null;
     }
   }
 
@@ -617,15 +735,8 @@ export class PolygonOptionsWebSocket {
     for (const [ticker, pending] of batch) {
       const tradeId = this.tickerToTradeId.get(ticker);
       const spxMeta = this.spxAutoTradeMeta.get(ticker);
-      if (!tradeId && !spxMeta) continue;
-
-      // Rate-limit guard
-      if (this.rpcCallsThisSecond >= this.MAX_RPC_PER_SECOND) {
-        console.warn('[OptionsWS] RPC rate limit hit — deferring tick for', ticker);
-        // Put it back for next flush
-        this.pendingUpdates.set(ticker, pending);
-        continue;
-      }
+      const isPicker = this.pickerExpiry.has(ticker);
+      if (!tradeId && !spxMeta && !isPicker) continue;
 
       const priceResult = computeSmartHybridPrice({
         bid:       pending.bid,
@@ -638,9 +749,22 @@ export class PolygonOptionsWebSocket {
         continue;
       }
 
-      this.rpcCallsThisSecond++;
-
       const eventTs = new Date(normalizeEventMs(pending.latestTimestampNs)).toISOString();
+
+      // Cache live ticks for the search UI — Redis only, no RPC / rate limit.
+      if (isPicker) {
+        promises.push(this.writePickerQuote(ticker, priceResult, pending));
+      }
+
+      // The DB-writing paths (trades / SPX auto-trades) are rate-limited.
+      if (tradeId || spxMeta) {
+        if (this.rpcCallsThisSecond >= this.MAX_RPC_PER_SECOND) {
+          console.warn('[OptionsWS] RPC rate limit hit — deferring tick for', ticker);
+          this.pendingUpdates.set(ticker, pending); // retry next flush
+          continue;
+        }
+        this.rpcCallsThisSecond++;
+      }
 
       if (tradeId) {
         promises.push(this.callPriceRpc(tradeId, ticker, priceResult, pending, eventTs));

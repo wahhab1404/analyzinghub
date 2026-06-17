@@ -729,6 +729,46 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
       direction: contract.type,
       entry_override: midStr,
     })
+
+    // Pull a fresh live quote for THIS contract right away so the selected card
+    // and the auto-filled entry price start from a current value instead of the
+    // (possibly stale) chain snapshot. The 3s refresh keeps it live afterwards.
+    void (async () => {
+      try {
+        const res = await fetch('/api/indices/contracts/quotes', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tickers: [contract.ticker] }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        const q: BulkQuote | undefined = data?.quotes?.[contract.ticker]
+        if (!q || !(q.mid > 0)) return
+
+        setSelectedContract(prev =>
+          prev && prev.ticker === contract.ticker
+            ? {
+                ...prev,
+                bid: q.bid > 0 ? q.bid : prev.bid,
+                ask: q.ask > 0 ? q.ask : prev.ask,
+                mid: q.mid > 0 ? q.mid : prev.mid,
+                last: q.last > 0 ? q.last : prev.last,
+                volume: q.volume > 0 ? q.volume : prev.volume,
+                openInterest: q.openInterest > 0 ? q.openInterest : prev.openInterest,
+              }
+            : prev
+        )
+        // Only overwrite the entry price if the analyst hasn't edited it yet.
+        setFormData(prev =>
+          prev.polygon_option_ticker === contract.ticker && prev.entry_override === midStr
+            ? { ...prev, entry_override: q.mid.toFixed(2) }
+            : prev
+        )
+      } catch {
+        // Silent — the periodic refresh will catch up.
+      }
+    })()
   }
 
   const handleDatePresetChange = (preset: DatePreset) => {
