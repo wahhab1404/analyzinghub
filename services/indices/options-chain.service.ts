@@ -58,6 +58,15 @@ export interface StrikeContract {
   gamma?: number;
   theta?: number;
   vega?: number;
+  // Option root parsed from the ticker (e.g. "SPX" vs "SPXW"). Used to flag the
+  // standard, AM-settled SPX contracts whose quotes are often stale/delayed.
+  root?: string;
+  // True for the standard index root (e.g. "SPX") rather than the weekly root
+  // (e.g. "SPXW"). Standard SPX options are AM-settled: they stop trading the
+  // day BEFORE the 3rd-Friday expiry, so on/near expiry their snapshot quote is
+  // a stale leftover (looks much higher than the live PM-settled weekly). The
+  // picker surfaces this as a warning badge so analysts don't trust that price.
+  isAmSettled?: boolean;
 }
 
 export interface ExpirationGroup {
@@ -190,6 +199,27 @@ class OptionsChainService {
 
     console.log('[OptionsChain] Detected strike step:', mode);
     return mode;
+  }
+
+  /**
+   * Parse the option root symbol from a Polygon option ticker.
+   * "O:SPXW260618P07430000" -> "SPXW" ; "O:SPX260618P07430000" -> "SPX"
+   */
+  private parseOptionRoot(ticker: string): string | null {
+    const match = ticker.match(/^O:([A-Z]+?)(\d{6})[CP]\d+$/);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Whether a contract is the standard, AM-settled index root (e.g. root "SPX"
+   * for underlying SPX) rather than a PM-settled weekly (e.g. "SPXW"). The
+   * standard root stops trading before the 3rd-Friday expiry, so its snapshot
+   * quote is frequently stale/delayed — the cause of the "wrong price" duplicate
+   * strikes in the picker.
+   */
+  private isAmSettledRoot(ticker: string, underlying: string): boolean {
+    const root = this.parseOptionRoot(ticker);
+    return root !== null && root === underlying;
   }
 
   /**
@@ -327,9 +357,12 @@ class OptionsChainService {
       const { price: smartPrice } = computeSmartPrice(bid, ask, last);
       const mid = smartPrice ?? (bid && ask ? (bid + ask) / 2 : last);
 
+      const ticker = c.details.ticker as string;
+      const root = this.parseOptionRoot(ticker) ?? undefined;
+
       return {
         strike: c.details.strike_price,
-        ticker: c.details.ticker,
+        ticker,
         bid: bid || undefined,
         ask: ask || undefined,
         mid: mid || undefined,
@@ -341,6 +374,8 @@ class OptionsChainService {
         gamma: c.greeks?.gamma || undefined,
         theta: c.greeks?.theta || undefined,
         vega: c.greeks?.vega || undefined,
+        root,
+        isAmSettled: this.isAmSettledRoot(ticker, config.underlying.toUpperCase().trim()),
       };
     });
   }

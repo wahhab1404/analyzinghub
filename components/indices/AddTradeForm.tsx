@@ -40,6 +40,10 @@ interface OptionContract {
   gamma?: number
   theta?: number
   vega?: number
+  // Option root (e.g. "SPX" vs "SPXW") and whether this is the standard,
+  // AM-settled index contract whose quote is often stale/delayed.
+  root?: string
+  isAmSettled?: boolean
 }
 
 interface ExpirationGroup {
@@ -1493,6 +1497,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                       <div className="flex items-center gap-1">
                                         <span className="text-xs font-bold text-green-600 dark:text-green-400">${row.call.strike}</span>
                                         <span className="text-[8px] text-muted-foreground">{callItm ? 'ITM' : 'OTM'}</span>
+                                        {row.call.isAmSettled && (
+                                          <span
+                                            className="text-[8px] font-semibold px-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                            title="عقد SPX القياسي (تسوية صباحية AM) — قد يكون السعر متأخراً/قديماً. للتداول اللحظي استخدم العقد الأسبوعي SPXW. / Standard AM-settled SPX contract — price may be stale; use the SPXW weekly for live intraday pricing."
+                                          >
+                                            AM ⚠️
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="text-lg font-bold">${(row.call.mid || 0).toFixed(2)}</div>
                                       <div className="text-[10px] text-muted-foreground">{row.call.delta ? `Δ ${row.call.delta.toFixed(3)}` : ''}</div>
@@ -1518,6 +1530,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                       <div className="flex items-center gap-1">
                                         <span className="text-xs font-bold text-red-600 dark:text-red-400">${row.put.strike}</span>
                                         <span className="text-[8px] text-muted-foreground">{putItm ? 'ITM' : 'OTM'}</span>
+                                        {row.put.isAmSettled && (
+                                          <span
+                                            className="text-[8px] font-semibold px-1 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
+                                            title="عقد SPX القياسي (تسوية صباحية AM) — قد يكون السعر متأخراً/قديماً. للتداول اللحظي استخدم العقد الأسبوعي SPXW. / Standard AM-settled SPX contract — price may be stale; use the SPXW weekly for live intraday pricing."
+                                          >
+                                            AM ⚠️
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="text-lg font-bold">${(row.put.mid || 0).toFixed(2)}</div>
                                       <div className="text-[10px] text-muted-foreground">{row.put.delta ? `Δ ${row.put.delta.toFixed(3)}` : ''}</div>
@@ -1633,10 +1653,24 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                       >
                                         {itm ? 'ITM' : 'OTM'}
                                       </Badge>
+                                      {contract.isAmSettled && (
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px] px-1 py-0 text-amber-700 dark:text-amber-300 border-amber-400/60 bg-amber-50 dark:bg-amber-950/30"
+                                          title="عقد SPX القياسي (تسوية صباحية AM) — قد يكون السعر متأخراً/قديماً. للتداول اللحظي استخدم العقد الأسبوعي SPXW. / Standard AM-settled SPX contract — price may be stale; use the SPXW weekly for live intraday pricing."
+                                        >
+                                          AM ⚠️
+                                        </Badge>
+                                      )}
                                     </div>
                                     <div className="text-xs text-muted-foreground font-mono mt-0.5">
                                       {contract.ticker}
                                     </div>
+                                    {contract.isAmSettled && (
+                                      <div className="text-[10px] text-amber-700 dark:text-amber-400 mt-0.5 leading-tight">
+                                        عقد قياسي بتسوية صباحية — السعر قد يكون قديماً. استخدم SPXW للسعر الحي.
+                                      </div>
+                                    )}
                                     {(contract.delta || contract.impliedVolatility) && (
                                       <div className="flex gap-2 mt-1">
                                         {contract.delta && (
@@ -1704,6 +1738,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {selectedContract.isAmSettled && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-2.5 text-xs text-amber-800 dark:text-amber-200">
+                      <span className="text-base leading-none">⚠️</span>
+                      <span>
+                        هذا عقد SPX قياسي بتسوية صباحية (AM) — يتوقف تداوله قبل يوم الانتهاء وقد يكون السعر المعروض قديماً/متأخراً.
+                        للتداول اللحظي يُفضّل اختيار العقد الأسبوعي <b>SPXW</b> لنفس السترايك.
+                        <span className="block mt-0.5 opacity-80">Standard AM-settled SPX contract — quote may be stale. Prefer the SPXW weekly for live intraday pricing.</span>
+                      </span>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
                       <div className="text-muted-foreground text-xs">Ticker</div>
