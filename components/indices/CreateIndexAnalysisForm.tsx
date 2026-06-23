@@ -10,6 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { Loader as Loader2, X, Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 const TIMEFRAMES = [
   { value: '1m', label: '1 Minute' },
@@ -44,6 +45,8 @@ interface TelegramChannel {
 }
 
 export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void }) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const [loading, setLoading] = useState(false)
   const [channels, setChannels] = useState<TelegramChannel[]>([])
   const [loadingChannels, setLoadingChannels] = useState(true)
@@ -137,11 +140,11 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
     const file = e.target.files?.[0]
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        toast.error('Image must be less than 5MB')
+        toast.error(isAr ? 'يجب أن يكون حجم الصورة أقل من 5 ميجابايت' : 'Image must be less than 5MB')
         return
       }
       if (!file.type.startsWith('image/')) {
-        toast.error('File must be an image')
+        toast.error(isAr ? 'يجب أن يكون الملف صورة' : 'File must be an image')
         return
       }
       setFormData({ ...formData, chart_image: file })
@@ -168,7 +171,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
           const uploadData = await uploadResponse.json()
           chartImageUrl = uploadData.url
         } else {
-          toast.error('Failed to upload chart image')
+          toast.error(isAr ? 'فشل رفع صورة الشارت' : 'Failed to upload chart image')
           setLoading(false)
           return
         }
@@ -207,31 +210,31 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
 
       if (response.ok) {
         const { analysis } = await response.json()
-        toast.success('Analysis created successfully!')
+        toast.success(isAr ? 'تم إنشاء التحليل بنجاح!' : 'Analysis created successfully!')
         if (formData.auto_publish_telegram && formData.telegram_channel_id && formData.telegram_channel_id !== 'none') {
-          toast.success('Published to Telegram!')
+          toast.success(isAr ? 'تم النشر على تيليجرام!' : 'Published to Telegram!')
         }
         onComplete()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to create analysis')
+        toast.error(error.error || (isAr ? 'فشل إنشاء التحليل' : 'Failed to create analysis'))
       }
     } catch (error) {
       console.error('Error creating analysis:', error)
-      toast.error('Failed to create analysis')
+      toast.error(isAr ? 'فشل إنشاء التحليل' : 'Failed to create analysis')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" dir={isAr ? 'rtl' : 'ltr'}>
       {/* Basic Info */}
       <div className="space-y-4">
-        <h3 className="font-semibold text-lg">Basic Information</h3>
+        <h3 className="font-semibold text-lg">{isAr ? 'المعلومات الأساسية' : 'Basic Information'}</h3>
 
         <div className="space-y-2">
-          <Label htmlFor="index_symbol">Index Symbol *</Label>
+          <Label htmlFor="index_symbol">{isAr ? 'رمز المؤشر' : 'Index Symbol'} *</Label>
           <Select
             value={formData.index_symbol}
             onValueChange={(value: any) => setFormData({ ...formData, index_symbol: value })}
@@ -248,10 +251,10 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="title">Analysis Title *</Label>
+          <Label htmlFor="title">{isAr ? 'عنوان التحليل' : 'Analysis Title'} *</Label>
           <Input
             id="title"
-            placeholder="e.g., SPX Bullish Setup - Key Support Holding"
+            placeholder={isAr ? 'مثال: إعداد صعودي على SPX - الدعم الرئيسي صامد' : 'e.g., SPX Bullish Setup - Key Support Holding'}
             value={formData.title}
             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
             required
@@ -259,10 +262,11 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="body">Analysis Description *</Label>
+          <Label htmlFor="body">{isAr ? 'نص التحليل' : 'Analysis Description'} *</Label>
           <Textarea
             id="body"
-            placeholder="Explain your analysis in detail..."
+            dir={isAr ? 'rtl' : 'ltr'}
+            placeholder={isAr ? 'اشرح تحليلك بالتفصيل...' : 'Explain your analysis in detail...'}
             value={formData.body}
             onChange={(e) => setFormData({ ...formData, body: e.target.value })}
             rows={5}
@@ -271,7 +275,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="chart">Chart Image *</Label>
+          <Label htmlFor="chart">{isAr ? 'صورة الشارت' : 'Chart Image'} *</Label>
           <Input
             id="chart"
             type="file"
@@ -281,7 +285,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
           />
           {formData.chart_image && (
             <p className="text-sm text-muted-foreground">
-              Selected: {formData.chart_image.name}
+              {isAr ? 'المحدد:' : 'Selected:'} {formData.chart_image.name}
             </p>
           )}
         </div>
@@ -289,10 +293,10 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
 
       {/* Technical Details */}
       <div className="space-y-4 border-t pt-4">
-        <h3 className="font-semibold text-lg">Technical Details</h3>
+        <h3 className="font-semibold text-lg">{isAr ? 'التفاصيل الفنية' : 'Technical Details'}</h3>
 
         <div className="space-y-2">
-          <Label htmlFor="timeframe">Timeframe *</Label>
+          <Label htmlFor="timeframe">{isAr ? 'الإطار الزمني' : 'Timeframe'} *</Label>
           <Select
             value={formData.timeframe}
             onValueChange={(value) => setFormData({ ...formData, timeframe: value })}
@@ -311,7 +315,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         </div>
 
         <div className="space-y-2">
-          <Label>Analysis Methods / Schools Used</Label>
+          <Label>{isAr ? 'الأدوات / المدارس المستخدمة' : 'Analysis Methods / Schools Used'}</Label>
           <div className="grid grid-cols-2 gap-2 border rounded-lg p-4 max-h-60 overflow-y-auto">
             {ANALYSIS_SCHOOLS.map(school => (
               <div key={school} className="flex items-center space-x-2">
@@ -351,26 +355,26 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="invalidation_price">Invalidation Price (Optional)</Label>
+          <Label htmlFor="invalidation_price">{isAr ? 'سعر الإبطال (اختياري)' : 'Invalidation Price (Optional)'}</Label>
           <Input
             id="invalidation_price"
             type="number"
             step="0.01"
-            placeholder="e.g., 5800.00"
+            placeholder={isAr ? 'مثال: 5800.00' : 'e.g., 5800.00'}
             value={formData.invalidation_price}
             onChange={(e) => setFormData({ ...formData, invalidation_price: e.target.value })}
           />
           <p className="text-xs text-muted-foreground">
-            Price level that would invalidate this analysis
+            {isAr ? 'مستوى السعر الذي يُبطل هذا التحليل' : 'Price level that would invalidate this analysis'}
           </p>
         </div>
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label>Price Targets (Optional)</Label>
+            <Label>{isAr ? 'الأهداف السعرية (اختياري)' : 'Price Targets (Optional)'}</Label>
             <Button type="button" variant="outline" size="sm" onClick={addTarget}>
               <Plus className="h-3 w-3 mr-1" />
-              Add Target
+              {isAr ? 'إضافة هدف' : 'Add Target'}
             </Button>
           </div>
           {formData.targets.length > 0 && (
@@ -378,7 +382,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
               {formData.targets.map((target, index) => (
                 <div key={index} className="flex gap-2">
                   <Input
-                    placeholder="Label"
+                    placeholder={isAr ? 'التسمية' : 'Label'}
                     value={target.label}
                     onChange={(e) => updateTarget(index, 'label', e.target.value)}
                     className="flex-1"
@@ -386,7 +390,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="Price"
+                    placeholder={isAr ? 'السعر' : 'Price'}
                     value={target.level}
                     onChange={(e) => updateTarget(index, 'level', e.target.value)}
                     className="flex-1"
@@ -404,7 +408,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
             </div>
           )}
           <p className="text-xs text-muted-foreground">
-            Set price targets to get notifications when they're reached
+            {isAr ? 'حدد أهدافاً سعرية لتصلك إشعارات عند الوصول إليها' : "Set price targets to get notifications when they're reached"}
           </p>
         </div>
       </div>
@@ -413,9 +417,9 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
       <div className="space-y-4 border-t pt-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-lg">Activation Condition</h3>
+            <h3 className="font-semibold text-lg">{isAr ? 'شرط التفعيل' : 'Activation Condition'}</h3>
             <p className="text-xs text-muted-foreground mt-1">
-              Require a price condition to be met before the analysis becomes active
+              {isAr ? 'اشترط تحقق شرط سعري قبل أن يصبح التحليل فعّالاً' : 'Require a price condition to be met before the analysis becomes active'}
             </p>
           </div>
           <Checkbox
@@ -430,7 +434,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
         {formData.activation_enabled && (
           <div className="space-y-4 pl-4 border-l-2 border-primary/20">
             <div className="space-y-2">
-              <Label htmlFor="activation_type">Condition Type *</Label>
+              <Label htmlFor="activation_type">{isAr ? 'نوع الشرط' : 'Condition Type'} *</Label>
               <Select
                 value={formData.activation_type}
                 onValueChange={(value: any) => setFormData({ ...formData, activation_type: value })}
@@ -439,36 +443,36 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="PASSING_PRICE">Passing Price (crosses)</SelectItem>
-                  <SelectItem value="ABOVE_PRICE">Above Price</SelectItem>
-                  <SelectItem value="UNDER_PRICE">Under Price</SelectItem>
+                  <SelectItem value="PASSING_PRICE">{isAr ? 'تجاوز السعر (اختراق)' : 'Passing Price (crosses)'}</SelectItem>
+                  <SelectItem value="ABOVE_PRICE">{isAr ? 'فوق السعر' : 'Above Price'}</SelectItem>
+                  <SelectItem value="UNDER_PRICE">{isAr ? 'تحت السعر' : 'Under Price'}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {formData.activation_type === 'PASSING_PRICE' && 'Activates when price crosses the specified level'}
-                {formData.activation_type === 'ABOVE_PRICE' && 'Activates when price is above the specified level'}
-                {formData.activation_type === 'UNDER_PRICE' && 'Activates when price is under the specified level'}
+                {formData.activation_type === 'PASSING_PRICE' && (isAr ? 'يُفعّل عندما يخترق السعر المستوى المحدد' : 'Activates when price crosses the specified level')}
+                {formData.activation_type === 'ABOVE_PRICE' && (isAr ? 'يُفعّل عندما يكون السعر فوق المستوى المحدد' : 'Activates when price is above the specified level')}
+                {formData.activation_type === 'UNDER_PRICE' && (isAr ? 'يُفعّل عندما يكون السعر تحت المستوى المحدد' : 'Activates when price is under the specified level')}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="activation_price">Activation Price *</Label>
+              <Label htmlFor="activation_price">{isAr ? 'سعر التفعيل' : 'Activation Price'} *</Label>
               <Input
                 id="activation_price"
                 type="number"
                 step="0.01"
-                placeholder="e.g., 5950.00"
+                placeholder={isAr ? 'مثال: 5950.00' : 'e.g., 5950.00'}
                 value={formData.activation_price}
                 onChange={(e) => setFormData({ ...formData, activation_price: e.target.value })}
                 required={formData.activation_enabled}
               />
               <p className="text-xs text-muted-foreground">
-                Analysis will wait until this condition is met before becoming active
+                {isAr ? 'سينتظر التحليل حتى يتحقق هذا الشرط قبل أن يصبح فعّالاً' : 'Analysis will wait until this condition is met before becoming active'}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="activation_timeframe">Timeframe Check</Label>
+              <Label htmlFor="activation_timeframe">{isAr ? 'إطار الفحص الزمني' : 'Timeframe Check'}</Label>
               <Select
                 value={formData.activation_timeframe}
                 onValueChange={(value: any) => setFormData({ ...formData, activation_timeframe: value })}
@@ -477,21 +481,24 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="INTRABAR">Intrabar (Real-time)</SelectItem>
-                  <SelectItem value="1H_CLOSE">1H Candle Close</SelectItem>
-                  <SelectItem value="4H_CLOSE">4H Candle Close</SelectItem>
-                  <SelectItem value="DAILY_CLOSE">Daily Candle Close</SelectItem>
+                  <SelectItem value="INTRABAR">{isAr ? 'داخل الشمعة (فوري)' : 'Intrabar (Real-time)'}</SelectItem>
+                  <SelectItem value="1H_CLOSE">{isAr ? 'إغلاق شمعة الساعة' : '1H Candle Close'}</SelectItem>
+                  <SelectItem value="4H_CLOSE">{isAr ? 'إغلاق شمعة 4 ساعات' : '4H Candle Close'}</SelectItem>
+                  <SelectItem value="DAILY_CLOSE">{isAr ? 'إغلاق الشمعة اليومية' : 'Daily Candle Close'}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                When to check if the condition has been met
+                {isAr ? 'متى يتم التحقق من تحقق الشرط' : 'When to check if the condition has been met'}
               </p>
             </div>
 
             <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3 border border-amber-200 dark:border-amber-800">
               <p className="text-xs text-amber-800 dark:text-amber-200">
-                <strong>Note:</strong> The analysis will be published but marked as "Waiting for Activation".
-                It will become active only when the condition is met. Subscribers will be notified when activation occurs.
+                {isAr ? (
+                  <><strong>ملاحظة:</strong> سيتم نشر التحليل ولكن مع وضع علامة "بانتظار التفعيل". لن يصبح فعّالاً إلا عند تحقق الشرط. سيتم إشعار المشتركين عند حدوث التفعيل.</>
+                ) : (
+                  <><strong>Note:</strong> The analysis will be published but marked as "Waiting for Activation". It will become active only when the condition is met. Subscribers will be notified when activation occurs.</>
+                )}
               </p>
             </div>
           </div>
@@ -500,33 +507,33 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
 
       {/* Telegram Publishing */}
       <div className="space-y-4 border-t pt-4">
-        <h3 className="font-semibold text-lg">Telegram Publishing</h3>
+        <h3 className="font-semibold text-lg">{isAr ? 'النشر على تيليجرام' : 'Telegram Publishing'}</h3>
 
         {loadingChannels ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading channels...
+            {isAr ? 'جارٍ تحميل القنوات...' : 'Loading channels...'}
           </div>
         ) : channels.length === 0 ? (
           <div className="text-sm text-muted-foreground p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
-            No Telegram channels configured. Go to Settings → Telegram to add a channel.
+            {isAr ? 'لا توجد قنوات تيليجرام مهيأة. اذهب إلى الإعدادات ← تيليجرام لإضافة قناة.' : 'No Telegram channels configured. Go to Settings → Telegram to add a channel.'}
           </div>
         ) : (
           <>
             <div className="space-y-2">
-              <Label htmlFor="telegram_channel">Telegram Channel (Optional)</Label>
+              <Label htmlFor="telegram_channel">{isAr ? 'قناة تيليجرام (اختياري)' : 'Telegram Channel (Optional)'}</Label>
               <Select
                 value={formData.telegram_channel_id}
                 onValueChange={(value) => setFormData({ ...formData, telegram_channel_id: value })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a channel" />
+                  <SelectValue placeholder={isAr ? 'اختر قناة' : 'Select a channel'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="none">{isAr ? 'بدون' : 'None'}</SelectItem>
                   {channels.filter(ch => ch.source === 'analyst').length > 0 && (
                     <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                      Analyst Channels
+                      {isAr ? 'قنوات المحلل' : 'Analyst Channels'}
                     </div>
                   )}
                   {channels.filter(ch => ch.source === 'analyst').map(channel => (
@@ -536,7 +543,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                   ))}
                   {channels.filter(ch => ch.source === 'plan').length > 0 && (
                     <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
-                      Plan Channels
+                      {isAr ? 'قنوات الباقات' : 'Plan Channels'}
                     </div>
                   )}
                   {channels.filter(ch => ch.source === 'plan').map(channel => (
@@ -561,7 +568,7 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                   htmlFor="auto_publish"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                 >
-                  Auto-publish to Telegram when created
+                  {isAr ? 'النشر تلقائياً على تيليجرام عند الإنشاء' : 'Auto-publish to Telegram when created'}
                 </label>
               </div>
             )}
@@ -571,11 +578,11 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
 
       {/* Publishing Options */}
       <div className="space-y-4 border-t pt-4">
-        <h3 className="font-semibold text-lg">Publishing Options</h3>
+        <h3 className="font-semibold text-lg">{isAr ? 'خيارات النشر' : 'Publishing Options'}</h3>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="visibility">Visibility *</Label>
+            <Label htmlFor="visibility">{isAr ? 'الظهور' : 'Visibility'} *</Label>
             <Select
               value={formData.visibility}
               onValueChange={(value: any) => setFormData({ ...formData, visibility: value })}
@@ -584,15 +591,15 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="public">Public (Everyone)</SelectItem>
-                <SelectItem value="subscribers">Subscribers Only</SelectItem>
-                <SelectItem value="admin_only">Admin Only</SelectItem>
+                <SelectItem value="public">{isAr ? 'عام (للجميع)' : 'Public (Everyone)'}</SelectItem>
+                <SelectItem value="subscribers">{isAr ? 'المشتركون فقط' : 'Subscribers Only'}</SelectItem>
+                <SelectItem value="admin_only">{isAr ? 'المشرف فقط' : 'Admin Only'}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="status">Status *</Label>
+            <Label htmlFor="status">{isAr ? 'الحالة' : 'Status'} *</Label>
             <Select
               value={formData.status}
               onValueChange={(value: any) => setFormData({ ...formData, status: value })}
@@ -601,8 +608,8 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="draft">Draft</SelectItem>
-                <SelectItem value="published">Published</SelectItem>
+                <SelectItem value="draft">{isAr ? 'مسودة' : 'Draft'}</SelectItem>
+                <SelectItem value="published">{isAr ? 'منشور' : 'Published'}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -612,11 +619,11 @@ export function CreateIndexAnalysisForm({ onComplete }: { onComplete: () => void
       {/* Form Actions */}
       <div className="flex gap-2 justify-end border-t pt-4">
         <Button type="button" variant="outline" onClick={onComplete}>
-          Cancel
+          {isAr ? 'إلغاء' : 'Cancel'}
         </Button>
         <Button type="submit" disabled={loading}>
           {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-          Create Analysis
+          {isAr ? 'إنشاء التحليل' : 'Create Analysis'}
         </Button>
       </div>
     </form>

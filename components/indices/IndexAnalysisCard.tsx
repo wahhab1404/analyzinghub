@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { getTextDirection } from '@/lib/utils'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 /* ── Types (unchanged from original) ───────────────────────────────── */
 
@@ -88,12 +89,12 @@ function calculatePnL(trade: Trade) {
   return { percentage: adjustedPnL, isPositive: adjustedPnL > 0 }
 }
 
-function getActivationTypeLabel(type?: string) {
+function getActivationTypeLabel(type?: string, isAr = false) {
   switch (type) {
-    case 'PASSING_PRICE': return 'Passing'
-    case 'ABOVE_PRICE': return 'Above'
-    case 'UNDER_PRICE': return 'Under'
-    default: return 'Unknown'
+    case 'PASSING_PRICE': return isAr ? 'عبور' : 'Passing'
+    case 'ABOVE_PRICE': return isAr ? 'فوق' : 'Above'
+    case 'UNDER_PRICE': return isAr ? 'تحت' : 'Under'
+    default: return isAr ? 'غير معروف' : 'Unknown'
   }
 }
 
@@ -186,6 +187,8 @@ export function IndexAnalysisCard({
   onFollowUp,
   onSelectTrade,
 }: IndexAnalysisCardProps) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const [imageError, setImageError] = useState(false)
 
   const isConditionMet =
@@ -220,7 +223,7 @@ export function IndexAnalysisCard({
               }}
             />
             <BarChart2 className="w-10 h-10 text-slate-700 mb-2 relative z-10" />
-            <span className="text-[10px] text-slate-700 font-mono relative z-10">No chart attached</span>
+            <span className="text-[10px] text-slate-700 font-mono relative z-10">{isAr ? 'لا يوجد شارت مرفق' : 'No chart attached'}</span>
           </div>
         )}
 
@@ -246,7 +249,9 @@ export function IndexAnalysisCard({
                 : 'bg-slate-500/10 border-slate-500/30 text-slate-500'
             } backdrop-blur-sm`}
           >
-            {analysis.status}
+            {isAr
+              ? (analysis.status === 'published' ? 'منشور' : analysis.status === 'draft' ? 'مسودة' : 'مؤرشف')
+              : analysis.status}
           </div>
         </div>
 
@@ -256,14 +261,16 @@ export function IndexAnalysisCard({
             <div className="flex items-center gap-1.5 bg-[#060b14]/70 backdrop-blur-sm rounded px-2 py-1">
               <Activity className="w-3 h-3 text-slate-500" />
               <span className="text-[10px] font-mono text-slate-400">
-                {analysis.trades_count} trade{analysis.trades_count !== 1 ? 's' : ''}
+                {isAr
+                  ? `${analysis.trades_count} ${analysis.trades_count === 1 ? 'صفقة' : 'صفقات'}`
+                  : `${analysis.trades_count} trade${analysis.trades_count !== 1 ? 's' : ''}`}
               </span>
             </div>
             {analysis.active_trades_count > 0 && (
               <div className="flex items-center gap-1.5 bg-blue-500/10 backdrop-blur-sm border border-blue-500/30 rounded px-2 py-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                 <span className="text-[10px] font-mono text-blue-400">
-                  {analysis.active_trades_count} live
+                  {analysis.active_trades_count} {isAr ? 'مباشرة' : 'live'}
                 </span>
               </div>
             )}
@@ -321,7 +328,7 @@ export function IndexAnalysisCard({
             {analysis.invalidation_price && (
               <div className="flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded border bg-red-500/10 border-red-500/20 text-red-400">
                 <AlertCircle className="w-2.5 h-2.5" />
-                Inv: ${analysis.invalidation_price.toFixed(0)}
+                {isAr ? 'إبطال' : 'Inv'}: ${analysis.invalidation_price.toFixed(0)}
               </div>
             )}
           </div>
@@ -344,10 +351,12 @@ export function IndexAnalysisCard({
               <Zap className="w-3 h-3 flex-shrink-0" />
             )}
             <span className="font-medium">
-              {isConditionMet ? 'Condition Met' : 'Activation Required'}
+              {isConditionMet
+                ? (isAr ? 'تحقق الشرط' : 'Condition Met')
+                : (isAr ? 'يتطلب التفعيل' : 'Activation Required')}
             </span>
             <span className="text-[9px] opacity-70 ml-auto font-mono">
-              {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(0)}
+              {getActivationTypeLabel(analysis.activation_type, isAr)} ${analysis.activation_price?.toFixed(0)}
             </span>
           </div>
         )}
@@ -357,11 +366,11 @@ export function IndexAnalysisCard({
           <div className="border-t border-[#1a2840] pt-3">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[9px] font-bold tracking-[0.18em] text-slate-700 uppercase">
-                Recent Trades
+                {isAr ? 'أحدث الصفقات' : 'Recent Trades'}
               </span>
               {analysis.trades.length > 3 && (
                 <span className="text-[9px] text-slate-700 font-mono">
-                  +{analysis.trades.length - 3} more
+                  +{analysis.trades.length - 3} {isAr ? 'أخرى' : 'more'}
                 </span>
               )}
             </div>
@@ -396,7 +405,7 @@ export function IndexAnalysisCard({
               className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-[11px] font-semibold border border-blue-500/30 transition-all"
             >
               <Plus className="w-3.5 h-3.5" />
-              New Trade
+              {isAr ? 'صفقة جديدة' : 'New Trade'}
             </button>
             <button
               onClick={(e) => {
@@ -406,7 +415,7 @@ export function IndexAnalysisCard({
               className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded text-slate-500 hover:text-slate-300 text-[11px] font-medium border border-[#1a2840] hover:border-[#2a3850] transition-all"
             >
               <FileText className="w-3.5 h-3.5" />
-              Follow-up
+              {isAr ? 'متابعة' : 'Follow-up'}
             </button>
           </>
         ) : (
@@ -417,7 +426,7 @@ export function IndexAnalysisCard({
             }}
             className="flex items-center gap-1.5 flex-1 justify-center px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 text-[11px] font-medium border border-[#1a2840] hover:border-blue-500/30 hover:bg-blue-500/5 transition-all"
           >
-            View Details
+            {isAr ? 'عرض التفاصيل' : 'View Details'}
           </button>
         )}
       </div>

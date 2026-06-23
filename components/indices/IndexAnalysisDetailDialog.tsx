@@ -20,6 +20,7 @@ import {
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { getTextDirection } from '@/lib/utils'
+import { useLanguage } from '@/lib/i18n/language-context'
 
 /* ── Types (unchanged) ──────────────────────────────────────────────── */
 
@@ -90,23 +91,23 @@ function calculatePnL(trade: Trade) {
   return { percentage: adjustedPnL, isPositive: adjustedPnL > 0, value: bestPrice - entryPrice }
 }
 
-function getActivationTypeLabel(type?: string) {
+function getActivationTypeLabel(type?: string, isAr = false) {
   switch (type) {
-    case 'PASSING_PRICE': return 'Passing Price'
-    case 'ABOVE_PRICE': return 'Price Above'
-    case 'UNDER_PRICE': return 'Price Under'
-    default: return 'Unknown'
+    case 'PASSING_PRICE': return isAr ? 'عبور' : 'Passing Price'
+    case 'ABOVE_PRICE': return isAr ? 'فوق' : 'Price Above'
+    case 'UNDER_PRICE': return isAr ? 'تحت' : 'Price Under'
+    default: return isAr ? 'غير معروف' : 'Unknown'
   }
 }
 
-function getActivationStatusLabel(status?: string) {
+function getActivationStatusLabel(status?: string, isAr = false) {
   switch (status) {
-    case 'published_inactive': return 'Waiting for Activation'
-    case 'active': return 'Active'
-    case 'completed_success': return 'Completed Successfully'
-    case 'completed_fail': return 'Failed'
-    case 'cancelled': return 'Cancelled'
-    case 'expired': return 'Expired'
+    case 'published_inactive': return isAr ? 'بانتظار التفعيل' : 'Waiting for Activation'
+    case 'active': return isAr ? 'نشط' : 'Active'
+    case 'completed_success': return isAr ? 'مكتمل' : 'Completed Successfully'
+    case 'completed_fail': return isAr ? 'فشل' : 'Failed'
+    case 'cancelled': return isAr ? 'ملغى' : 'Cancelled'
+    case 'expired': return isAr ? 'منتهي' : 'Expired'
     default: return status
   }
 }
@@ -148,6 +149,8 @@ function DetailTradeCard({
   trade: Trade
   onClick: () => void
 }) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const pnl = calculatePnL(trade)
   const isCall = trade.direction === 'call' || trade.direction === 'long'
 
@@ -222,21 +225,21 @@ function DetailTradeCard({
       {/* Metrics row */}
       <div className="grid grid-cols-4 divide-x divide-[#1a2840] border-b border-[#1a2840]">
         <MetricCell
-          label="Entry"
+          label={isAr ? 'الدخول' : 'Entry'}
           value={`$${trade.entry_contract_snapshot.mid.toFixed(2)}`}
         />
         <MetricCell
-          label="High"
+          label={isAr ? 'الأعلى' : 'High'}
           value={`$${trade.contract_high_since.toFixed(2)}`}
           color="text-emerald-400"
         />
         <MetricCell
-          label="Low"
+          label={isAr ? 'الأدنى' : 'Low'}
           value={`$${trade.contract_low_since.toFixed(2)}`}
           color="text-red-400"
         />
         <MetricCell
-          label="Current"
+          label={isAr ? 'الحالي' : 'Current'}
           value={`$${trade.current_contract.toFixed(2)}`}
           color={trade.status === 'active' ? 'text-blue-400' : 'text-slate-500'}
         />
@@ -266,7 +269,7 @@ function DetailTradeCard({
             <div className="flex items-center gap-1.5 ml-auto">
               <AlertCircle className="w-2.5 h-2.5 text-red-600 flex-shrink-0" />
               <span className="text-[9px] font-mono px-1.5 py-0.5 rounded border bg-red-500/8 border-red-500/20 text-red-400">
-                SL ${trade.stoploss.price}
+                {isAr ? 'وقف' : 'SL'} ${trade.stoploss.price}
               </span>
             </div>
           )}
@@ -291,6 +294,8 @@ export function IndexAnalysisDetailDialog({
   onOpenChange,
   onSelectTrade,
 }: IndexAnalysisDetailDialogProps) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const [analysis, setAnalysis] = useState<IndexAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -309,7 +314,7 @@ export function IndexAnalysisDetailDialog({
         const data = await response.json()
         setAnalysis({ ...data.analysis, trades: data.trades || [] })
       } else {
-        toast.error('Failed to load analysis details')
+        toast.error(isAr ? 'فشل تحميل تفاصيل التحليل' : 'Failed to load analysis details')
       }
     } catch {
       toast.error('Failed to load analysis details')
@@ -332,7 +337,7 @@ export function IndexAnalysisDetailDialog({
           <div className="flex items-center justify-center h-[70vh]">
             <div className="flex flex-col items-center gap-3">
               <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-              <span className="text-xs text-slate-600 font-mono">Loading analysis…</span>
+              <span className="text-xs text-slate-600 font-mono">{isAr ? 'جارٍ تحميل التحليل…' : 'Loading analysis…'}</span>
             </div>
           </div>
         </DialogContent>
@@ -388,7 +393,7 @@ export function IndexAnalysisDetailDialog({
               {activeTrades > 0 && (
                 <div className="flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/25 px-2 py-1 rounded flex-shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                  <span className="text-[10px] font-mono text-blue-400">{activeTrades} live</span>
+                  <span className="text-[10px] font-mono text-blue-400">{activeTrades} {isAr ? 'مباشرة' : 'live'}</span>
                 </div>
               )}
 
@@ -413,7 +418,7 @@ export function IndexAnalysisDetailDialog({
                 <iframe
                   src={analysis.chart_embed_url}
                   className="w-full h-full border-0"
-                  title="Chart"
+                  title={isAr ? 'الرسم البياني' : 'Chart'}
                 />
               ) : (
                 /* Placeholder */
@@ -427,8 +432,8 @@ export function IndexAnalysisDetailDialog({
                     }}
                   />
                   <BarChart2 className="w-16 h-16 text-slate-700 mb-3 relative z-10" />
-                  <span className="text-sm text-slate-600 font-mono relative z-10">No chart attached</span>
-                  <span className="text-[11px] text-slate-700 mt-1 relative z-10">Chart image or embed URL not set</span>
+                  <span className="text-sm text-slate-600 font-mono relative z-10">{isAr ? 'لا يوجد رسم بياني مرفق' : 'No chart attached'}</span>
+                  <span className="text-[11px] text-slate-700 mt-1 relative z-10">{isAr ? 'لم يتم تعيين صورة الرسم البياني أو رابط التضمين' : 'Chart image or embed URL not set'}</span>
                 </div>
               )}
 
@@ -442,7 +447,7 @@ export function IndexAnalysisDetailDialog({
                   onClick={(e) => e.stopPropagation()}
                 >
                   <ExternalLink className="w-3 h-3" />
-                  Open in TradingView
+                  {isAr ? 'فتح في TradingView' : 'Open in TradingView'}
                 </a>
               )}
             </div>
@@ -469,7 +474,7 @@ export function IndexAnalysisDetailDialog({
                 <Clock className="w-3 h-3" />
                 {analysis.published_at
                   ? format(new Date(analysis.published_at), 'PPP · HH:mm')
-                  : 'Not published'}
+                  : (isAr ? 'غير منشور' : 'Not published')}
               </div>
             </div>
           </div>
@@ -480,9 +485,11 @@ export function IndexAnalysisDetailDialog({
             {/* Right panel header */}
             <div className="flex items-center gap-2 px-5 py-3 border-b border-[#1a2840] flex-shrink-0">
               <Activity className="w-3.5 h-3.5 text-slate-600" />
-              <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">Research Note</span>
+              <span className="text-[10px] font-bold tracking-[0.18em] text-slate-600 uppercase">{isAr ? 'ملاحظة بحثية' : 'Research Note'}</span>
               <span className="ml-auto text-[10px] font-mono text-slate-700">
-                {analysis.trades.length} trade{analysis.trades.length !== 1 ? 's' : ''}
+                {isAr
+                  ? `${analysis.trades.length} ${analysis.trades.length === 1 ? 'صفقة' : 'صفقات'}`
+                  : `${analysis.trades.length} trade${analysis.trades.length !== 1 ? 's' : ''}`}
               </span>
             </div>
 
@@ -492,7 +499,7 @@ export function IndexAnalysisDetailDialog({
 
                 {/* ── Analysis text ── */}
                 <div>
-                  <SectionLabel>Analysis</SectionLabel>
+                  <SectionLabel>{isAr ? 'التحليل' : 'Analysis'}</SectionLabel>
                   <p
                     dir={getTextDirection(analysis.body)}
                     className="text-[12px] text-slate-400 leading-relaxed whitespace-pre-wrap"
@@ -504,7 +511,7 @@ export function IndexAnalysisDetailDialog({
                 {/* ── Activation condition ── */}
                 {analysis.activation_enabled && (
                   <div>
-                    <SectionLabel>Activation Condition</SectionLabel>
+                    <SectionLabel>{isAr ? 'شرط التفعيل' : 'Activation Condition'}</SectionLabel>
                     <div
                       className={`rounded-lg border p-3 ${
                         isConditionMet
@@ -522,10 +529,10 @@ export function IndexAnalysisDetailDialog({
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-[11px] font-semibold text-slate-300 mb-1">
-                            {isConditionMet ? 'Condition Met ✓' : 'Activation Required'}
+                            {isConditionMet ? (isAr ? 'تحقق الشرط ✓' : 'Condition Met ✓') : (isAr ? 'يتطلب التفعيل' : 'Activation Required')}
                           </p>
                           <p className="text-[10px] text-slate-500">
-                            {getActivationTypeLabel(analysis.activation_type)} ${analysis.activation_price?.toFixed(2)}
+                            {getActivationTypeLabel(analysis.activation_type, isAr)} ${analysis.activation_price?.toFixed(2)}
                             {analysis.activation_timeframe && analysis.activation_timeframe !== 'INTRABAR' && (
                               <span className="ml-1 opacity-70">
                                 ({analysis.activation_timeframe.replace('_', ' ')})
@@ -534,18 +541,18 @@ export function IndexAnalysisDetailDialog({
                           </p>
                           <div className="flex flex-wrap gap-1.5 mt-2">
                             <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-[#1a2840] border border-[#2a3850] text-slate-500">
-                              {getActivationStatusLabel(analysis.activation_status)}
+                              {getActivationStatusLabel(analysis.activation_status, isAr)}
                             </span>
                           </div>
                           {analysis.preactivation_stop_touched && !isConditionMet && (
                             <p className="text-[10px] text-orange-400 mt-2 flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
-                              Stop touched before activation
+                              {isAr ? 'تم لمس وقف الخسارة قبل التفعيل' : 'Stop touched before activation'}
                             </p>
                           )}
                           {isConditionMet && analysis.activated_at && (
                             <p className="text-[10px] text-emerald-400 mt-2 font-mono">
-                              Activated: {format(new Date(analysis.activated_at), 'MMM d, HH:mm')}
+                              {isAr ? 'تم التفعيل:' : 'Activated:'} {format(new Date(analysis.activated_at), 'MMM d, HH:mm')}
                             </p>
                           )}
                         </div>
@@ -557,13 +564,13 @@ export function IndexAnalysisDetailDialog({
                 {/* ── Trades ── */}
                 <div>
                   <SectionLabel>
-                    Trades · {analysis.trades.length}
+                    {isAr ? 'الصفقات' : 'Trades'} · {analysis.trades.length}
                   </SectionLabel>
 
                   {analysis.trades.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-10 text-center">
                       <Activity className="w-8 h-8 text-slate-700 mb-3" />
-                      <p className="text-[11px] text-slate-600">No trades added yet</p>
+                      <p className="text-[11px] text-slate-600">{isAr ? 'لم تتم إضافة صفقات بعد' : 'No trades added yet'}</p>
                     </div>
                   ) : (
                     <div className="space-y-2.5">
