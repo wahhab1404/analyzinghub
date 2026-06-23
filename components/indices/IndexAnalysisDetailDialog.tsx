@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
+import { getTextDirection } from '@/lib/utils'
 
 /* ── Types (unchanged) ──────────────────────────────────────────────── */
 
@@ -376,7 +377,10 @@ export function IndexAnalysisDetailDialog({
               <div className="w-px h-4 bg-[#1a2840]" />
 
               {/* Title */}
-              <h2 className="text-sm font-semibold text-slate-300 truncate flex-1 leading-tight">
+              <h2
+                dir={getTextDirection(analysis.title)}
+                className="text-sm font-semibold text-slate-300 truncate flex-1 leading-tight"
+              >
                 {analysis.title}
               </h2>
 
@@ -489,7 +493,10 @@ export function IndexAnalysisDetailDialog({
                 {/* ── Analysis text ── */}
                 <div>
                   <SectionLabel>Analysis</SectionLabel>
-                  <p className="text-[12px] text-slate-400 leading-relaxed whitespace-pre-wrap">
+                  <p
+                    dir={getTextDirection(analysis.body)}
+                    className="text-[12px] text-slate-400 leading-relaxed whitespace-pre-wrap"
+                  >
                     {analysis.body}
                   </p>
                 </div>

@@ -485,6 +485,54 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {isIndexAnalysis && (
+            <div className="space-y-4">
+              {analysis.title && (
+                <h2
+                  className="text-2xl font-bold leading-tight"
+                  dir={getTextDirection(analysis.title)}
+                >
+                  {analysis.title}
+                </h2>
+              )}
+
+              {(analysis.timeframe || (analysis.schools_used && analysis.schools_used.length > 0)) && (
+                <div className="flex flex-wrap gap-2">
+                  {analysis.timeframe && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-300 dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900">
+                      {analysis.timeframe}
+                    </Badge>
+                  )}
+                  {analysis.schools_used?.map((school) => (
+                    <Badge key={school} variant="outline" className="bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900">
+                      {school}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {analysisContent && (
+                <div
+                  className="text-base leading-relaxed whitespace-pre-wrap"
+                  dir={getTextDirection(analysisContent)}
+                >
+                  {analysisContent}
+                </div>
+              )}
+
+              {analysis.invalidation_price !== undefined && analysis.invalidation_price !== null && (
+                <div className="p-4 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-900/50 w-fit">
+                  <p className="text-xs text-red-600 dark:text-red-400 font-medium mb-1">
+                    Invalidation
+                  </p>
+                  <p className="text-xl font-bold text-red-700 dark:text-red-300">
+                    {analysis.invalidation_price.toFixed(2)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {postType === 'news' && (
             <div className="space-y-4">
               <h2

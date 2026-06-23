@@ -15,6 +15,7 @@ import {
   BarChart2,
 } from 'lucide-react'
 import { format } from 'date-fns'
+import { getTextDirection } from '@/lib/utils'
 
 /* ── Types (unchanged from original) ───────────────────────────────── */
 
@@ -283,13 +284,19 @@ export function IndexAnalysisCard({
       <div className="flex flex-col flex-1 p-4 gap-3">
 
         {/* Title */}
-        <h3 className="text-sm font-bold text-slate-200 leading-snug line-clamp-2 group-hover:text-blue-300 transition-colors">
+        <h3
+          dir={getTextDirection(analysis.title)}
+          className="text-sm font-bold text-slate-200 leading-snug line-clamp-2 group-hover:text-blue-300 transition-colors"
+        >
           {analysis.title}
         </h3>
 
         {/* Summary */}
         {analysis.body && (
-          <p className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+          <p
+            dir={getTextDirection(analysis.body)}
+            className="text-[11px] text-slate-500 line-clamp-2 leading-relaxed"
+          >
             {analysis.body}
           </p>
         )}

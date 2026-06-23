@@ -619,11 +619,19 @@ function formatAnalysisMessage(payload: any): { text: string } {
   const analysis    = payload.analysis || payload;
   const analysisUrl = `${BASE_URL}/dashboard/analysis/${analysis.id}`;
 
-  let message = "📊 <b>NEW INDEX ANALYSIS | تحليل جديد للمؤشر</b>\n\n";
-  message += `<b>Index | المؤشر:</b> ${analysis.index_symbol}\n`;
-  if (analysis.title)                message += `<b>Title | العنوان:</b> ${analysis.title}\n`;
-  if (analysis.author?.full_name)    message += `<b>Analyst | المحلل:</b> ${analysis.author.full_name}\n`;
-  message += `\n<a href="${analysisUrl}">📈 View Full Analysis | عرض التحليل الكامل</a>`;
+  // Right-to-Left Mark keeps Arabic text from flipping around Latin symbols/numbers.
+  const RLM = '\u200F';
+  const toRtlLines = (text: string) =>
+    text.split('\n').map((line) => (line.trim() ? RLM + line : line)).join('\n');
+
+  let message = "📊 <b>تحليل جديد للمؤشر</b>\n\n";
+  message += `${RLM}<b>المؤشر:</b> ${analysis.index_symbol}\n`;
+  if (analysis.timeframe)            message += `${RLM}<b>الإطار الزمني:</b> ${analysis.timeframe}\n`;
+  if (analysis.author?.full_name)    message += `${RLM}<b>المحلل:</b> ${analysis.author.full_name}\n`;
+  if (analysis.title)                message += `\n${RLM}<b>العنوان:</b> ${analysis.title}\n`;
+  if (analysis.body)                 message += `\n${toRtlLines(analysis.body)}\n`;
+  if (analysis.invalidation_price)   message += `\n${RLM}<b>⚠️ الإبطال:</b> ${Number(analysis.invalidation_price).toFixed(2)}\n`;
+  message += `\n${RLM}<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;
   return { text: message };
 }
 
