@@ -228,6 +228,11 @@ export class PolygonOptionsWebSocket {
   private rpcRateLimitTimer: NodeJS.Timeout | null = null;
   private readonly MAX_RPC_PER_SECOND = 60;
 
+  // Throttled diagnostics: confirm whether live WS ticks actually reach trades,
+  // and whether events are arriving for tickers with no trade mapping.
+  private lastWriteLogAt = 0;
+  private lastUnmappedLogAt = 0;
+
   constructor(
     apiKey: string,
     supabase: SupabaseClient,
@@ -736,7 +741,17 @@ export class PolygonOptionsWebSocket {
       const tradeId = this.tickerToTradeId.get(ticker);
       const spxMeta = this.spxAutoTradeMeta.get(ticker);
       const isPicker = this.pickerExpiry.has(ticker);
-      if (!tradeId && !spxMeta && !isPicker) continue;
+      if (!tradeId && !spxMeta && !isPicker) {
+        // Events are arriving for a ticker we have no mapping for — this is the
+        // signature of a ticker-format mismatch between the trade row and the
+        // Polygon symbol. Log it (throttled) so the gap is diagnosable.
+        const nowTs = Date.now();
+        if (nowTs - this.lastUnmappedLogAt > 30_000) {
+          this.lastUnmappedLogAt = nowTs;
+          console.warn(`[OptionsWS] ⚠️ events for unmapped ticker ${ticker} — no active trade matched`);
+        }
+        continue;
+      }
 
       const priceResult = computeSmartHybridPrice({
         bid:       pending.bid,
@@ -806,6 +821,13 @@ export class PolygonOptionsWebSocket {
 
       if (result?.skipped) {
         return; // Manual price override active — skip silently
+      }
+
+      // Throttled confirmation that live WS ticks are reaching trades in the DB.
+      const nowTs = Date.now();
+      if (nowTs - this.lastWriteLogAt > 20_000) {
+        this.lastWriteLogAt = nowTs;
+        console.log(`[OptionsWS] ✅ live WS write → trade ${tradeId} (${ticker}) $${priceResult.price?.toFixed(4)}`);
       }
 
       if (result?.is_new_high) {
