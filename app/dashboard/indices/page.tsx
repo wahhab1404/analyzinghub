@@ -495,15 +495,16 @@ export default function IndicesHubPage() {
   }
 
   const getStatusBadge = (status: string) => {
+    const isAr = language === 'ar'
     switch (status) {
       case 'generated':
-        return <Badge variant="outline" className="bg-green-50"><CheckCircle2 className="w-3 h-3 mr-1" />Generated</Badge>
+        return <Badge variant="outline" className="bg-green-50"><CheckCircle2 className="w-3 h-3 mr-1" />{isAr ? 'تم الإنشاء' : 'Generated'}</Badge>
       case 'sent':
-        return <Badge variant="outline" className="bg-blue-50"><Send className="w-3 h-3 mr-1" />Sent</Badge>
+        return <Badge variant="outline" className="bg-blue-50"><Send className="w-3 h-3 mr-1" />{isAr ? 'تم الإرسال' : 'Sent'}</Badge>
       case 'failed':
-        return <Badge variant="outline" className="bg-red-50"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>
+        return <Badge variant="outline" className="bg-red-50"><XCircle className="w-3 h-3 mr-1" />{isAr ? 'فشل' : 'Failed'}</Badge>
       case 'generating':
-        return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />Generating</Badge>
+        return <Badge variant="outline"><Clock className="w-3 h-3 mr-1" />{isAr ? 'جارٍ الإنشاء' : 'Generating'}</Badge>
       default:
         return <Badge variant="outline">{status}</Badge>
     }
@@ -526,7 +527,7 @@ export default function IndicesHubPage() {
           onTabChange={setActiveTab}
           currentView={currentView}
           onBackToList={handleBackToList}
-          onShowCreateForm={() => setShowCreateForm(true)}
+          onShowCreateForm={() => { setActiveTab('analyses'); setShowCreateForm(true); }}
           onShowTradeDialog={() => setShowStandaloneTradeDialog(true)}
           language={language}
         />
@@ -581,7 +582,7 @@ export default function IndicesHubPage() {
                             onClick={() => setShowCreateForm(false)}
                             className="text-slate-500 hover:text-slate-300 text-xs px-2 py-0.5 rounded hover:bg-[#1a2840] transition-colors"
                           >
-                            ✕ Close
+                            ✕ {language === 'ar' ? 'إغلاق' : 'Close'}
                           </button>
                         </div>
                         <CreateIndexAnalysisForm onComplete={() => setShowCreateForm(false)} />
@@ -600,15 +601,15 @@ export default function IndicesHubPage() {
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-200">Standalone Trades</h3>
-                        <p className="text-xs text-slate-500 mt-0.5">Trades not linked to any analysis</p>
+                        <h3 className="text-sm font-semibold text-slate-200">{language === 'ar' ? 'الصفقات المستقلة' : 'Standalone Trades'}</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">{language === 'ar' ? 'صفقات غير مرتبطة بأي تحليل' : 'Trades not linked to any analysis'}</p>
                       </div>
                       <button
                         onClick={() => setShowStandaloneTradeDialog(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-medium border border-blue-500/30 transition-colors"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        Add Trade
+                        {language === 'ar' ? 'إضافة صفقة' : 'Add Trade'}
                       </button>
                     </div>
                     <TradesList
@@ -716,7 +717,7 @@ export default function IndicesHubPage() {
                               )}
                             >
                               <CalendarIcon className="mr-2 h-4 w-4" />
-                              {selectedDate ? format(selectedDate, 'PPP') : <span>Pick a date</span>}
+                              {selectedDate ? format(selectedDate, 'PPP') : <span>{language === 'ar' ? 'اختر تاريخًا' : 'Pick a date'}</span>}
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-auto p-0">
@@ -1238,12 +1239,12 @@ export default function IndicesHubPage() {
                     className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 text-xs transition-colors px-2 py-1 rounded hover:bg-[#1a2840]"
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />
-                    Back to Analyses
+                    {language === 'ar' ? 'العودة للتحليلات' : 'Back to Analyses'}
                   </button>
                   <div className="w-px h-4 bg-[#1a2840]" />
                   <div>
-                    <h1 className="text-base font-bold text-slate-200">Manage Trades</h1>
-                    <p className="text-xs text-slate-500">Add and monitor trades for this analysis</p>
+                    <h1 className="text-base font-bold text-slate-200">{language === 'ar' ? 'إدارة الصفقات' : 'Manage Trades'}</h1>
+                    <p className="text-xs text-slate-500">{language === 'ar' ? 'أضف وتابع صفقات هذا التحليل' : 'Add and monitor trades for this analysis'}</p>
                   </div>
                 </div>
                 {!showAddTradeForm && (
@@ -1252,7 +1253,7 @@ export default function IndicesHubPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 text-xs font-medium border border-blue-500/30 transition-colors"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    Add Trade
+                    {language === 'ar' ? 'إضافة صفقة' : 'Add Trade'}
                   </button>
                 )}
               </div>
@@ -1260,8 +1261,8 @@ export default function IndicesHubPage() {
               {showAddTradeForm && (
                 <div className="mb-4 p-4 rounded-lg bg-[#0b1220] border border-[#1a2840]">
                   <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold text-slate-200">Add New Trade</span>
-                    <span className="text-xs text-slate-500">Add a new contract/trade with live tracking</span>
+                    <span className="text-sm font-semibold text-slate-200">{language === 'ar' ? 'إضافة صفقة جديدة' : 'Add New Trade'}</span>
+                    <span className="text-xs text-slate-500">{language === 'ar' ? 'أضف عقدًا/صفقة جديدة مع التتبع المباشر' : 'Add a new contract/trade with live tracking'}</span>
                   </div>
                   <AddTradeForm
                     analysisId={selectedAnalysisId}

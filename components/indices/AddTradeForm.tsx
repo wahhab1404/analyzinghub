@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { useLanguage } from '@/lib/i18n/language-context'
 import { TradeReentryDialog } from './TradeReentryDialog'
 
 interface AddTradeFormProps {
@@ -96,6 +97,8 @@ function mergeQuotesIntoGroups(groups: ExpirationGroup[], quotes: Record<string,
 }
 
 export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onComplete, onCancel, standalone = false }: AddTradeFormProps) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const [loading, setLoading] = useState(false)
   const [searchingContracts, setSearchingContracts] = useState(false)
   const [expirationGroups, setExpirationGroups] = useState<ExpirationGroup[]>([])
@@ -535,7 +538,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   const searchContracts = async () => {
     if (!showBothSides && !formData.option_type) {
-      toast.error('Please select option type to search')
+      toast.error(isAr ? 'يرجى اختيار نوع الخيار للبحث' : 'Please select option type to search')
       return
     }
 
@@ -632,15 +635,17 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               0
             )
             setLastPriceUpdate(new Date())
-            toast.success(`Found ${totalContracts} contracts (calls + puts) across ${transformedCalls.length} expiration(s)`)
+            toast.success(isAr
+              ? `تم العثور على ${totalContracts} عقد (شراء + بيع) عبر ${transformedCalls.length} تاريخ انتهاء`
+              : `Found ${totalContracts} contracts (calls + puts) across ${transformedCalls.length} expiration(s)`)
           } else {
-            toast.error('No contracts found for selected criteria')
+            toast.error(isAr ? 'لا توجد عقود مطابقة للمعايير المحددة' : 'No contracts found for selected criteria')
             setCallsData([])
             setPutsData([])
             setLastPriceUpdate(null)
           }
         } else {
-          toast.error('Failed to fetch contracts')
+          toast.error(isAr ? 'فشل في جلب العقود' : 'Failed to fetch contracts')
         }
       } else {
         // Original single-side fetch
@@ -693,20 +698,22 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               0
             )
             setLastPriceUpdate(new Date())
-            toast.success(`Found ${totalContracts} contracts across ${transformedGroups.length} expiration(s)`)
+            toast.success(isAr
+              ? `تم العثور على ${totalContracts} عقد عبر ${transformedGroups.length} تاريخ انتهاء`
+              : `Found ${totalContracts} contracts across ${transformedGroups.length} expiration(s)`)
           } else {
-            toast.error('No contracts found for selected criteria')
+            toast.error(isAr ? 'لا توجد عقود مطابقة للمعايير المحددة' : 'No contracts found for selected criteria')
             setExpirationGroups([])
             setLastPriceUpdate(null)
           }
         } else {
           const error = await response.json()
-          toast.error(error.error || 'Failed to search contracts')
+          toast.error(error.error || (isAr ? 'فشل في البحث عن العقود' : 'Failed to search contracts'))
         }
       }
     } catch (error) {
       console.error('Error searching contracts:', error)
-      toast.error('Failed to search contracts')
+      toast.error(isAr ? 'فشل في البحث عن العقود' : 'Failed to search contracts')
     } finally {
       setSearchingContracts(false)
     }
@@ -892,7 +899,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         : null
 
       if (formData.instrument_type === 'options' && !formData.polygon_option_ticker) {
-        toast.error('Select an option contract from the chain before saving (strike, expiry & type are filled in automatically)')
+        toast.error(isAr ? 'اختر عقد خيار من السلسلة قبل الحفظ (يتم تعبئة سعر التنفيذ وتاريخ الانتهاء والنوع تلقائياً)' : 'Select an option contract from the chain before saving (strike, expiry & type are filled in automatically)')
         setLoading(false)
         return
       }
@@ -951,14 +958,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           onComplete()
         } else {
           const err = await monitorRes.json().catch(() => ({}))
-          toast.error(err.error || 'Failed to set up monitoring')
+          toast.error(err.error || (isAr ? 'فشل في إعداد المراقبة' : 'Failed to set up monitoring'))
         }
         setLoading(false)
         return
       }
 
       if (marketStatus && !marketStatus.isOpen && !formData.current_price) {
-        toast.error('Current price is required when markets are closed')
+        toast.error(isAr ? 'السعر الحالي مطلوب عند إغلاق الأسواق' : 'Current price is required when markets are closed')
         setLoading(false)
         return
       }
@@ -1019,14 +1026,16 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
       if (response.ok) {
         if (formData.is_testing) {
-          toast.success('🧪 Test trade created successfully!')
+          toast.success(isAr ? '🧪 تم إنشاء الصفقة التجريبية بنجاح!' : '🧪 Test trade created successfully!')
           if (formData.testing_channel_ids.length > 0) {
-            toast.success(`Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
+            toast.success(isAr
+              ? `تم النشر إلى ${formData.testing_channel_ids.length} قناة تجريبية!`
+              : `Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
           }
         } else {
-          toast.success('Trade added successfully!')
+          toast.success(isAr ? 'تمت إضافة الصفقة بنجاح!' : 'Trade added successfully!')
           if (formData.auto_publish_telegram) {
-            toast.success('Published to Telegram!')
+            toast.success(isAr ? 'تم النشر على تيليجرام!' : 'Published to Telegram!')
           }
         }
         onComplete()
@@ -1042,15 +1051,15 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           })
           setReentryDialogOpen(true)
         } else {
-          toast.error(errorData.error || 'Failed to add trade')
+          toast.error(errorData.error || (isAr ? 'فشل في إضافة الصفقة' : 'Failed to add trade'))
         }
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to add trade')
+        toast.error(error.error || (isAr ? 'فشل في إضافة الصفقة' : 'Failed to add trade'))
       }
     } catch (error) {
       console.error('Error adding trade:', error)
-      toast.error('Failed to add trade')
+      toast.error(isAr ? 'فشل في إضافة الصفقة' : 'Failed to add trade')
     } finally {
       setLoading(false)
     }
@@ -1058,7 +1067,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   const handleReentryDecision = async (decision: 'NEW_ENTRY' | 'AVERAGE_ADJUSTMENT') => {
     if (!reentryData || !pendingPayload) {
-      toast.error('Missing reentry data')
+      toast.error(isAr ? 'بيانات إعادة الدخول مفقودة' : 'Missing reentry data')
       return
     }
 
@@ -1087,27 +1096,29 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         const result = await response.json()
 
         if (decision === 'NEW_ENTRY') {
-          toast.success('Previous trade closed and new trade created!')
+          toast.success(isAr ? 'تم إغلاق الصفقة السابقة وإنشاء صفقة جديدة!' : 'Previous trade closed and new trade created!')
         } else {
-          toast.success('Entry averaged into existing position!')
+          toast.success(isAr ? 'تم حساب متوسط الدخول مع المركز الحالي!' : 'Entry averaged into existing position!')
         }
 
         if (formData.is_testing) {
           if (formData.testing_channel_ids.length > 0) {
-            toast.success(`Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
+            toast.success(isAr
+              ? `تم النشر إلى ${formData.testing_channel_ids.length} قناة تجريبية!`
+              : `Published to ${formData.testing_channel_ids.length} testing channel${formData.testing_channel_ids.length > 1 ? 's' : ''}!`)
           }
         } else if (formData.auto_publish_telegram) {
-          toast.success('Published to Telegram!')
+          toast.success(isAr ? 'تم النشر على تيليجرام!' : 'Published to Telegram!')
         }
 
         onComplete()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to process reentry')
+        toast.error(error.error || (isAr ? 'فشل في معالجة إعادة الدخول' : 'Failed to process reentry'))
       }
     } catch (error) {
       console.error('Error processing reentry:', error)
-      toast.error('Failed to process reentry')
+      toast.error(isAr ? 'فشل في معالجة إعادة الدخول' : 'Failed to process reentry')
     } finally {
       setLoading(false)
       setReentryData(null)
@@ -1116,11 +1127,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
   }
 
   const marketStatusConfig = (() => {
-    if (!marketStatus) return { label: 'Live', icon: CheckCircle2, color: 'text-green-600', border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-950/20' }
-    if (marketStatus.isOpen)                         return { label: 'Open',        icon: CheckCircle2, color: 'text-green-600',  border: 'border-green-500',  bg: 'bg-green-50 dark:bg-green-950/20' }
-    if (marketStatus.status === 'pre-market')         return { label: 'Pre-Market',  icon: Clock,        color: 'text-blue-500',   border: 'border-blue-500',   bg: 'bg-blue-50 dark:bg-blue-950/20' }
-    if (marketStatus.status === 'after-hours')        return { label: 'After-Hours', icon: Moon,         color: 'text-purple-500', border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950/20' }
-    return { label: 'Closed', icon: XCircle, color: 'text-red-500', border: 'border-red-500', bg: 'bg-red-50 dark:bg-red-950/20' }
+    if (!marketStatus) return { label: isAr ? 'مباشر' : 'Live', icon: CheckCircle2, color: 'text-green-600', border: 'border-green-500', bg: 'bg-green-50 dark:bg-green-950/20' }
+    if (marketStatus.isOpen)                         return { label: isAr ? 'مفتوح' : 'Open',        icon: CheckCircle2, color: 'text-green-600',  border: 'border-green-500',  bg: 'bg-green-50 dark:bg-green-950/20' }
+    if (marketStatus.status === 'pre-market')         return { label: isAr ? 'ما قبل السوق' : 'Pre-Market',  icon: Clock,        color: 'text-blue-500',   border: 'border-blue-500',   bg: 'bg-blue-50 dark:bg-blue-950/20' }
+    if (marketStatus.status === 'after-hours')        return { label: isAr ? 'ما بعد الإغلاق' : 'After-Hours', icon: Moon,         color: 'text-purple-500', border: 'border-purple-500', bg: 'bg-purple-50 dark:bg-purple-950/20' }
+    return { label: isAr ? 'مغلق' : 'Closed', icon: XCircle, color: 'text-red-500', border: 'border-red-500', bg: 'bg-red-50 dark:bg-red-950/20' }
   })()
 
   // Effective ATM anchor: prefer the live index price, fall back to the
@@ -1129,14 +1140,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
   return (
     <>
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6" dir={isAr ? 'rtl' : 'ltr'}>
       <div className="space-y-4">
-        <h3 className="font-semibold text-lg">Trade Details</h3>
+        <h3 className="font-semibold text-lg">{isAr ? 'تفاصيل الصفقة' : 'Trade Details'}</h3>
 
         <div className="grid md:grid-cols-2 gap-4">
           {standalone && (
             <div className="space-y-2">
-              <Label htmlFor="underlying_index_symbol">Index Symbol *</Label>
+              <Label htmlFor="underlying_index_symbol">{isAr ? 'رمز المؤشر *' : 'Index Symbol *'}</Label>
               <Select
                 value={formData.underlying_index_symbol}
                 onValueChange={(value) => setFormData({ ...formData, underlying_index_symbol: value })}
@@ -1155,7 +1166,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               {loadingIndexPrice ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Loading price...</span>
+                  <span>{isAr ? 'جارٍ تحميل السعر...' : 'Loading price...'}</span>
                 </div>
               ) : indexPrice !== null ? (
                 <div className="flex items-center gap-2 text-sm">
@@ -1173,11 +1184,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           )}
           {!standalone && formData.underlying_index_symbol && (
             <div className="col-span-2 space-y-2">
-              <Label>Current Index Value</Label>
+              <Label>{isAr ? 'القيمة الحالية للمؤشر' : 'Current Index Value'}</Label>
               {loadingIndexPrice ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Loading {formData.underlying_index_symbol} price...</span>
+                  <span>{isAr ? `جارٍ تحميل سعر ${formData.underlying_index_symbol}...` : `Loading ${formData.underlying_index_symbol} price...`}</span>
                 </div>
               ) : indexPrice !== null ? (
                 <div className={`flex items-center gap-2 p-3 border rounded-lg ${marketStatusConfig.bg}`}>
@@ -1187,7 +1198,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       {formData.underlying_index_symbol}: ${indexPrice.toFixed(2)}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      {marketStatus?.isOpen ? 'Live Market Price' : marketStatus?.message || 'Last Known Price'}
+                      {marketStatus?.isOpen ? (isAr ? 'سعر السوق المباشر' : 'Live Market Price') : marketStatus?.message || (isAr ? 'آخر سعر معروف' : 'Last Known Price')}
                     </div>
                   </div>
                   <Badge variant="outline" className={`ml-auto flex items-center gap-1 ${marketStatusConfig.border} ${marketStatusConfig.color}`}>
@@ -1197,13 +1208,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground p-3 border rounded-lg">
-                  Unable to fetch live price for {formData.underlying_index_symbol}
+                  {isAr ? `تعذّر جلب السعر المباشر لـ ${formData.underlying_index_symbol}` : `Unable to fetch live price for ${formData.underlying_index_symbol}`}
                 </div>
               )}
             </div>
           )}
           <div className="space-y-2">
-            <Label htmlFor="instrument_type">Instrument Type *</Label>
+            <Label htmlFor="instrument_type">{isAr ? 'نوع الأداة *' : 'Instrument Type *'}</Label>
             <Select
               value={formData.instrument_type}
               onValueChange={(value: any) => setFormData({ ...formData, instrument_type: value })}
@@ -1212,14 +1223,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="options">Options</SelectItem>
-                <SelectItem value="futures">Futures</SelectItem>
+                <SelectItem value="options">{isAr ? 'خيارات' : 'Options'}</SelectItem>
+                <SelectItem value="futures">{isAr ? 'عقود آجلة' : 'Futures'}</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="direction">Direction *</Label>
+            <Label htmlFor="direction">{isAr ? 'الاتجاه *' : 'Direction *'}</Label>
             <Select
               value={formData.direction}
               onValueChange={(value: any) => setFormData({ ...formData, direction: value })}
@@ -1230,13 +1241,13 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               <SelectContent>
                 {formData.instrument_type === 'options' ? (
                   <>
-                    <SelectItem value="call">Call</SelectItem>
-                    <SelectItem value="put">Put</SelectItem>
+                    <SelectItem value="call">{isAr ? 'شراء (Call)' : 'Call'}</SelectItem>
+                    <SelectItem value="put">{isAr ? 'بيع (Put)' : 'Put'}</SelectItem>
                   </>
                 ) : (
                   <>
-                    <SelectItem value="long">Long</SelectItem>
-                    <SelectItem value="short">Short</SelectItem>
+                    <SelectItem value="long">{isAr ? 'شراء (Long)' : 'Long'}</SelectItem>
+                    <SelectItem value="short">{isAr ? 'بيع (Short)' : 'Short'}</SelectItem>
                   </>
                 )}
               </SelectContent>
@@ -1247,11 +1258,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         {formData.instrument_type === 'options' && (
           <>
             <div className="space-y-4 p-4 border rounded-lg">
-              <h4 className="font-medium">Contract Search</h4>
+              <h4 className="font-medium">{isAr ? 'البحث عن العقد' : 'Contract Search'}</h4>
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="option_type">Option Type *</Label>
+                  <Label htmlFor="option_type">{isAr ? 'نوع الخيار *' : 'Option Type *'}</Label>
                   <Select
                     value={formData.option_type}
                     onValueChange={(value: any) => setFormData({ ...formData, option_type: value, direction: value })}
@@ -1260,14 +1271,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="call">Call</SelectItem>
-                      <SelectItem value="put">Put</SelectItem>
+                      <SelectItem value="call">{isAr ? 'شراء (Call)' : 'Call'}</SelectItem>
+                      <SelectItem value="put">{isAr ? 'بيع (Put)' : 'Put'}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Expiration Date Range</Label>
+                  <Label>{isAr ? 'نطاق تاريخ الانتهاء' : 'Expiration Date Range'}</Label>
                   <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
                     <Button
                       type="button"
@@ -1276,7 +1287,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       onClick={() => handleDatePresetChange('today')}
                     >
                       <Calendar className="h-3 w-3 mr-1" />
-                      Today
+                      {isAr ? 'اليوم' : 'Today'}
                     </Button>
                     <Button
                       type="button"
@@ -1284,7 +1295,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       size="sm"
                       onClick={() => handleDatePresetChange('tomorrow')}
                     >
-                      Tomorrow
+                      {isAr ? 'غدًا' : 'Tomorrow'}
                     </Button>
                     <Button
                       type="button"
@@ -1292,7 +1303,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       size="sm"
                       onClick={() => handleDatePresetChange('week')}
                     >
-                      This Week
+                      {isAr ? 'هذا الأسبوع' : 'This Week'}
                     </Button>
                     <Button
                       type="button"
@@ -1300,7 +1311,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       size="sm"
                       onClick={() => handleDatePresetChange('month')}
                     >
-                      This Month
+                      {isAr ? 'هذا الشهر' : 'This Month'}
                     </Button>
                     <Button
                       type="button"
@@ -1308,14 +1319,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       size="sm"
                       onClick={() => handleDatePresetChange('custom')}
                     >
-                      Custom
+                      {isAr ? 'مخصص' : 'Custom'}
                     </Button>
                   </div>
                 </div>
 
                 {datePreset === 'custom' && (
                   <div className="space-y-2">
-                    <Label htmlFor="customDate">Custom Expiration Date</Label>
+                    <Label htmlFor="customDate">{isAr ? 'تاريخ انتهاء مخصص' : 'Custom Expiration Date'}</Label>
                     <Input
                       id="customDate"
                       type="date"
@@ -1328,7 +1339,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               </div>
 
               <div className="space-y-2">
-                <Label>Contract View</Label>
+                <Label>{isAr ? 'عرض العقود' : 'Contract View'}</Label>
                 <div className="flex gap-2">
                   <Button
                     type="button"
@@ -1343,7 +1354,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       setSelectedContract(null)
                     }}
                   >
-                    Both Calls & Puts
+                    {isAr ? 'شراء وبيع معًا' : 'Both Calls & Puts'}
                   </Button>
                   <Button
                     type="button"
@@ -1358,7 +1369,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       setSelectedContract(null)
                     }}
                   >
-                    Single Type
+                    {isAr ? 'نوع واحد' : 'Single Type'}
                   </Button>
                 </div>
               </div>
@@ -1396,12 +1407,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 {searchingContracts ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Searching Contracts...
+                    {isAr ? 'جارٍ البحث عن العقود...' : 'Searching Contracts...'}
                   </>
                 ) : (
                   <>
                     <Search className="h-4 w-4 mr-2" />
-                    Search {showBothSides ? 'Calls & Puts' : 'Contracts'}
+                    {isAr ? (showBothSides ? 'بحث شراء وبيع' : 'بحث العقود') : `Search ${showBothSides ? 'Calls & Puts' : 'Contracts'}`}
                   </>
                 )}
               </Button>
@@ -1411,18 +1422,18 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-2">
                       <TrendingUp className="h-4 w-4" />
-                      Calls & Puts - Centered on ${indexPrice ? indexPrice.toFixed(2) : 'Current Price'}
+                      {isAr ? 'شراء وبيع - متمركزة على ' : 'Calls & Puts - Centered on '}${indexPrice ? indexPrice.toFixed(2) : (isAr ? 'السعر الحالي' : 'Current Price')}
                     </Label>
                     <div className="flex items-center gap-2">
                       {lastPriceUpdate && (
                         <Badge variant="outline" className="text-xs animate-pulse">
                           <span className="inline-block w-2 h-2 bg-green-500 rounded-full mr-1.5"></span>
-                          Live - Updated {new Date().getTime() - lastPriceUpdate.getTime() < 2000 ? 'now' : 'recently'}
+                          {isAr ? 'مباشر - تم التحديث ' : 'Live - Updated '}{new Date().getTime() - lastPriceUpdate.getTime() < 2000 ? (isAr ? 'الآن' : 'now') : (isAr ? 'مؤخرًا' : 'recently')}
                         </Badge>
                       )}
                       {indexPrice && (
                         <Badge variant="secondary" className="text-xs">
-                          {formData.underlying_index_symbol} Index: ${indexPrice.toFixed(2)}
+                          {formData.underlying_index_symbol} {isAr ? 'المؤشر' : 'Index'}: ${indexPrice.toFixed(2)}
                         </Badge>
                       )}
                     </div>
@@ -1449,13 +1460,15 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       return (
                         <TabsContent key={callGroup.expirationDate} value={callGroup.expirationDate} className="space-y-2">
                           <div className="text-xs text-muted-foreground mb-2">
-                            {strikeRows.length} strike levels • Expires in {callGroup.dte} day{callGroup.dte !== 1 ? 's' : ''}
-                            {hasMore && <span className="ml-2">(ATM-centered · {visibleRows.length} shown)</span>}
+                            {isAr
+                              ? `${strikeRows.length} مستوى تنفيذ • ينتهي خلال ${callGroup.dte} يوم`
+                              : `${strikeRows.length} strike levels • Expires in ${callGroup.dte} day${callGroup.dte !== 1 ? 's' : ''}`}
+                            {hasMore && <span className="ml-2">{isAr ? `(متمركز على ATM · ${visibleRows.length} معروض)` : `(ATM-centered · ${visibleRows.length} shown)`}</span>}
                           </div>
                           <div className="max-h-[500px] overflow-y-auto">
                             <div className="grid grid-cols-2 gap-2 mb-2 text-xs font-semibold text-center sticky top-0 bg-background z-10 pb-2">
-                              <div className="text-green-600 dark:text-green-400">CALLS</div>
-                              <div className="text-red-600 dark:text-red-400">PUTS</div>
+                              <div className="text-green-600 dark:text-green-400">{isAr ? 'شراء (CALLS)' : 'CALLS'}</div>
+                              <div className="text-red-600 dark:text-red-400">{isAr ? 'بيع (PUTS)' : 'PUTS'}</div>
                             </div>
                             {visibleRows.map((row, i) => {
                               const callItm = isITM(row.strike, 'call', atmPrice)
@@ -1500,7 +1513,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                   </Card>
                                 ) : (
                                   <div className="border border-dashed border-muted-foreground/20 rounded-lg p-2 flex items-center justify-center text-xs text-muted-foreground">
-                                    No Call
+                                    {isAr ? 'لا يوجد شراء' : 'No Call'}
                                   </div>
                                 )}
                                 {row.put ? (
@@ -1525,7 +1538,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                                   </Card>
                                 ) : (
                                   <div className="border border-dashed border-muted-foreground/20 rounded-lg p-2 flex items-center justify-center text-xs text-muted-foreground">
-                                    No Put
+                                    {isAr ? 'لا يوجد بيع' : 'No Put'}
                                   </div>
                                 )}
                               </div>
@@ -1541,7 +1554,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               onClick={() => loadMoreStrikes(callGroup.expirationDate)}
                               className="w-full"
                             >
-                              Show More Strikes ({strikeRows.length - visibleRows.length} remaining)
+                              {isAr ? `عرض مزيد من مستويات التنفيذ (${strikeRows.length - visibleRows.length} متبقي)` : `Show More Strikes (${strikeRows.length - visibleRows.length} remaining)`}
                             </Button>
                           )}
                         </TabsContent>
@@ -1556,7 +1569,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   <div className="flex items-center justify-between">
                     <Label className="flex items-center gap-2">
                       <TrendingUp className="h-4 w-4" />
-                      Available Contracts by Expiration
+                      {isAr ? 'العقود المتاحة حسب الانتهاء' : 'Available Contracts by Expiration'}
                     </Label>
                     {lastPriceUpdate && (
                       <Badge variant="outline" className="text-xs animate-pulse">
@@ -1586,8 +1599,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       return (
                       <TabsContent key={group.expirationDate} value={group.expirationDate} className="space-y-2">
                         <div className="text-xs text-muted-foreground mb-2">
-                          {group.strikes.length} contract{group.strikes.length !== 1 ? 's' : ''} • Expires in {group.dte} day{group.dte !== 1 ? 's' : ''}
-                          {hasMore && <span className="ml-2">(ATM-centered · {visibleStrikes.length} shown)</span>}
+                          {isAr
+                            ? `${group.strikes.length} عقد • ينتهي خلال ${group.dte} يوم`
+                            : `${group.strikes.length} contract${group.strikes.length !== 1 ? 's' : ''} • Expires in ${group.dte} day${group.dte !== 1 ? 's' : ''}`}
+                          {hasMore && <span className="ml-2">{isAr ? `(متمركز على ATM · ${visibleStrikes.length} معروض)` : `(ATM-centered · ${visibleStrikes.length} shown)`}</span>}
                         </div>
                         <div className="space-y-2">
                           <div className="grid gap-2 max-h-80 overflow-y-auto pb-2">
@@ -1683,7 +1698,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                               }}
                               className="w-full"
                             >
-                              Show More Strikes ({group.strikes.length - visibleStrikes.length} remaining)
+                              {isAr ? `عرض مزيد من مستويات التنفيذ (${group.strikes.length - visibleStrikes.length} متبقي)` : `Show More Strikes (${group.strikes.length - visibleStrikes.length} remaining)`}
                             </Button>
                           )}
                         </div>
@@ -1700,30 +1715,30 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
-                    Selected Contract
+                    {isAr ? 'العقد المحدد' : 'Selected Contract'}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-2 text-sm">
                     <div>
-                      <div className="text-muted-foreground text-xs">Ticker</div>
+                      <div className="text-muted-foreground text-xs">{isAr ? 'الرمز' : 'Ticker'}</div>
                       <div className="font-mono font-medium">{selectedContract.ticker}</div>
                     </div>
                     <div>
-                      <div className="text-muted-foreground text-xs">Strike</div>
+                      <div className="text-muted-foreground text-xs">{isAr ? 'سعر التنفيذ' : 'Strike'}</div>
                       <div className="font-medium">${selectedContract.strike}</div>
                     </div>
                     <div>
-                      <div className="text-muted-foreground text-xs">Expiry</div>
+                      <div className="text-muted-foreground text-xs">{isAr ? 'تاريخ الانتهاء' : 'Expiry'}</div>
                       <div className="font-medium">{new Date(selectedContract.expiry).toLocaleDateString()}</div>
                     </div>
                     <div>
-                      <div className="text-muted-foreground text-xs">Live Mid Price</div>
+                      <div className="text-muted-foreground text-xs">{isAr ? 'السعر المتوسط المباشر' : 'Live Mid Price'}</div>
                       <div className="font-semibold text-green-600 dark:text-green-400">${(selectedContract.mid ?? 0).toFixed(2)}</div>
                     </div>
                     {selectedContract.bid !== undefined && selectedContract.ask !== undefined && (
                       <div className="col-span-2">
-                        <div className="text-muted-foreground text-xs">Bid / Ask</div>
+                        <div className="text-muted-foreground text-xs">{isAr ? 'العرض / الطلب' : 'Bid / Ask'}</div>
                         <div className="font-medium">${(selectedContract.bid ?? 0).toFixed(2)} × ${(selectedContract.ask ?? 0).toFixed(2)}</div>
                       </div>
                     )}
@@ -1732,8 +1747,8 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   {/* Entry price — auto-filled from mid, analyst can edit */}
                   <div className="space-y-1 border-t pt-3">
                     <Label htmlFor="entry_override" className="flex items-center gap-1">
-                      Entry Price
-                      <span className="text-xs text-muted-foreground ml-1">(auto-filled from mid price — you can edit)</span>
+                      {isAr ? 'سعر الدخول' : 'Entry Price'}
+                      <span className="text-xs text-muted-foreground ml-1">{isAr ? '(تمت تعبئته تلقائياً من السعر المتوسط — يمكنك التعديل)' : '(auto-filled from mid price — you can edit)'}</span>
                     </Label>
                     <Input
                       id="entry_override"
@@ -1744,7 +1759,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                       placeholder={`${(selectedContract.mid ?? 0).toFixed(2)}`}
                     />
                     <p className="text-xs text-muted-foreground">
-                      This will be stored as the official entry price for P/L calculations.
+                      {isAr ? 'سيتم تخزين هذا كسعر الدخول الرسمي لحسابات الأرباح/الخسائر.' : 'This will be stored as the official entry price for P/L calculations.'}
                     </p>
                   </div>
                 </CardContent>
@@ -1778,64 +1793,66 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
 
                 <div>
                   <h4 className="font-medium text-sm flex items-center gap-2">
-                    {formData.monitoring_mode ? '🎯 رينج التنفيذ / Execution Range' : '🔔 Buy Price Range Alert'}
-                    <Badge variant="outline" className="text-xs">{formData.monitoring_mode ? 'Monitoring' : 'Optional'}</Badge>
+                    {formData.monitoring_mode ? '🎯 رينج التنفيذ / Execution Range' : (isAr ? '🔔 تنبيه نطاق سعر الشراء' : '🔔 Buy Price Range Alert')}
+                    <Badge variant="outline" className="text-xs">{formData.monitoring_mode ? (isAr ? 'مراقبة' : 'Monitoring') : (isAr ? 'اختياري' : 'Optional')}</Badge>
                   </h4>
                   <p className="text-xs text-muted-foreground mt-1">
                     {formData.monitoring_mode
                       ? 'لا تُحتسب كصفقة حتى دخول السعر هذا الرينج. عندها يُرسَل تنبيه ويُدرَج العقد بأفضل سعر كصفقة جديدة.'
+                      : isAr
+                      ? <>عند دخول سعر العقد هذا النطاق، سيرسل النظام تلقائياً تنبيه <b>بلوغ السعر</b> إلى تيليجرام.</>
                       : <>If the contract price enters this range, the system will automatically send a <b>Price Hits</b> alert to Telegram.</>}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label htmlFor="buy_range_min" className="text-xs">Min Price</Label>
+                    <Label htmlFor="buy_range_min" className="text-xs">{isAr ? 'أدنى سعر' : 'Min Price'}</Label>
                     <Input
                       id="buy_range_min"
                       type="number"
                       step="0.0001"
                       value={formData.buy_range_min}
                       onChange={(e) => setFormData({ ...formData, buy_range_min: e.target.value })}
-                      placeholder="e.g. 1.20"
+                      placeholder={isAr ? 'مثال: 1.20' : 'e.g. 1.20'}
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label htmlFor="buy_range_max" className="text-xs">Max Price</Label>
+                    <Label htmlFor="buy_range_max" className="text-xs">{isAr ? 'أعلى سعر' : 'Max Price'}</Label>
                     <Input
                       id="buy_range_max"
                       type="number"
                       step="0.0001"
                       value={formData.buy_range_max}
                       onChange={(e) => setFormData({ ...formData, buy_range_max: e.target.value })}
-                      placeholder="e.g. 1.30"
+                      placeholder={isAr ? 'مثال: 1.30' : 'e.g. 1.30'}
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1">
-                  <Label htmlFor="buy_range_expires_at" className="text-xs">Alert Expiry (Optional)</Label>
+                  <Label htmlFor="buy_range_expires_at" className="text-xs">{isAr ? 'انتهاء التنبيه (اختياري)' : 'Alert Expiry (Optional)'}</Label>
                   <Input
                     id="buy_range_expires_at"
                     type="datetime-local"
                     value={formData.buy_range_expires_at}
                     onChange={(e) => setFormData({ ...formData, buy_range_expires_at: e.target.value })}
                   />
-                  <p className="text-xs text-muted-foreground">Leave blank for no expiry.</p>
+                  <p className="text-xs text-muted-foreground">{isAr ? 'اتركه فارغًا لعدم وجود انتهاء.' : 'Leave blank for no expiry.'}</p>
                 </div>
 
                 {channels.length > 0 && (
                   <div className="space-y-1">
-                    <Label htmlFor="buy_range_channel" className="text-xs">Alert Channel (Optional)</Label>
+                    <Label htmlFor="buy_range_channel" className="text-xs">{isAr ? 'قناة التنبيه (اختياري)' : 'Alert Channel (Optional)'}</Label>
                     <Select
                       value={formData.buy_range_telegram_channel_id}
                       onValueChange={(v) => setFormData({ ...formData, buy_range_telegram_channel_id: v })}
                     >
                       <SelectTrigger id="buy_range_channel">
-                        <SelectValue placeholder="Same as main channel" />
+                        <SelectValue placeholder={isAr ? 'نفس القناة الرئيسية' : 'Same as main channel'} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Same as main channel</SelectItem>
+                        <SelectItem value="none">{isAr ? 'نفس القناة الرئيسية' : 'Same as main channel'}</SelectItem>
                         {channels.map((ch) => (
                           <SelectItem key={ch.id} value={ch.id}>{ch.channel_name}</SelectItem>
                         ))}
@@ -1852,9 +1869,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           <div className="space-y-4 p-4 border rounded-lg bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800">
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="bg-amber-100 dark:bg-amber-900 text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700">
-                Market Closed
+                {isAr ? 'السوق مغلق' : 'Market Closed'}
               </Badge>
-              <h4 className="font-medium">Manual Price Entry</h4>
+              <h4 className="font-medium">{isAr ? 'إدخال السعر يدويًا' : 'Manual Price Entry'}</h4>
               {(marketStatus as any)?.debug && (
                 <span className="text-xs text-muted-foreground ml-auto">
                   ET: {(marketStatus as any).debug.etTime}
@@ -1862,13 +1879,15 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Markets are closed ({marketStatus.status}). Set current and entry prices manually. During RTH, live prices will be used automatically.
+              {isAr
+                ? `الأسواق مغلقة (${marketStatus.status}). حدّد السعر الحالي وسعر الدخول يدويًا. خلال ساعات التداول الرسمية، ستُستخدم الأسعار المباشرة تلقائياً.`
+                : `Markets are closed (${marketStatus.status}). Set current and entry prices manually. During RTH, live prices will be used automatically.`}
             </p>
 
             <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="current_price" className="flex items-center gap-2">
-                  Current Price
+                  {isAr ? 'السعر الحالي' : 'Current Price'}
                   <span className="text-red-500">*</span>
                 </Label>
                 <Input
@@ -1877,17 +1896,17 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   step="0.0001"
                   value={formData.current_price}
                   onChange={(e) => setFormData({ ...formData, current_price: e.target.value })}
-                  placeholder="Current contract price"
+                  placeholder={isAr ? 'السعر الحالي للعقد' : 'Current contract price'}
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Current market price for this contract
+                  {isAr ? 'سعر السوق الحالي لهذا العقد' : 'Current market price for this contract'}
                 </p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="entry_price">
-                  Entry Price (Optional)
+                  {isAr ? 'سعر الدخول (اختياري)' : 'Entry Price (Optional)'}
                 </Label>
                 <Input
                   id="entry_price"
@@ -1895,10 +1914,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   step="0.0001"
                   value={formData.entry_price}
                   onChange={(e) => setFormData({ ...formData, entry_price: e.target.value })}
-                  placeholder="Leave empty for same as current"
+                  placeholder={isAr ? 'اتركه فارغًا ليكون مساويًا للسعر الحالي' : 'Leave empty for same as current'}
                 />
                 <p className="text-xs text-muted-foreground">
-                  If empty, will use current price as entry
+                  {isAr ? 'إذا تُرك فارغًا، سيُستخدم السعر الحالي كسعر دخول' : 'If empty, will use current price as entry'}
                 </p>
               </div>
             </div>
@@ -1907,9 +1926,9 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           <div className="space-y-4 p-4 border rounded-lg bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="bg-green-100 dark:bg-green-900 text-green-900 dark:text-green-100 border-green-300 dark:border-green-700">
-                Market Open
+                {isAr ? 'السوق مفتوح' : 'Market Open'}
               </Badge>
-              <h4 className="font-medium">Live Price Tracking</h4>
+              <h4 className="font-medium">{isAr ? 'تتبع السعر المباشر' : 'Live Price Tracking'}</h4>
               {(marketStatus as any)?.debug && (
                 <span className="text-xs text-muted-foreground ml-auto">
                   ET: {(marketStatus as any).debug.etTime}
@@ -1917,47 +1936,49 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               )}
             </div>
             <p className="text-sm text-muted-foreground">
-              Markets are currently open. Entry prices will be automatically fetched from Polygon API when you create the trade.
+              {isAr
+                ? 'الأسواق مفتوحة حاليًا. سيتم جلب أسعار الدخول تلقائياً من واجهة Polygon عند إنشاء الصفقة.'
+                : 'Markets are currently open. Entry prices will be automatically fetched from Polygon API when you create the trade.'}
             </p>
           </div>
         ) : (
           <div className="space-y-4 p-4 border rounded-lg">
             <div className="flex items-center gap-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm text-muted-foreground">Checking market status...</span>
+              <span className="text-sm text-muted-foreground">{isAr ? 'جارٍ التحقق من حالة السوق...' : 'Checking market status...'}</span>
             </div>
           </div>
         )}
 
         <div className="space-y-4 p-4 border rounded-lg">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium">Targets</h4>
+            <h4 className="font-medium">{isAr ? 'الأهداف' : 'Targets'}</h4>
             <Button type="button" size="sm" onClick={addTarget}>
               <Plus className="h-4 w-4 mr-1" />
-              Add Target
+              {isAr ? 'إضافة هدف' : 'Add Target'}
             </Button>
           </div>
 
           {formData.targets.map((target, index) => (
             <div key={index} className="grid md:grid-cols-3 gap-2 items-end">
               <div className="space-y-2">
-                <Label>Target Price</Label>
+                <Label>{isAr ? 'سعر الهدف' : 'Target Price'}</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={target.price}
                   onChange={(e) => updateTarget(index, 'price', e.target.value)}
-                  placeholder="Price"
+                  placeholder={isAr ? 'السعر' : 'Price'}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Target %</Label>
+                <Label>{isAr ? 'نسبة الهدف %' : 'Target %'}</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={target.percentage}
                   onChange={(e) => updateTarget(index, 'percentage', e.target.value)}
-                  placeholder="Percentage"
+                  placeholder={isAr ? 'النسبة المئوية' : 'Percentage'}
                 />
               </div>
               <Button
@@ -1973,10 +1994,10 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
         </div>
 
         <div className="space-y-4 p-4 border rounded-lg">
-          <h4 className="font-medium">Stop Loss (Optional)</h4>
+          <h4 className="font-medium">{isAr ? 'وقف الخسارة (اختياري)' : 'Stop Loss (Optional)'}</h4>
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Stop Loss Price</Label>
+              <Label>{isAr ? 'سعر وقف الخسارة' : 'Stop Loss Price'}</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -1985,11 +2006,11 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   ...formData,
                   stoploss: { ...formData.stoploss, price: e.target.value }
                 })}
-                placeholder="Price"
+                placeholder={isAr ? 'السعر' : 'Price'}
               />
             </div>
             <div className="space-y-2">
-              <Label>Stop Loss %</Label>
+              <Label>{isAr ? 'نسبة وقف الخسارة %' : 'Stop Loss %'}</Label>
               <Input
                 type="number"
                 step="0.01"
@@ -1998,25 +2019,25 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   ...formData,
                   stoploss: { ...formData.stoploss, percentage: e.target.value }
                 })}
-                placeholder="Percentage"
+                placeholder={isAr ? 'النسبة المئوية' : 'Percentage'}
               />
             </div>
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="notes">Notes (Optional)</Label>
+          <Label htmlFor="notes">{isAr ? 'ملاحظات (اختياري)' : 'Notes (Optional)'}</Label>
           <Textarea
             id="notes"
             value={formData.notes}
             onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-            placeholder="Additional notes about this trade..."
+            placeholder={isAr ? 'ملاحظات إضافية حول هذه الصفقة...' : 'Additional notes about this trade...'}
             rows={3}
           />
         </div>
 
         <div className="space-y-4 border-t pt-4">
-          <h4 className="font-medium">Testing &amp; Publishing</h4>
+          <h4 className="font-medium">{isAr ? 'الاختبار والنشر' : 'Testing & Publishing'}</h4>
 
           <div className="space-y-4 p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
             <div className="flex items-start space-x-3">
@@ -2032,10 +2053,12 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   htmlFor="is_testing"
                   className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                 >
-                  Test Trade (Not Counted in Reports)
+                  {isAr ? 'صفقة تجريبية (لا تُحتسب في التقارير)' : 'Test Trade (Not Counted in Reports)'}
                 </label>
                 <p className="text-xs text-muted-foreground">
-                  Mark this trade as a test. It will only be visible to you and excluded from all statistics, reports, and public views.
+                  {isAr
+                    ? 'ضع علامة على هذه الصفقة كتجريبية. ستكون مرئية لك فقط ومستبعدة من جميع الإحصائيات والتقارير والعروض العامة.'
+                    : 'Mark this trade as a test. It will only be visible to you and excluded from all statistics, reports, and public views.'}
                 </p>
               </div>
             </div>
@@ -2046,28 +2069,28 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
               {loadingChannels ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading channels...
+                  {isAr ? 'جارٍ تحميل القنوات...' : 'Loading channels...'}
                 </div>
               ) : channels.length === 0 ? (
                 <div className="text-sm text-muted-foreground p-4 border rounded-lg bg-slate-50 dark:bg-slate-900">
-                  No Telegram channels available. Set up channels in Settings or on the parent analysis.
+                  {isAr ? 'لا توجد قنوات تيليجرام متاحة. قم بإعداد القنوات في الإعدادات أو في التحليل الأصلي.' : 'No Telegram channels available. Set up channels in Settings or on the parent analysis.'}
                 </div>
               ) : (
                 <>
                   <div className="space-y-2">
-                    <Label htmlFor="telegram_channel">Telegram Channel</Label>
+                    <Label htmlFor="telegram_channel">{isAr ? 'قناة تيليجرام' : 'Telegram Channel'}</Label>
                     <Select
                       value={formData.telegram_channel_id}
                       onValueChange={(value) => setFormData({ ...formData, telegram_channel_id: value })}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a channel" />
+                        <SelectValue placeholder={isAr ? 'اختر قناة' : 'Select a channel'} />
                       </SelectTrigger>
                       <SelectContent>
                         {channels.filter(ch => ch.source === 'analysis').length > 0 && (
                           <>
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                              Analysis Default
+                              {isAr ? 'القناة الافتراضية للتحليل' : 'Analysis Default'}
                             </div>
                             {channels.filter(ch => ch.source === 'analysis').map(channel => (
                               <SelectItem key={channel.id} value={channel.id}>
@@ -2079,7 +2102,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                         {channels.filter(ch => ch.source === 'analyst').length > 0 && (
                           <>
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
-                              Analyst Channels
+                              {isAr ? 'قنوات المحلل' : 'Analyst Channels'}
                             </div>
                             {channels.filter(ch => ch.source === 'analyst').map(channel => (
                               <SelectItem key={channel.id} value={channel.id}>
@@ -2091,7 +2114,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                         {channels.filter(ch => ch.source === 'plan').length > 0 && (
                           <>
                             <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">
-                              Plan Channels
+                              {isAr ? 'قنوات الخطة' : 'Plan Channels'}
                             </div>
                             {channels.filter(ch => ch.source === 'plan').map(channel => (
                               <SelectItem key={channel.id} value={channel.id}>
@@ -2100,7 +2123,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                             ))}
                           </>
                         )}
-                        <SelectItem value="none">None (Don't publish)</SelectItem>
+                        <SelectItem value="none">{isAr ? 'لا شيء (عدم النشر)' : "None (Don't publish)"}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2118,7 +2141,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                         htmlFor="auto_publish"
                         className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                       >
-                        Auto-publish to Telegram when trade is created
+                        {isAr ? 'النشر التلقائي على تيليجرام عند إنشاء الصفقة' : 'Auto-publish to Telegram when trade is created'}
                       </label>
                     </div>
                   )}
@@ -2145,19 +2168,19 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                 htmlFor="is_testing"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
               >
-                🧪 Test Trade (Not Counted in Reports)
+                {isAr ? '🧪 صفقة تجريبية (لا تُحتسب في التقارير)' : '🧪 Test Trade (Not Counted in Reports)'}
               </label>
             </div>
 
             {formData.is_testing && (
               <div className="ml-6 space-y-3 p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                 <p className="text-xs text-amber-800 dark:text-amber-200">
-                  Test trades are visible only to you and excluded from statistics and reports.
+                  {isAr ? 'الصفقات التجريبية مرئية لك فقط ومستبعدة من الإحصائيات والتقارير.' : 'Test trades are visible only to you and excluded from statistics and reports.'}
                 </p>
 
                 {testingChannels.length > 0 ? (
                   <div className="space-y-2">
-                    <Label className="text-xs font-semibold">Send to Testing Channels (Optional)</Label>
+                    <Label className="text-xs font-semibold">{isAr ? 'الإرسال إلى القنوات التجريبية (اختياري)' : 'Send to Testing Channels (Optional)'}</Label>
                     {testingChannels.map((channel) => (
                       <div key={channel.id} className="flex items-center space-x-2">
                         <Checkbox
@@ -2188,7 +2211,7 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">
-                    No testing channels configured. Visit Settings to add testing channels.
+                    {isAr ? 'لا توجد قنوات تجريبية مُعدّة. انتقل إلى الإعدادات لإضافة قنوات تجريبية.' : 'No testing channels configured. Visit Settings to add testing channels.'}
                   </p>
                 )}
               </div>
@@ -2202,14 +2225,14 @@ export function AddTradeForm({ analysisId, indexSymbol: initialIndexSymbol, onCo
           {loading ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Adding Trade...
+              {isAr ? 'جارٍ إضافة الصفقة...' : 'Adding Trade...'}
             </>
           ) : (
-            'Add Trade'
+            isAr ? 'إضافة صفقة' : 'Add Trade'
           )}
         </Button>
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-          Cancel
+          {isAr ? 'إلغاء' : 'Cancel'}
         </Button>
       </div>
     </form>

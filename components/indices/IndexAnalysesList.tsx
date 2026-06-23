@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, BarChart2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { useLanguage } from '@/lib/i18n/language-context'
 import { IndexAnalysisCard } from './IndexAnalysisCard'
 import { IndexAnalysisDetailDialog } from './IndexAnalysisDetailDialog'
 import { NewTradeDialog } from './NewTradeDialog'
@@ -51,6 +52,8 @@ interface IndexAnalysesListProps {
 }
 
 export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: IndexAnalysesListProps) {
+  const { language } = useLanguage()
+  const isAr = language === 'ar'
   const [analyses, setAnalyses] = useState<IndexAnalysis[]>([])
   const [loading, setLoading] = useState(true)
   const [isAnalyzer, setIsAnalyzer] = useState(false)
@@ -95,7 +98,7 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
         setAnalyses(data.analyses || [])
       }
     } catch (error) {
-      toast.error('Failed to load analyses')
+      toast.error(isAr ? 'تعذّر تحميل التحليلات' : 'Failed to load analyses')
     } finally {
       setLoading(false)
     }
@@ -130,7 +133,7 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-        <span className="text-[11px] font-mono text-slate-600">Loading analyses…</span>
+        <span className="text-[11px] font-mono text-slate-600">{isAr ? 'جارٍ تحميل التحليلات…' : 'Loading analyses…'}</span>
       </div>
     )
   }
@@ -150,11 +153,11 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
           <div className="w-16 h-16 rounded-full bg-[#141d2e] border border-[#1a2840] flex items-center justify-center mb-5">
             <BarChart2 className="w-8 h-8 text-slate-700" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-400 mb-2">No Analyses Available</h3>
+          <h3 className="text-sm font-semibold text-slate-400 mb-2">{isAr ? 'لا توجد تحليلات' : 'No Analyses Available'}</h3>
           <p className="text-[11px] text-slate-600 max-w-xs leading-relaxed mb-6">
             {status === 'active'
-              ? 'No published analyses yet. Create your first analysis or subscribe to see others.'
-              : 'No archived analyses found.'}
+              ? (isAr ? 'لا توجد تحليلات منشورة بعد. أنشئ تحليلك الأول أو اشترك لمشاهدة تحليلات الآخرين.' : 'No published analyses yet. Create your first analysis or subscribe to see others.')
+              : (isAr ? 'لا توجد تحليلات مؤرشفة.' : 'No archived analyses found.')}
           </p>
           <div className="flex items-center gap-3">
             <button
@@ -162,14 +165,14 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
               className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-[#1a2840] hover:border-[#2a3850] text-slate-500 hover:text-slate-300 text-[11px] transition-all"
             >
               <RefreshCw className="w-3 h-3" />
-              Refresh
+              {isAr ? 'تحديث' : 'Refresh'}
             </button>
             {status === 'active' && (
               <button
                 onClick={() => (window.location.href = '/dashboard/subscriptions')}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600/20 border border-blue-500/30 text-blue-400 hover:bg-blue-600/30 text-[11px] font-medium transition-all"
               >
-                Browse Analyzers
+                {isAr ? 'تصفّح المحللين' : 'Browse Analyzers'}
               </button>
             )}
           </div>
@@ -184,7 +187,7 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2">
           <span className="text-[9px] font-bold tracking-[0.2em] text-slate-700 uppercase">
-            {status === 'active' ? 'Active Analyses' : 'Archive'}
+            {status === 'active' ? (isAr ? 'التحليلات النشطة' : 'Active Analyses') : (isAr ? 'الأرشيف' : 'Archive')}
           </span>
           <span className="text-[9px] font-mono text-slate-700 bg-[#141d2e] border border-[#1a2840] px-1.5 py-0.5 rounded">
             {analyses.length}
@@ -195,7 +198,7 @@ export function IndexAnalysesList({ status, onSelectContract, onManageTrades }: 
           className="flex items-center gap-1 text-[10px] text-slate-700 hover:text-slate-400 transition-colors"
         >
           <RefreshCw className="w-3 h-3" />
-          Refresh
+          {isAr ? 'تحديث' : 'Refresh'}
         </button>
       </div>
 
