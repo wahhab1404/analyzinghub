@@ -13,6 +13,9 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const BASE_URL = Deno.env.get('APP_BASE_URL') || Deno.env.get('NEXT_PUBLIC_SITE_URL') || 'https://analyzhub.com';
 
+// Telegram caps photo captions at 1024 characters (messages allow up to 4096).
+const TELEGRAM_CAPTION_LIMIT = 1024;
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -214,9 +217,17 @@ Deno.serve(async (req) => {
         console.log(`[IndicesPublisher] Sending to channel: ${channelId}`);
         let result;
         if (message.snapshotImageUrl && message.text) {
-          console.log(`[IndicesPublisher] Sending photo with caption to ${channelId}, URL: ${message.snapshotImageUrl}`);
+          // Telegram caption limit is 1024 chars. When the full analysis text
+          // is longer, send the chart with a short caption first, then the full
+          // text as a follow-up message so nothing is truncated.
+          const fitsInCaption = message.text.length <= TELEGRAM_CAPTION_LIMIT;
+          const photoCaption = fitsInCaption ? message.text : (message.caption || '');
+          console.log(`[IndicesPublisher] Sending photo to ${channelId} (fitsInCaption=${fitsInCaption}), URL: ${message.snapshotImageUrl}`);
           try {
-            result = await sendTelegramPhoto(botToken, channelId, message.snapshotImageUrl, message.text);
+            result = await sendTelegramPhoto(botToken, channelId, message.snapshotImageUrl, photoCaption);
+            if (!fitsInCaption) {
+              result = await sendTelegramMessage(botToken, channelId, message.text);
+            }
           } catch (photoError: any) {
             console.warn(`[IndicesPublisher] Photo send failed for ${channelId}, falling back to text: ${photoError.message}`);
             result = await sendTelegramMessage(botToken, channelId, message.text);

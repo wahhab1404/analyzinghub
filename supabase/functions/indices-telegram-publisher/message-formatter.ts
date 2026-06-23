@@ -1,7 +1,18 @@
 /**
  * Message formatters for Telegram publishing
- * All messages are bilingual (English + Arabic)
  */
+
+// Right-to-Left Mark — forces RTL base direction on a line so embedded Latin
+// text / numbers / prices don't get reordered around the Arabic content.
+const RLM = '\u200F';
+
+/** Prefix every non-empty line with an RLM so Arabic text keeps a clean RTL layout. */
+function toRtlLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => (line.trim() ? RLM + line : line))
+    .join('\n');
+}
 
 interface Author {
   id: string;
@@ -123,88 +134,48 @@ interface Update {
 export function formatAnalysisMessage(
   analysis: IndexAnalysis,
   baseUrl: string
-): { text: string; snapshotImageUrl?: string } {
+): { text: string; caption?: string; snapshotImageUrl?: string } {
   const analysisUrl = `${baseUrl}/dashboard/analysis/${analysis.id}`;
-  const timeframe = analysis.timeframe || "N/A";
-  const schools = analysis.schools_used?.join(", ") || "N/A";
+  const timeframe = analysis.timeframe || "غير محدد";
+  const schools = analysis.schools_used?.join("، ") || "";
+  const t = getT('ar');
 
-  let message = "📊 <b>NEW INDEX ANALYSIS</b>\n\n";
-  message += `<b>Index:</b> ${analysis.index_symbol}\n`;
-  message += `<b>Timeframe:</b> ${timeframe}\n`;
-  message += `<b>Analyst:</b> ${analysis.author.full_name}\n`;
+  // Full Arabic message — every line is RTL-anchored so Arabic text never
+  // flips around the English symbols / numbers / prices.
+  let message = "📊 <b>تحليل جديد للمؤشر</b>\n\n";
+  message += `${RLM}<b>المؤشر:</b> ${analysis.index_symbol}\n`;
+  message += `${RLM}<b>الإطار الزمني:</b> ${timeframe}\n`;
+  message += `${RLM}<b>المحلل:</b> ${analysis.author.full_name}\n`;
 
   if (schools) {
-    message += `<b>Methods:</b> ${schools}\n`;
+    message += `${RLM}<b>الأدوات المستخدمة:</b> ${schools}\n`;
   }
 
-  message += `\n<b>Title:</b> ${analysis.title}\n\n`;
+  message += `\n${RLM}<b>العنوان:</b> ${analysis.title}\n\n`;
 
-  const bodyPreview = analysis.body.length > 200
-    ? analysis.body.substring(0, 200) + "..."
-    : analysis.body;
-  message += `${bodyPreview}\n\n`;
+  // Full analysis text — no truncation.
+  if (analysis.body) {
+    message += `${toRtlLines(analysis.body)}\n\n`;
+  }
 
   if (analysis.invalidation_price) {
-    message += `<b>⚠️ Invalidation:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
-  }
-
-  // Activation Condition Info
-  if (analysis.activation_enabled && analysis.activation_price) {
-    const t = getT('en');
-    const isActive = analysis.activation_status === 'active' ||
-      analysis.activation_status === 'completed_success' ||
-      analysis.activation_status === 'completed_fail';
-
-    if (isActive) {
-      message += `<b>✅ ${t.activationConditionMet}</b>\n`;
-      if (analysis.activated_at) {
-        message += `<i>${t.activatedAt} ${new Date(analysis.activated_at).toLocaleString()}</i>\n\n`;
-      }
-    } else {
-      message += `<b>⚡ ${t.activationRequired}:</b>\n`;
-      message += `${t.priceMustBe} ${getActivationTypeLabel(analysis.activation_type, 'en')} $${analysis.activation_price.toFixed(2)}`;
-
-      const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'en');
-      if (tfLabel) {
-        message += ` (${tfLabel})`;
-      }
-      message += `\n`;
-
-      if (analysis.preactivation_stop_touched) {
-        message += `<i>⚠️ ${t.stopTouchedBeforeActivation}</i>\n`;
-      }
-      message += `\n`;
-    }
-  }
-
-  message += `<a href="${analysisUrl}">📈 View Full Analysis</a>`;
-
-  message += "\n\n━━━━━━━━━━\n\n";
-  message += "📊 <b>تحليل جديد للمؤشر</b>\n\n";
-  message += `<b>المؤشر:</b> ${analysis.index_symbol}\n`;
-  message += `<b>الإطار الزمني:</b> ${timeframe}\n`;
-  message += `<b>المحلل:</b> ${analysis.author.full_name}\n\n`;
-  message += `<b>العنوان:</b> ${analysis.title}\n\n`;
-
-  if (analysis.invalidation_price) {
-    message += `<b>⚠️ الإبطال:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
+    message += `${RLM}<b>⚠️ الإبطال:</b> ${analysis.invalidation_price.toFixed(2)}\n\n`;
   }
 
   // Activation Condition Info (Arabic)
   if (analysis.activation_enabled && analysis.activation_price) {
-    const t = getT('ar');
     const isActive = analysis.activation_status === 'active' ||
       analysis.activation_status === 'completed_success' ||
       analysis.activation_status === 'completed_fail';
 
     if (isActive) {
-      message += `<b>✅ ${t.activationConditionMet}</b>\n`;
+      message += `${RLM}<b>✅ ${t.activationConditionMet}</b>\n`;
       if (analysis.activated_at) {
-        message += `<i>${t.activatedAt} ${new Date(analysis.activated_at).toLocaleString('ar')}</i>\n\n`;
+        message += `${RLM}<i>${t.activatedAt} ${new Date(analysis.activated_at).toLocaleString('ar')}</i>\n\n`;
       }
     } else {
-      message += `<b>⚡ ${t.activationRequired}:</b>\n`;
-      message += `${t.priceMustBe} ${getActivationTypeLabel(analysis.activation_type, 'ar')} $${analysis.activation_price.toFixed(2)}`;
+      message += `${RLM}<b>⚡ ${t.activationRequired}:</b>\n`;
+      message += `${RLM}${t.priceMustBe} ${getActivationTypeLabel(analysis.activation_type, 'ar')} $${analysis.activation_price.toFixed(2)}`;
 
       const tfLabel = getActivationTimeframeLabel(analysis.activation_timeframe, 'ar');
       if (tfLabel) {
@@ -213,17 +184,24 @@ export function formatAnalysisMessage(
       message += `\n`;
 
       if (analysis.preactivation_stop_touched) {
-        message += `<i>⚠️ ${t.stopTouchedBeforeActivation}</i>\n`;
+        message += `${RLM}<i>⚠️ ${t.stopTouchedBeforeActivation}</i>\n`;
       }
       message += `\n`;
     }
   }
 
-  message += `<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;
+  message += `${RLM}<a href="${analysisUrl}">📈 عرض التحليل الكامل</a>`;
+
+  // Short header used as the photo caption when the full text is too long to
+  // fit in a Telegram caption (1024 chars) — the full text is then sent as a
+  // follow-up message so nothing gets cut off.
+  let caption = "📊 <b>تحليل جديد للمؤشر</b>\n\n";
+  caption += `${RLM}<b>المؤشر:</b> ${analysis.index_symbol} • ${timeframe}\n`;
+  caption += `${RLM}<b>العنوان:</b> ${analysis.title}`;
 
   const snapshotImageUrl = analysis.chart_image_url || undefined;
 
-  return { text: message, snapshotImageUrl };
+  return { text: message, caption, snapshotImageUrl };
 }
 
 export function formatTradeMessage(
