@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { ImageViewer } from '@/components/ui/image-viewer'
 import { ShareMenu } from '@/components/ui/share-menu'
-import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, ArrowLeft, Newspaper, FileText, LineChart, ExternalLink, Send, Lock, Users, Repeat } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, CheckCircle2, XCircle, Clock, Heart, MessageCircle, Bookmark, Repeat2, ArrowLeft, Newspaper, FileText, LineChart, ExternalLink, Send, Lock, Users, Repeat, Pencil, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -49,6 +49,7 @@ interface AnalysisDetailViewProps {
     timeframe?: string
     schools_used?: string[]
     invalidation_price?: number
+    published_at?: string | null
     // Regular analysis fields
     profiles?: {
       id: string
@@ -88,6 +89,8 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
   const [showImageViewer, setShowImageViewer] = useState(false)
   const [isBroadcasting, setIsBroadcasting] = useState(false)
   const [showResendDialog, setShowResendDialog] = useState(false)
+  const [isTelegramEditing, setIsTelegramEditing] = useState(false)
+  const [isTelegramDeleting, setIsTelegramDeleting] = useState(false)
   const analytics = useAnalytics()
 
   // Handle both regular analyses and index analyses
@@ -323,6 +326,60 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
       toast.error('Failed to send to Telegram channel')
     } finally {
       setIsBroadcasting(false)
+    }
+  }
+
+  // Authors can edit/delete the published Telegram message within 1 hour of publishing.
+  const TELEGRAM_EDIT_WINDOW_MS = 60 * 60 * 1000
+  const telegramPublishedAt = analysis.published_at || analysis.created_at
+  const withinTelegramWindow =
+    isIndexAnalysis &&
+    !!analysis.is_own_post &&
+    !!telegramPublishedAt &&
+    Date.now() - new Date(telegramPublishedAt).getTime() <= TELEGRAM_EDIT_WINDOW_MS
+
+  const handleEditTelegram = async () => {
+    if (isTelegramEditing) return
+    setIsTelegramEditing(true)
+    try {
+      const res = await fetch(`/api/indices/analyses/${analysis.id}/telegram`, { method: 'PATCH' })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        toast.success('تم تحديث رسالة تيليجرام')
+      } else if (data?.error === 'EDIT_WINDOW_EXPIRED') {
+        toast.error(data.message || 'انتهت مدة التعديل المسموحة (ساعة من النشر)')
+      } else if (data?.error === 'NO_TELEGRAM_MESSAGE') {
+        toast.error(data.message || 'لا توجد رسالة تيليجرام مرتبطة بهذا التحليل')
+      } else {
+        toast.error(data?.message || data?.error || 'تعذّر تحديث رسالة تيليجرام')
+      }
+    } catch (error) {
+      toast.error('تعذّر تحديث رسالة تيليجرام')
+    } finally {
+      setIsTelegramEditing(false)
+    }
+  }
+
+  const handleDeleteTelegram = async () => {
+    if (isTelegramDeleting) return
+    if (!confirm('هل تريد حذف رسالة هذا التحليل من قناة تيليجرام؟')) return
+    setIsTelegramDeleting(true)
+    try {
+      const res = await fetch(`/api/indices/analyses/${analysis.id}/telegram`, { method: 'DELETE' })
+      const data = await res.json()
+      if (res.ok && data.success) {
+        toast.success('تم حذف رسالة تيليجرام')
+      } else if (data?.error === 'EDIT_WINDOW_EXPIRED') {
+        toast.error(data.message || 'انتهت مدة الحذف المسموحة (ساعة من النشر)')
+      } else if (data?.error === 'NO_TELEGRAM_MESSAGE') {
+        toast.error(data.message || 'لا توجد رسالة تيليجرام مرتبطة بهذا التحليل')
+      } else {
+        toast.error(data?.message || data?.error || 'تعذّر حذف رسالة تيليجرام')
+      }
+    } catch (error) {
+      toast.error('تعذّر حذف رسالة تيليجرام')
+    } finally {
+      setIsTelegramDeleting(false)
     }
   }
 
@@ -719,6 +776,37 @@ export function AnalysisDetailView({ analysis }: AnalysisDetailViewProps) {
             </div>
 
             <div className="flex items-center gap-1">
+              {withinTelegramWindow && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleEditTelegram}
+                    disabled={isTelegramEditing}
+                    title="تحديث رسالة تيليجرام بمحتوى التحليل الحالي (خلال ساعة من النشر)"
+                  >
+                    {isTelegramEditing ? (
+                      <Clock className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Pencil className="h-4 w-4" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDeleteTelegram}
+                    disabled={isTelegramDeleting}
+                    title="حذف رسالة التحليل من قناة تيليجرام (خلال ساعة من النشر)"
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    {isTelegramDeleting ? (
+                      <Clock className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </Button>
+                </>
+              )}
               {analysis.is_own_post && (
                 <>
                   <Button

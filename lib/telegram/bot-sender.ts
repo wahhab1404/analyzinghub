@@ -73,7 +73,7 @@ export async function editMessage(
   messageId: number,
   text:      string,
   keyboard?: InlineKeyboard
-): Promise<void> {
+): Promise<boolean> {
   const payload: Record<string, unknown> = {
     chat_id:    chatId,
     message_id: messageId,
@@ -95,7 +95,37 @@ export async function editMessage(
   if (!res.ok) {
     const json = await res.json();
     console.error('[BotSender] editMessage error:', json);
+    return false;
   }
+  return true;
+}
+
+/**
+ * Edit the caption of a previously-sent photo message. Returns true on success.
+ */
+export async function editMessageCaption(
+  token:     string,
+  chatId:    string,
+  messageId: number,
+  caption:   string,
+): Promise<boolean> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/editMessageCaption`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      chat_id:    chatId,
+      message_id: messageId,
+      caption:    caption.slice(0, 1024),
+      parse_mode: 'HTML',
+    }),
+  });
+
+  if (!res.ok) {
+    const json = await res.json();
+    console.error('[BotSender] editMessageCaption error:', json);
+    return false;
+  }
+  return true;
 }
 
 export async function answerCallback(
@@ -170,10 +200,16 @@ export async function deleteMessage(
   token:     string,
   chatId:    string,
   messageId: number
-): Promise<void> {
-  await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
+): Promise<boolean> {
+  const res = await fetch(`https://api.telegram.org/bot${token}/deleteMessage`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ chat_id: chatId, message_id: messageId }),
   });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({}));
+    console.error('[BotSender] deleteMessage error:', json);
+    return false;
+  }
+  return true;
 }
