@@ -211,6 +211,12 @@ Deno.serve(async (req) => {
       textLength: message.text?.length || 0,
     });
 
+    // For analysis publishes, remember each sent message so the author can later
+    // edit or delete it from the platform (within the allowed window).
+    const analysisId: string | null =
+      payload.type === 'new_analysis' ? (payload.data?.id ?? null) : null;
+    const sentRecords: { chat_id: string; message_id: number; kind: string }[] = [];
+
     const results = [];
     for (const channelId of channelIds) {
       try {
@@ -225,22 +231,45 @@ Deno.serve(async (req) => {
           console.log(`[IndicesPublisher] Sending photo to ${channelId} (fitsInCaption=${fitsInCaption}), URL: ${message.snapshotImageUrl}`);
           try {
             result = await sendTelegramPhoto(botToken, channelId, message.snapshotImageUrl, photoCaption);
+            if (analysisId && result?.result?.message_id) {
+              sentRecords.push({ chat_id: channelId, message_id: result.result.message_id, kind: 'caption' });
+            }
             if (!fitsInCaption) {
               result = await sendTelegramMessage(botToken, channelId, message.text);
+              if (analysisId && result?.result?.message_id) {
+                sentRecords.push({ chat_id: channelId, message_id: result.result.message_id, kind: 'text' });
+              }
             }
           } catch (photoError: any) {
             console.warn(`[IndicesPublisher] Photo send failed for ${channelId}, falling back to text: ${photoError.message}`);
             result = await sendTelegramMessage(botToken, channelId, message.text);
+            if (analysisId && result?.result?.message_id) {
+              sentRecords.push({ chat_id: channelId, message_id: result.result.message_id, kind: 'text' });
+            }
           }
         } else if (message.text) {
           console.log(`[IndicesPublisher] Sending text message to ${channelId} (no photo available)`);
           result = await sendTelegramMessage(botToken, channelId, message.text);
+          if (analysisId && result?.result?.message_id) {
+            sentRecords.push({ chat_id: channelId, message_id: result.result.message_id, kind: 'text' });
+          }
         }
         console.log(`[IndicesPublisher] Successfully sent to ${channelId}`);
         results.push({ channelId, success: true, result });
       } catch (error: any) {
         console.error(`[IndicesPublisher] Failed to send to ${channelId}:`, error);
         results.push({ channelId, success: false, error: error.message });
+      }
+    }
+
+    if (analysisId && sentRecords.length > 0) {
+      const { error: recErr } = await supabase
+        .from('index_analysis_telegram_messages')
+        .insert(sentRecords.map((r) => ({ analysis_id: analysisId, ...r })));
+      if (recErr) {
+        console.error('[IndicesPublisher] Failed to record sent telegram messages:', recErr.message);
+      } else {
+        console.log(`[IndicesPublisher] Recorded ${sentRecords.length} telegram message(s) for analysis ${analysisId}`);
       }
     }
 
