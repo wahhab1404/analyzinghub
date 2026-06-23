@@ -208,7 +208,8 @@ function TableHead({ cols }: { cols: string[] }) {
 
 export default function DashboardPage() {
   const router = useRouter()
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
+  const isAr = language === 'ar'
 
   const [user, setUser] = useState<SessionUser | null>(null)
   const [myStats, setMyStats] = useState<PlatformStats | null>(null)
@@ -316,44 +317,46 @@ export default function DashboardPage() {
   /* ── KPI strip values ───────────────────────────────────────────────── */
   const kpiStrip = [
     {
-      label: 'LIVE POSITIONS',
+      label: isAr ? 'المراكز المفتوحة' : 'LIVE POSITIONS',
       value: activeTrades.length,
       sub: `${callCount}C · ${putCount}P`,
       icon: Activity,
       hl: activeTrades.length > 0 ? 'text-amber-500' : 'text-muted-foreground',
     },
     {
-      label: 'WIN RATE',
+      label: isAr ? 'معدل الربح' : 'WIN RATE',
       value: `${myStats?.winRate ?? 0}%`,
-      sub: `${myStats?.winningTrades ?? 0} wins / ${myStats?.closedTrades ?? 0} closed`,
+      sub: isAr
+        ? `${myStats?.winningTrades ?? 0} رابحة / ${myStats?.closedTrades ?? 0} مغلقة`
+        : `${myStats?.winningTrades ?? 0} wins / ${myStats?.closedTrades ?? 0} closed`,
       icon: Target,
       hl: (myStats?.winRate ?? 0) >= 60 ? 'text-emerald-500' : (myStats?.winRate ?? 0) >= 40 ? 'text-amber-500' : 'text-red-500',
     },
     {
-      label: 'TOTAL P&L',
+      label: isAr ? 'إجمالي الربح/الخسارة' : 'TOTAL P&L',
       value: fmt$(myStats?.totalProfit ?? 0),
-      sub: 'All-time realized',
+      sub: isAr ? 'محقق إجمالاً' : 'All-time realized',
       icon: DollarSign,
       hl: (myStats?.totalProfit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500',
     },
     {
-      label: 'MTD P&L',
+      label: isAr ? 'ربح/خسارة الشهر' : 'MTD P&L',
       value: fmt$(myStats?.currentMonthProfit ?? 0),
-      sub: 'Month-to-date',
+      sub: isAr ? 'منذ بداية الشهر' : 'Month-to-date',
       icon: BarChart3,
       hl: (myStats?.currentMonthProfit ?? 0) >= 0 ? 'text-emerald-500' : 'text-red-500',
     },
     {
-      label: 'ANALYSTS LIVE',
+      label: isAr ? 'المحللون المباشرون' : 'ANALYSTS LIVE',
       value: liveAnalysts,
-      sub: `${activeTrades.length} total signals`,
+      sub: isAr ? `${activeTrades.length} إشارة إجمالاً` : `${activeTrades.length} total signals`,
       icon: Users,
       hl: liveAnalysts > 0 ? 'text-blue-400' : 'text-muted-foreground',
     },
     {
-      label: 'MY ANALYSES',
+      label: isAr ? 'تحليلاتي' : 'MY ANALYSES',
       value: stats.total_analyses,
-      sub: `${stats.success_rate}% success rate`,
+      sub: isAr ? `معدل النجاح ${stats.success_rate}%` : `${stats.success_rate}% success rate`,
       icon: FileText,
       hl: 'text-foreground',
     },
@@ -391,12 +394,12 @@ export default function DashboardPage() {
 
           {/* Market Sentiment */}
           <div className="terminal-card">
-            <PanelHeader label="MARKET SENTIMENT" />
+            <PanelHeader label={isAr ? 'مزاج السوق' : 'MARKET SENTIMENT'} />
             <div className="p-3 space-y-3">
               {/* Dial + number */}
               <div className="flex items-center justify-between">
                 <span className={cn('text-xs font-black tracking-wide', isBullish ? 'text-emerald-500' : 'text-red-500')}>
-                  {isBullish ? '▲ BULLISH' : '▼ BEARISH'}
+                  {isBullish ? (isAr ? '▲ صاعد' : '▲ BULLISH') : (isAr ? '▼ هابط' : '▼ BEARISH')}
                 </span>
                 <span className={cn('text-2xl font-black num', isBullish ? 'text-emerald-500' : 'text-red-500')}>
                   {sentimentPct.toFixed(0)}%
@@ -408,19 +411,19 @@ export default function DashboardPage() {
                 <div className="h-full bg-red-500 flex-1" />
               </div>
               <div className="flex justify-between">
-                <span className="text-[10px] font-bold text-emerald-500 num">{callCount} BULL</span>
+                <span className="text-[10px] font-bold text-emerald-500 num">{callCount} {isAr ? 'صعود' : 'BULL'}</span>
                 <span className="text-[10px] text-muted-foreground">|</span>
-                <span className="text-[10px] font-bold text-red-500 num">{putCount} BEAR</span>
+                <span className="text-[10px] font-bold text-red-500 num">{putCount} {isAr ? 'هبوط' : 'BEAR'}</span>
               </div>
 
               {/* Key stats */}
               <div className="border-t border-border pt-2 space-y-1.5">
-                <p className="section-label mb-1">PLATFORM ACTIVITY</p>
+                <p className="section-label mb-1">{isAr ? 'نشاط المنصة' : 'PLATFORM ACTIVITY'}</p>
                 {[
-                  { label: 'Analysts Live', value: liveAnalysts, color: 'text-blue-400' },
-                  { label: 'Active Signals', value: activeTrades.length, color: 'text-amber-500' },
-                  { label: 'Win Rate', value: `${myStats?.winRate ?? 0}%`, color: (myStats?.winRate ?? 0) >= 60 ? 'text-emerald-500' : 'text-amber-500' },
-                  { label: 'Symbols Tracked', value: symList.length, color: 'text-foreground' },
+                  { label: isAr ? 'المحللون المباشرون' : 'Analysts Live', value: liveAnalysts, color: 'text-blue-400' },
+                  { label: isAr ? 'الإشارات النشطة' : 'Active Signals', value: activeTrades.length, color: 'text-amber-500' },
+                  { label: isAr ? 'معدل الربح' : 'Win Rate', value: `${myStats?.winRate ?? 0}%`, color: (myStats?.winRate ?? 0) >= 60 ? 'text-emerald-500' : 'text-amber-500' },
+                  { label: isAr ? 'الرموز المتابَعة' : 'Symbols Tracked', value: symList.length, color: 'text-foreground' },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between items-center">
                     <span className="text-[10px] text-muted-foreground">{row.label}</span>
@@ -433,9 +436,9 @@ export default function DashboardPage() {
 
           {/* Symbol Heatmap */}
           <div className="terminal-card">
-            <PanelHeader label="SYMBOL ACTIVITY" count={symList.length} />
+            <PanelHeader label={isAr ? 'نشاط الرموز' : 'SYMBOL ACTIVITY'} count={symList.length} />
             {symList.length === 0 ? (
-              <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">No active signals</div>
+              <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">{isAr ? 'لا توجد إشارات نشطة' : 'No active signals'}</div>
             ) : (
               <div className="divide-y divide-border/50">
                 {symList.map(({ sym, calls, puts, total, bullish }) => (
@@ -462,7 +465,7 @@ export default function DashboardPage() {
                         {' / '}
                         <span className="text-red-500/80">{puts}P</span>
                         {' · '}
-                        {total} total
+                        {total} {isAr ? 'إجمالاً' : 'total'}
                       </div>
                     </div>
                   </div>
@@ -474,15 +477,15 @@ export default function DashboardPage() {
           {/* My Performance (Analyzer only) */}
           {user.role === 'Analyzer' && (
             <div className="terminal-card">
-              <PanelHeader label="MY PERFORMANCE" />
+              <PanelHeader label={isAr ? 'أدائي' : 'MY PERFORMANCE'} />
               <div className="divide-y divide-border/50">
                 {[
-                  { label: 'Total Analyses', value: stats.total_analyses, color: 'text-foreground' },
-                  { label: 'Active', value: stats.active_analyses, color: stats.active_analyses > 0 ? 'text-amber-500' : 'text-muted-foreground' },
-                  { label: 'Successful', value: stats.successful_analyses, color: 'text-emerald-500' },
-                  { label: 'Success Rate', value: `${stats.success_rate}%`, color: stats.success_rate >= 70 ? 'text-emerald-500' : stats.success_rate >= 50 ? 'text-amber-500' : 'text-red-500' },
-                  { label: 'Followers', value: stats.followers_count, color: 'text-blue-400' },
-                  { label: 'Following', value: stats.following_count, color: 'text-muted-foreground' },
+                  { label: isAr ? 'إجمالي التحليلات' : 'Total Analyses', value: stats.total_analyses, color: 'text-foreground' },
+                  { label: isAr ? 'نشطة' : 'Active', value: stats.active_analyses, color: stats.active_analyses > 0 ? 'text-amber-500' : 'text-muted-foreground' },
+                  { label: isAr ? 'ناجحة' : 'Successful', value: stats.successful_analyses, color: 'text-emerald-500' },
+                  { label: isAr ? 'معدل النجاح' : 'Success Rate', value: `${stats.success_rate}%`, color: stats.success_rate >= 70 ? 'text-emerald-500' : stats.success_rate >= 50 ? 'text-amber-500' : 'text-red-500' },
+                  { label: isAr ? 'المتابِعون' : 'Followers', value: stats.followers_count, color: 'text-blue-400' },
+                  { label: isAr ? 'المتابَعون' : 'Following', value: stats.following_count, color: 'text-muted-foreground' },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between items-center px-3 py-1.5">
                     <span className="text-[10px] text-muted-foreground">{row.label}</span>
@@ -492,7 +495,7 @@ export default function DashboardPage() {
               </div>
               <div className="border-t border-border px-3 py-2">
                 <Link href={`/dashboard/profile/${user.id}`} className="text-[10px] text-primary hover:underline">
-                  Full profile →
+                  {isAr ? 'الملف الكامل ←' : 'Full profile →'}
                 </Link>
               </div>
             </div>
@@ -501,7 +504,7 @@ export default function DashboardPage() {
           {/* 7-day P&L sparkline */}
           {chartData.length > 0 && (
             <div className="terminal-card">
-              <PanelHeader label="7-DAY P&L TREND" />
+              <PanelHeader label={isAr ? 'اتجاه الربح/الخسارة (7 أيام)' : '7-DAY P&L TREND'} />
               <div className="p-2 pt-3">
                 <ResponsiveContainer width="100%" height={100}>
                   <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
@@ -521,7 +524,7 @@ export default function DashboardPage() {
                         fontSize: '10px',
                         color: 'hsl(var(--foreground))',
                       }}
-                      formatter={(v: any) => [fmt$(v), 'P&L']}
+                      formatter={(v: any) => [fmt$(v), isAr ? 'ربح/خسارة' : 'P&L']}
                     />
                     <Area
                       type="monotone"
@@ -551,7 +554,7 @@ export default function DashboardPage() {
           {/* LIVE POSITIONS TABLE */}
           <div className="terminal-card">
             <PanelHeader
-              label="LIVE POSITIONS"
+              label={isAr ? 'المراكز المفتوحة' : 'LIVE POSITIONS'}
               count={activeTrades.length}
               onRefresh={handleRefresh}
               spinning={refreshing}
@@ -565,17 +568,17 @@ export default function DashboardPage() {
               <table className="w-full text-xs min-w-[520px]">
                 <thead>
                   <tr className="border-b border-border bg-muted/20">
-                    <th className="text-left px-3 py-1.5 section-label text-[9px]">SYMBOL / ANALYST</th>
-                    <th className="text-left px-2 py-1.5 section-label text-[9px]">DIR</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">ENTRY</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">CURRENT</th>
-                    <th className="text-right px-2 py-1.5 section-label text-[9px]">HIGH</th>
-                    <th className="text-right px-3 py-1.5 section-label text-[9px]">BEST P&L</th>
+                    <th className="text-left px-3 py-1.5 section-label text-[9px]">{isAr ? 'الرمز / المحلل' : 'SYMBOL / ANALYST'}</th>
+                    <th className="text-left px-2 py-1.5 section-label text-[9px]">{isAr ? 'الاتجاه' : 'DIR'}</th>
+                    <th className="text-right px-2 py-1.5 section-label text-[9px]">{isAr ? 'الدخول' : 'ENTRY'}</th>
+                    <th className="text-right px-2 py-1.5 section-label text-[9px]">{isAr ? 'الحالي' : 'CURRENT'}</th>
+                    <th className="text-right px-2 py-1.5 section-label text-[9px]">{isAr ? 'الأعلى' : 'HIGH'}</th>
+                    <th className="text-right px-3 py-1.5 section-label text-[9px]">{isAr ? 'أفضل ربح/خسارة' : 'BEST P&L'}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {activeTrades.length === 0
-                    ? <EmptyRow cols={6} msg="No active positions on the platform" />
+                    ? <EmptyRow cols={6} msg={isAr ? 'لا توجد مراكز مفتوحة على المنصة' : 'No active positions on the platform'} />
                     : activeTrades.map(trade => {
                         const { pct, entry, current } = computeOpenPnL(trade)
                         const high = trade.contract_high_since || current
@@ -617,16 +620,16 @@ export default function DashboardPage() {
             <div className="px-3 py-1.5 border-t border-border bg-muted/10 flex justify-between items-center">
               <div className="flex items-center gap-1.5">
                 <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                <span className="text-[9px] text-muted-foreground">Live — refreshed every visit</span>
+                <span className="text-[9px] text-muted-foreground">{isAr ? 'مباشر — يُحدَّث في كل زيارة' : 'Live — refreshed every visit'}</span>
               </div>
-              <Link href="/dashboard/indices" className="text-[10px] text-primary hover:underline">View all →</Link>
+              <Link href="/dashboard/indices" className="text-[10px] text-primary hover:underline">{isAr ? 'عرض الكل ←' : 'View all →'}</Link>
             </div>
           </div>
 
           {/* OPTIONS ACTIVITY — Bloomberg/TOS-style analytics */}
           <div className="terminal-card">
             <PanelHeader
-              label="OPTIONS ACTIVITY"
+              label={isAr ? 'نشاط الخيارات' : 'OPTIONS ACTIVITY'}
               count={optionTrades.length}
               right={
                 optionTrades.length > 0 ? (
@@ -639,7 +642,7 @@ export default function DashboardPage() {
                       )}
                     >
                       <Table2 className="h-2.5 w-2.5" />
-                      TABLE
+                      {isAr ? 'جدول' : 'TABLE'}
                     </button>
                     <button
                       onClick={() => setOptionsView('cards')}
@@ -649,7 +652,7 @@ export default function DashboardPage() {
                       )}
                     >
                       <LayoutList className="h-2.5 w-2.5" />
-                      CARDS
+                      {isAr ? 'بطاقات' : 'CARDS'}
                     </button>
                   </div>
                 ) : undefined
@@ -660,7 +663,7 @@ export default function DashboardPage() {
             {optionsView === 'table' && (
               <OptionsChainTable
                 trades={optionTrades}
-                emptyMessage="No options positions on the platform"
+                emptyMessage={isAr ? 'لا توجد مراكز خيارات على المنصة' : 'No options positions on the platform'}
                 showActions
               />
             )}
@@ -670,7 +673,7 @@ export default function DashboardPage() {
               <div className="divide-y divide-border/30">
                 {optionTrades.length === 0 ? (
                   <div className="px-4 py-6 text-center text-[11px] text-muted-foreground">
-                    No options positions on the platform
+                    {isAr ? 'لا توجد مراكز خيارات على المنصة' : 'No options positions on the platform'}
                   </div>
                 ) : optionTrades.map(trade => (
                   <OptionsContractCard
@@ -694,7 +697,7 @@ export default function DashboardPage() {
                   </span>
                   {optionTrades.some(t => t.entry_contract_snapshot?.implied_volatility) && (
                     <span>
-                      Avg IV:{' '}
+                      {isAr ? 'متوسط التقلب الضمني:' : 'Avg IV:'}{' '}
                       {(
                         optionTrades
                           .filter(t => t.entry_contract_snapshot?.implied_volatility)
@@ -705,7 +708,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <Link href="/dashboard/indices" className="text-[10px] text-primary hover:underline">
-                  Full options hub →
+                  {isAr ? 'مركز الخيارات الكامل ←' : 'Full options hub →'}
                 </Link>
               </div>
             )}
@@ -714,17 +717,17 @@ export default function DashboardPage() {
           {/* RECENT CLOSED TRADES */}
           {closedTrades.length > 0 && (
             <div className="terminal-card">
-              <PanelHeader label="RECENT CLOSED TRADES" count={closedTrades.length} />
+              <PanelHeader label={isAr ? 'الصفقات المغلقة مؤخرًا' : 'RECENT CLOSED TRADES'} count={closedTrades.length} />
               <div className="overflow-x-auto">
                 <table className="w-full text-xs min-w-[480px]">
                   <thead>
                     <tr className="border-b border-border bg-muted/20">
-                      <th className="text-left px-3 py-1.5 section-label text-[9px]">SYMBOL</th>
-                      <th className="text-left px-2 py-1.5 section-label text-[9px]">DIR</th>
-                      <th className="text-left px-2 py-1.5 section-label text-[9px]">OUTCOME</th>
-                      <th className="text-right px-2 py-1.5 section-label text-[9px]">ENTRY</th>
-                      <th className="text-right px-2 py-1.5 section-label text-[9px]">P&L $</th>
-                      <th className="text-right px-3 py-1.5 section-label text-[9px]">CLOSED</th>
+                      <th className="text-left px-3 py-1.5 section-label text-[9px]">{isAr ? 'الرمز' : 'SYMBOL'}</th>
+                      <th className="text-left px-2 py-1.5 section-label text-[9px]">{isAr ? 'الاتجاه' : 'DIR'}</th>
+                      <th className="text-left px-2 py-1.5 section-label text-[9px]">{isAr ? 'النتيجة' : 'OUTCOME'}</th>
+                      <th className="text-right px-2 py-1.5 section-label text-[9px]">{isAr ? 'الدخول' : 'ENTRY'}</th>
+                      <th className="text-right px-2 py-1.5 section-label text-[9px]">{isAr ? 'ربح/خسارة $' : 'P&L $'}</th>
+                      <th className="text-right px-3 py-1.5 section-label text-[9px]">{isAr ? 'مغلقة' : 'CLOSED'}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -770,10 +773,10 @@ export default function DashboardPage() {
 
           {/* ANALYST LEADERBOARD */}
           <div className="terminal-card">
-            <PanelHeader label="ANALYST LEADERBOARD" />
+            <PanelHeader label={isAr ? 'لوحة صدارة المحللين' : 'ANALYST LEADERBOARD'} />
             <div className="divide-y divide-border/50">
               {leaderboard.length === 0 ? (
-                <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">No ranking data</div>
+                <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">{isAr ? 'لا توجد بيانات تصنيف' : 'No ranking data'}</div>
               ) : leaderboard.map(row => (
                 <Link
                   key={row.userId}
@@ -801,12 +804,12 @@ export default function DashboardPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2.5 mt-0.5">
-                      <span className="text-[9px] text-muted-foreground">{row.closedAnalyses ?? 0} trades</span>
+                      <span className="text-[9px] text-muted-foreground">{row.closedAnalyses ?? 0} {isAr ? 'صفقة' : 'trades'}</span>
                       {row.winRate !== undefined && (
                         <span className={cn('text-[9px] font-bold num',
                           row.winRate >= 60 ? 'text-emerald-500' : row.winRate >= 40 ? 'text-amber-500' : 'text-red-500'
                         )}>
-                          {row.winRate.toFixed(0)}% WR
+                          {row.winRate.toFixed(0)}% {isAr ? 'ربح' : 'WR'}
                         </span>
                       )}
                     </div>
@@ -815,23 +818,23 @@ export default function DashboardPage() {
                   {/* Points */}
                   <div className="text-right flex-shrink-0">
                     <div className="text-sm font-black text-primary num">{(row.points ?? 0).toLocaleString()}</div>
-                    <div className="text-[9px] text-muted-foreground">pts</div>
+                    <div className="text-[9px] text-muted-foreground">{isAr ? 'نقطة' : 'pts'}</div>
                   </div>
                 </Link>
               ))}
             </div>
             <div className="border-t border-border px-3 py-2 flex justify-between items-center">
-              <span className="text-[9px] text-muted-foreground">Updated daily</span>
-              <Link href="/dashboard/rankings" className="text-[10px] text-primary hover:underline">Full rankings →</Link>
+              <span className="text-[9px] text-muted-foreground">{isAr ? 'يُحدَّث يوميًا' : 'Updated daily'}</span>
+              <Link href="/dashboard/rankings" className="text-[10px] text-primary hover:underline">{isAr ? 'التصنيف الكامل ←' : 'Full rankings →'}</Link>
             </div>
           </div>
 
           {/* ANALYST ACTIVITY FEED */}
           <div className="terminal-card">
-            <PanelHeader label="ANALYST ACTIVITY" count={analyses.length} />
+            <PanelHeader label={isAr ? 'نشاط المحللين' : 'ANALYST ACTIVITY'} count={analyses.length} />
             <div className="divide-y divide-border/50">
               {analyses.length === 0 ? (
-                <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">No recent analyses</div>
+                <div className="px-3 py-5 text-center text-[10px] text-muted-foreground">{isAr ? 'لا توجد تحليلات حديثة' : 'No recent analyses'}</div>
               ) : analyses.map(analysis => (
                 <Link
                   key={analysis.id}
@@ -855,7 +858,7 @@ export default function DashboardPage() {
                       </span>
                       {analysis.active_trades_count > 0 && (
                         <span className="text-[9px] text-amber-500 font-bold">
-                          {analysis.active_trades_count} LIVE
+                          {analysis.active_trades_count} {isAr ? 'مباشر' : 'LIVE'}
                         </span>
                       )}
                     </div>
@@ -868,19 +871,19 @@ export default function DashboardPage() {
               ))}
             </div>
             <div className="border-t border-border px-3 py-2 flex justify-between items-center">
-              <span className="text-[9px] text-muted-foreground">{analyses.reduce((s, a) => s + a.active_trades_count, 0)} active signals total</span>
-              <Link href="/dashboard/feed" className="text-[10px] text-primary hover:underline">Full feed →</Link>
+              <span className="text-[9px] text-muted-foreground">{isAr ? `${analyses.reduce((s, a) => s + a.active_trades_count, 0)} إشارة نشطة إجمالاً` : `${analyses.reduce((s, a) => s + a.active_trades_count, 0)} active signals total`}</span>
+              <Link href="/dashboard/feed" className="text-[10px] text-primary hover:underline">{isAr ? 'التغذية الكاملة ←' : 'Full feed →'}</Link>
             </div>
           </div>
 
           {/* PERFORMANCE METRICS PANEL */}
           <div className="terminal-card">
-            <PanelHeader label="PERFORMANCE METRICS" />
+            <PanelHeader label={isAr ? 'مؤشرات الأداء' : 'PERFORMANCE METRICS'} />
             <div className="p-3 space-y-3">
               {/* Win rate bar */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <span className="section-label">WIN RATE</span>
+                  <span className="section-label">{isAr ? 'معدل الربح' : 'WIN RATE'}</span>
                   <span className={cn('text-sm font-black num', (myStats?.winRate ?? 0) >= 60 ? 'text-emerald-500' : (myStats?.winRate ?? 0) >= 40 ? 'text-amber-500' : 'text-red-500')}>
                     {myStats?.winRate ?? 0}%
                   </span>
@@ -900,10 +903,10 @@ export default function DashboardPage() {
               {/* Key metrics grid */}
               <div className="grid grid-cols-2 gap-px bg-border border border-border overflow-hidden">
                 {[
-                  { label: 'TOTAL TRADES', value: myStats?.totalTrades ?? 0 },
-                  { label: 'WINNING', value: myStats?.winningTrades ?? 0, color: 'text-emerald-500' },
-                  { label: 'CLOSED', value: myStats?.closedTrades ?? 0 },
-                  { label: 'ACTIVE', value: myStats?.activeTrades ?? 0, color: 'text-amber-500' },
+                  { label: isAr ? 'إجمالي الصفقات' : 'TOTAL TRADES', value: myStats?.totalTrades ?? 0 },
+                  { label: isAr ? 'رابحة' : 'WINNING', value: myStats?.winningTrades ?? 0, color: 'text-emerald-500' },
+                  { label: isAr ? 'مغلقة' : 'CLOSED', value: myStats?.closedTrades ?? 0 },
+                  { label: isAr ? 'نشطة' : 'ACTIVE', value: myStats?.activeTrades ?? 0, color: 'text-amber-500' },
                 ].map(m => (
                   <div key={m.label} className="bg-card p-2">
                     <p className="section-label">{m.label}</p>
@@ -914,10 +917,10 @@ export default function DashboardPage() {
 
               {/* P&L summary */}
               <div className="space-y-1.5 border-t border-border pt-2">
-                <p className="section-label">P&L SUMMARY</p>
+                <p className="section-label">{isAr ? 'ملخص الربح/الخسارة' : 'P&L SUMMARY'}</p>
                 {[
-                  { label: 'All-time P&L', value: fmt$(myStats?.totalProfit ?? 0), pos: (myStats?.totalProfit ?? 0) >= 0 },
-                  { label: 'This Month', value: fmt$(myStats?.currentMonthProfit ?? 0), pos: (myStats?.currentMonthProfit ?? 0) >= 0 },
+                  { label: isAr ? 'الربح/الخسارة الإجمالي' : 'All-time P&L', value: fmt$(myStats?.totalProfit ?? 0), pos: (myStats?.totalProfit ?? 0) >= 0 },
+                  { label: isAr ? 'هذا الشهر' : 'This Month', value: fmt$(myStats?.currentMonthProfit ?? 0), pos: (myStats?.currentMonthProfit ?? 0) >= 0 },
                 ].map(row => (
                   <div key={row.label} className="flex justify-between items-center">
                     <span className="text-[10px] text-muted-foreground">{row.label}</span>
@@ -932,15 +935,15 @@ export default function DashboardPage() {
 
           {/* QUICK ACTIONS */}
           <div className="terminal-card">
-            <PanelHeader label="QUICK ACTIONS" />
+            <PanelHeader label={isAr ? 'إجراءات سريعة' : 'QUICK ACTIONS'} />
             <div className="p-3 grid grid-cols-2 gap-1.5">
               {[
-                { label: 'Indices Hub', href: '/dashboard/indices', icon: BarChart3 },
-                { label: 'Feed', href: '/dashboard/feed', icon: TrendingUp },
-                { label: 'Rankings', href: '/dashboard/rankings', icon: Trophy },
-                ...(user.role !== 'Trader' ? [{ label: 'New Analysis', href: '/dashboard/create-analysis', icon: Zap }] : []),
-                { label: 'My Profile', href: `/dashboard/profile/${user.id}`, icon: Users },
-                { label: 'Settings', href: '/dashboard/settings', icon: ArrowUpRight },
+                { label: isAr ? 'مركز المؤشرات' : 'Indices Hub', href: '/dashboard/indices', icon: BarChart3 },
+                { label: isAr ? 'التغذية' : 'Feed', href: '/dashboard/feed', icon: TrendingUp },
+                { label: isAr ? 'التصنيفات' : 'Rankings', href: '/dashboard/rankings', icon: Trophy },
+                ...(user.role !== 'Trader' ? [{ label: isAr ? 'تحليل جديد' : 'New Analysis', href: '/dashboard/create-analysis', icon: Zap }] : []),
+                { label: isAr ? 'ملفي الشخصي' : 'My Profile', href: `/dashboard/profile/${user.id}`, icon: Users },
+                { label: isAr ? 'الإعدادات' : 'Settings', href: '/dashboard/settings', icon: ArrowUpRight },
               ].map(action => {
                 const Icon = action.icon
                 return (
