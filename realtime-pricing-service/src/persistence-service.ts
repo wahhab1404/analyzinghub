@@ -10,10 +10,13 @@
  *
  * 2. STALE TRADE REST FALLBACK (new):
  *    If a trade's data_freshness_status is 'stale' (no streaming event for
- *    >5 min), we fall back to REST snapshot polling for that trade and call
- *    process_streaming_price_update() to keep the DB accurate.
+ *    >STALE_THRESHOLD_SECONDS), we fall back to REST snapshot polling for that
+ *    trade and call process_streaming_price_update() to keep the DB accurate.
  *    This ensures active trades are never completely dark even when the
- *    options WebSocket is disconnected.
+ *    options WebSocket is disconnected — or when a thinly-traded contract
+ *    simply isn't producing live ticks. The threshold is deliberately short
+ *    so a contract the stream isn't covering is refreshed within ~15-20 s
+ *    instead of going minutes without an update.
  *
  * NOTE: Contract high/low tracking for FRESH trades is handled entirely by
  * PolygonOptionsWebSocket → process_streaming_price_update() RPC.
@@ -27,10 +30,10 @@ import { SubscriptionManager } from './subscription-manager';
 // ── CONFIG ────────────────────────────────────────────────────────────────────
 
 const PERSIST_INTERVAL_MS         = 1_000;   // 1 s — underlying price flush
-const FRESHNESS_CHECK_INTERVAL_MS = 60_000;  // 60 s — mark degraded/stale in DB
+const FRESHNESS_CHECK_INTERVAL_MS = 5_000;   // 5 s — mark degraded/stale in DB
 const REST_FALLBACK_INTERVAL_MS   = 5_000;   // 5 s — REST snapshots for stale trades
-const STALE_THRESHOLD_SECONDS     = 300;     // 5 min without streaming → stale
-const DEGRADED_THRESHOLD_SECONDS  = 60;      // 60 s without streaming → degraded
+const STALE_THRESHOLD_SECONDS     = 15;      // 15 s without streaming → stale (REST takes over)
+const DEGRADED_THRESHOLD_SECONDS  = 8;       // 8 s without streaming → degraded
 
 const POLYGON_API_KEY = process.env.POLYGON_API_KEY || '';
 const POLYGON_BASE    = 'https://api.polygon.io';
