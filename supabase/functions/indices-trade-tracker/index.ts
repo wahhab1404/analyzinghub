@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
           const expiryDate = new Date(trade.expiry + "T21:00:00Z");
           if (new Date() > expiryDate) {
             console.log(`⏰ Trade ${trade.id} expired`);
-            await handleTradeExpiration(supabase, trade, supabaseUrl, supabaseKey);
+            await handleTradeExpiration(supabase, trade, supabaseUrl, supabaseKey, results);
             results.expired++;
             continue;
           }
@@ -353,80 +353,102 @@ async function dispatchPendingAlerts(
 
   // ── PEAK ALERT ───────────────────────────────────────────────────────
   // The platform displays contract_high_since live, so its card updates on
-  // every new peak. Mirror that on Telegram: the FIRST qualifying high (gain
-  // ≥ 5 % from entry) posts a fresh "قمة جديدة" alert; every subsequent new
-  // high EDITS that same message in place so the channel always reflects the
-  // live peak — no +10 % / 5-min throttle, no duplicate messages.
-  if (!justWon) {
-    const newHigh    = parseFloat(trade.contract_high_since ?? trade.max_contract_price ?? "0") || 0;
-    const entryPrice = parseFloat(
-      trade.entry_contract_snapshot?.mid ??
-      trade.entry_contract_snapshot?.price ??
-      trade.entry_contract_snapshot?.last ??
-      "0"
-    ) || 0;
+  // every new peak. Mirror that on Telegram. We run the peak flush even right
+  // after a win: a win posts its OWN card, while a higher peak EDITS the
+  // existing live "قمة جديدة" card in place (spam-free), so the final/highest
+  // peak is never lost in the 2-minute post-win window. We only suppress a
+  // *fresh* peak card on the exact win cycle (allowFresh = !justWon) to avoid
+  // two brand-new cards landing side by side.
+  await maybeSendPeakAlert(
+    supabase, trade, supabaseUrl, supabaseKey, results, appBaseUrl,
+    { allowFresh: !justWon },
+  );
+}
 
-    const gainPct   = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
-    const lastPrice = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
-    const minsSinceLast = trade.last_peak_alert_at
-      ? (Date.now() - new Date(trade.last_peak_alert_at).getTime()) / 60_000
-      : Infinity;
+// ── PEAK ALERT (shared) ─────────────────────────────────────────────────────
+// Posts/edits the live "قمة جديدة" Telegram card so the channel always reflects
+// the contract's true peak. `allowFresh` controls whether a brand-new card may
+// be posted when none exists yet: true for live tracking, false at finalization
+// (where we only flush the final high onto an already-posted card).
+async function maybeSendPeakAlert(
+  supabase: any,
+  trade: any,
+  supabaseUrl: string,
+  supabaseKey: string,
+  results: any,
+  appBaseUrl: string,
+  opts: { allowFresh: boolean },
+): Promise<void> {
+  const newHigh    = parseFloat(trade.contract_high_since ?? trade.max_contract_price ?? "0") || 0;
+  const entryPrice = parseFloat(
+    trade.entry_contract_snapshot?.mid ??
+    trade.entry_contract_snapshot?.price ??
+    trade.entry_contract_snapshot?.last ??
+    "0"
+  ) || 0;
 
-    // An existing message we can edit in place (set after the first alert).
-    const editMessageId = trade.peak_alert_message_id ?? null;
-    const editChatId    = trade.peak_alert_chat_id ?? null;
-    const canEdit       = !!editMessageId && !!editChatId;
+  const gainPct   = entryPrice > 0 ? (newHigh - entryPrice) / entryPrice : 0;
+  const lastPrice = parseFloat(trade.last_peak_alert_price ?? "0") || 0;
+  const minsSinceLast = trade.last_peak_alert_at
+    ? (Date.now() - new Date(trade.last_peak_alert_at).getTime()) / 60_000
+    : Infinity;
 
-    const meetsGain  = gainPct >= 0.05;
-    // "Any new high": strictly above the last shown value by ≥ $0.01 (the
-    // 2-decimal display precision) so we never re-render an identical card.
-    const isNewPeak  = lastPrice === 0 || newHigh >= lastPrice + 0.01;
-    // Edits are unthrottled (live, spam-free). A *fresh* re-post — used only
-    // when there is no editable message yet (first alert still in flight, the
-    // prior message is too old to edit, or message tracking is unavailable) —
-    // keeps a 5-min cooldown so the channel is never flooded with new cards.
-    const sendAllowed = canEdit || lastPrice === 0 || minsSinceLast >= 5;
+  // An existing message we can edit in place (set after the first alert).
+  const editMessageId = trade.peak_alert_message_id ?? null;
+  const editChatId    = trade.peak_alert_chat_id ?? null;
+  const canEdit       = !!editMessageId && !!editChatId;
 
-    if (meetsGain && isNewPeak && newHigh > 0 && sendAllowed) {
-      console.log(
-        `🚀 [alerts] PEAK — trade ${trade.id}: $${newHigh.toFixed(4)} ` +
-        `(+${(gainPct * 100).toFixed(1)}%) ${canEdit ? "→ edit in place" : "→ fresh alert"}`
-      );
-      results.alertsSent++;
+  const meetsGain  = gainPct >= 0.05;
+  // "Any new high": strictly above the last shown value by ≥ $0.01 (the
+  // 2-decimal display precision) so we never re-render an identical card.
+  const isNewPeak  = lastPrice === 0 || newHigh >= lastPrice + 0.01;
+  // Edits are unthrottled (live, spam-free). A *fresh* re-post — used only when
+  // there is no editable message yet (first alert still in flight, the prior
+  // message is too old to edit, or message tracking is unavailable) — keeps a
+  // 5-min cooldown so the channel is never flooded with new cards. At
+  // finalization (allowFresh=false) we ONLY edit an existing card.
+  const freshAllowed = opts.allowFresh && (lastPrice === 0 || minsSinceLast >= 5);
+  const sendAllowed  = canEdit || freshAllowed;
 
-      await supabase.from("index_trade_updates").insert({
-        trade_id:    trade.id,
-        update_type: "new_high",
-        title:       `New High: $${newHigh.toFixed(4)}`,
-        body:        `New high! $${newHigh.toFixed(4)} (+${(gainPct * 100).toFixed(1)}% from entry)`,
-        changes:     { type: "new_high", price: newHigh, gain_pct: gainPct },
-      });
+  if (!(meetsGain && isNewPeak && newHigh > 0 && sendAllowed)) return;
 
-      // Record BEFORE queuing — prevents duplicate alerts on crash/retry
-      await supabase
-        .from("index_trades")
-        .update({
-          last_peak_alert_price: newHigh,
-          last_peak_alert_at:    new Date().toISOString(),
-        })
-        .eq("id", trade.id);
+  console.log(
+    `🚀 [alerts] PEAK — trade ${trade.id}: $${newHigh.toFixed(4)} ` +
+    `(+${(gainPct * 100).toFixed(1)}%) ${canEdit ? "→ edit in place" : "→ fresh alert"}`
+  );
+  results.alertsSent++;
 
-      const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
-      if (channelId && trade.telegram_send_enabled !== false) {
-        // Edits re-render the image natively in the outbox processor, so we
-        // only regenerate the stored platform snapshot for fresh alerts.
-        const snapshotUrl = canEdit
-          ? null
-          : await tryGenerateSnapshot(supabase, supabaseUrl, supabaseKey, trade.id, true, appBaseUrl);
-        await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
-          tradeId:       trade.id,
-          highPrice:     newHigh,
-          snapshotUrl,
-          editMessageId: canEdit ? editMessageId : undefined,
-          editChatId:    canEdit ? editChatId    : undefined,
-        });
-      }
-    }
+  await supabase.from("index_trade_updates").insert({
+    trade_id:    trade.id,
+    update_type: "new_high",
+    title:       `New High: $${newHigh.toFixed(4)}`,
+    body:        `New high! $${newHigh.toFixed(4)} (+${(gainPct * 100).toFixed(1)}% from entry)`,
+    changes:     { type: "new_high", price: newHigh, gain_pct: gainPct },
+  });
+
+  // Record BEFORE queuing — prevents duplicate alerts on crash/retry
+  await supabase
+    .from("index_trades")
+    .update({
+      last_peak_alert_price: newHigh,
+      last_peak_alert_at:    new Date().toISOString(),
+    })
+    .eq("id", trade.id);
+
+  const channelId = trade.telegram_channel_id ?? trade.analysis?.telegram_channel_id;
+  if (channelId && trade.telegram_send_enabled !== false) {
+    // Edits re-render the image natively in the outbox processor, so we
+    // only regenerate the stored platform snapshot for fresh alerts.
+    const snapshotUrl = canEdit
+      ? null
+      : await tryGenerateSnapshot(supabase, supabaseUrl, supabaseKey, trade.id, true, appBaseUrl);
+    await queueTelegramMessage(supabase, "new_high", trade.id, channelId, {
+      tradeId:       trade.id,
+      highPrice:     newHigh,
+      snapshotUrl,
+      editMessageId: canEdit ? editMessageId : undefined,
+      editChatId:    canEdit ? editChatId    : undefined,
+    });
   }
 }
 
@@ -436,8 +458,24 @@ async function handleTradeExpiration(
   supabase: any,
   trade: any,
   supabaseUrl: string,
-  supabaseKey: string
+  supabaseKey: string,
+  results: any,
 ): Promise<void> {
+  // Flush the FINAL highest peak onto the live "قمة جديدة" card before the
+  // trade closes. The contract may have set its absolute peak right before
+  // expiry — after no further active cron cycle could push it — so without
+  // this the channel's peak card stays stuck on an earlier value. allowFresh
+  // is false: we only edit an already-posted card, never spawn a new one at
+  // close (the trade_result card below carries the final summary).
+  const appBaseUrl =
+    Deno.env.get("APP_BASE_URL") ??
+    Deno.env.get("NEXT_PUBLIC_SITE_URL") ??
+    "https://analyzhub.com";
+  await maybeSendPeakAlert(
+    supabase, trade, supabaseUrl, supabaseKey, results ?? { alertsSent: 0 }, appBaseUrl,
+    { allowFresh: false },
+  );
+
   const { data: finalizationResult, error } = await supabase.rpc(
     "finalize_trade_canonical",
     { p_trade_id: trade.id }
