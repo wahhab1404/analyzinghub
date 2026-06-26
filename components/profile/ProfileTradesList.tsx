@@ -3,7 +3,7 @@
 import { useEffect, useState, type MouseEvent } from 'react'
 import {
   TrendingUp, TrendingDown, Calendar, DollarSign,
-  Target, Activity, Clock, BarChart3, Lock, Loader2, PauseCircle
+  Target, Activity, Clock, BarChart3, Lock, Loader2, PauseCircle, PlayCircle
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
@@ -50,14 +50,18 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
 
   useEffect(() => { fetchTrades() }, [profileId])
 
-  // Stop a contract: suspends it (drops it from all price-tracking / auto-close
-  // jobs so it stops updating) and books it as a full loss until resumed. Only
-  // shown to the profile owner on active contracts; the API also enforces
-  // owner/SuperAdmin permission.
-  const handleStop = async (e: MouseEvent, tradeId: string) => {
+  // Stop / resume a contract. 'suspend' drops it from all price-tracking /
+  // auto-close jobs (updates stop) and books it as a full loss; 'resume' flips
+  // it back to active so tracking picks it up again. Only shown to the profile
+  // owner; the API also enforces owner/SuperAdmin permission.
+  const handleSuspendAction = async (
+    e: MouseEvent,
+    tradeId: string,
+    action: 'suspend' | 'resume',
+  ) => {
     e.preventDefault()
     e.stopPropagation()
-    if (!window.confirm(
+    if (action === 'suspend' && !window.confirm(
       'وقف هذا العقد؟ ستتوقف كل تحديثاته ويُحتسب خسارة كاملة ويُرسَل تنبيه بالوقف.\n' +
       'Stop this contract? All updates stop, it is booked as a full loss, and a suspension alert is sent.'
     )) return
@@ -68,14 +72,18 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ action: 'suspend' }),
+        body: JSON.stringify({ action }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data?.error || 'Failed to stop contract')
-      toast.success('تم وقف العقد / Contract stopped')
+      if (!res.ok) throw new Error(data?.error || 'Request failed')
+      toast.success(action === 'suspend'
+        ? 'تم وقف العقد / Contract stopped'
+        : 'تم استئناف المتابعة / Contract resumed')
       await fetchTrades()
     } catch (err: any) {
-      toast.error(err?.message || 'تعذّر وقف العقد / Could not stop the contract')
+      toast.error(err?.message || (action === 'suspend'
+        ? 'تعذّر وقف العقد / Could not stop the contract'
+        : 'تعذّر الاستئناف / Could not resume the contract'))
     } finally {
       setSuspendingId(null)
     }
@@ -229,7 +237,8 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
               expired:   { color: '#E3B341', label: 'Expired' },
               suspended: { color: '#F85149', label: 'Stopped' },
             }
-            const canStop = isOwnProfile && trade.status === 'active'
+            const canStop   = isOwnProfile && trade.status === 'active'
+            const canResume = isOwnProfile && trade.status === 'suspended'
             const sc = statusConfig[trade.status] || statusConfig.closed
 
             const outcomeColor = trade.is_win === true ? '#3FB950' : trade.is_win === false ? '#F85149' : '#E3B341'
@@ -298,7 +307,7 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                     )}
                     {canStop && (
                       <button
-                        onClick={(e) => handleStop(e, trade.id)}
+                        onClick={(e) => handleSuspendAction(e, trade.id, 'suspend')}
                         disabled={suspendingId === trade.id}
                         title="وقف العقد ووقف تحديثه / Stop contract & updates"
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${trade.analysis_id ? '' : 'ml-auto'} disabled:opacity-50`}
@@ -307,6 +316,19 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                           ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
                           : <PauseCircle className="h-2.5 w-2.5" />}
                         وقف
+                      </button>
+                    )}
+                    {canResume && (
+                      <button
+                        onClick={(e) => handleSuspendAction(e, trade.id, 'resume')}
+                        disabled={suspendingId === trade.id}
+                        title="استئناف متابعة العقد / Resume tracking"
+                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 ${trade.analysis_id ? '' : 'ml-auto'} disabled:opacity-50`}
+                        style={{ color: '#3FB950', background: 'rgba(63,185,80,0.12)', borderColor: 'rgba(63,185,80,0.30)' }}>
+                        {suspendingId === trade.id
+                          ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          : <PlayCircle className="h-2.5 w-2.5" />}
+                        استئناف
                       </button>
                     )}
                   </div>
@@ -376,7 +398,7 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                     )}
                     {canStop && (
                       <button
-                        onClick={(e) => handleStop(e, trade.id)}
+                        onClick={(e) => handleSuspendAction(e, trade.id, 'suspend')}
                         disabled={suspendingId === trade.id}
                         title="وقف العقد ووقف تحديثه / Stop contract & updates"
                         className="text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 disabled:opacity-50"
@@ -385,6 +407,19 @@ export function ProfileTradesList({ profileId, isOwnProfile, hasSubscription }: 
                           ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
                           : <PauseCircle className="h-2.5 w-2.5" />}
                         وقف
+                      </button>
+                    )}
+                    {canResume && (
+                      <button
+                        onClick={(e) => handleSuspendAction(e, trade.id, 'resume')}
+                        disabled={suspendingId === trade.id}
+                        title="استئناف متابعة العقد / Resume tracking"
+                        className="text-[10px] font-bold px-1.5 py-0.5 rounded border flex items-center gap-0.5 disabled:opacity-50"
+                        style={{ color: '#3FB950', background: 'rgba(63,185,80,0.12)', borderColor: 'rgba(63,185,80,0.30)' }}>
+                        {suspendingId === trade.id
+                          ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                          : <PlayCircle className="h-2.5 w-2.5" />}
+                        استئناف
                       </button>
                     )}
                   </div>
