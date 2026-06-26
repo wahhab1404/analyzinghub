@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot, Edit2 } from 'lucide-react'
+import { Loader2, Activity, TrendingUp, TrendingDown, Target, AlertTriangle, DollarSign, Clock, ArrowLeft, CircleDot, Edit2, PauseCircle, PlayCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { getMarketStatus, formatMarketTime } from '@/lib/market-hours'
 import { formatNumber, formatCurrency, formatCurrencySimple } from '@/lib/format-utils'
@@ -66,6 +66,36 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
   const [refreshSecondsAgo, setRefreshSecondsAgo] = useState(0)
   const [marketStatus, setMarketStatus] = useState(getMarketStatus())
   const [editHighDialogOpen, setEditHighDialogOpen] = useState(false)
+  const [suspending, setSuspending] = useState(false)
+
+  // Stop / resume tracking for this contract. 'suspend' drops it from all
+  // price-tracking / auto-close jobs (updates stop) and books it as a full loss;
+  // 'resume' flips it back to active. The API enforces owner/SuperAdmin.
+  const handleSuspendAction = async (action: 'suspend' | 'resume') => {
+    if (action === 'suspend' && !window.confirm(
+      'وقف هذا العقد؟ ستتوقف كل تحديثاته ويُحتسب خسارة كاملة ويُرسَل تنبيه بالوقف.\n' +
+      'Stop this contract? All updates stop, it is booked as a full loss, and a suspension alert is sent.'
+    )) return
+    setSuspending(true)
+    try {
+      const res = await fetch(`/api/indices/trades/${tradeId}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Request failed')
+      toast.success(action === 'suspend'
+        ? 'تم وقف العقد / Contract stopped'
+        : 'تم استئناف المتابعة / Contract resumed')
+      await fetchTrade()
+    } catch (err: any) {
+      toast.error(err?.message || 'العملية فشلت / Action failed')
+    } finally {
+      setSuspending(false)
+    }
+  }
 
   useEffect(() => {
     fetchTrade()
@@ -249,6 +279,32 @@ export function TradeMonitor({ tradeId, onBack }: TradeMonitorProps) {
             <Edit2 className="h-4 w-4 mr-2" />
             Edit High Watermark
           </Button>
+          {trade.status === 'active' && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleSuspendAction('suspend')}
+              disabled={suspending}
+              className="bg-red-600 hover:bg-red-700"
+              title="وقف العقد ووقف تحديثه / Stop contract & updates"
+            >
+              {suspending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PauseCircle className="h-4 w-4 mr-2" />}
+              إيقاف العقد
+            </Button>
+          )}
+          {trade.status === 'suspended' && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleSuspendAction('resume')}
+              disabled={suspending}
+              className="bg-green-600 hover:bg-green-700"
+              title="استئناف متابعة العقد / Resume tracking"
+            >
+              {suspending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <PlayCircle className="h-4 w-4 mr-2" />}
+              استئناف
+            </Button>
+          )}
           {lastFetchTime && (
             <div className="text-xs text-muted-foreground flex items-center gap-1">
               <Activity className="h-3 w-3" />
